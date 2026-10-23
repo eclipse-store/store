@@ -302,18 +302,20 @@ class VectorIndexRegistrationFailureTest
             .indexDirectory(indexDir)
             .persistenceIntervalMs(50L)
             .minChangesBetweenPersists(COUNT)
+            // Below the threshold a background persist leaves the in-memory graph alone.
+            .flushThreshold(COUNT)
             .build();
 
         try(final VectorIndex<Doc> index = vi.add("emb", config, new FlakyVectorizer()))
         {
             assertNotNull(index);
-            final Path graph = indexDir.resolve("emb.graph");
             final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-            while(!Files.exists(graph) && System.nanoTime() < deadline)
+            while(!SegmentLayout.indexExists(indexDir, "emb") && System.nanoTime() < deadline)
             {
                 Thread.sleep(50L);
             }
-            assertTrue(Files.exists(graph), "background persistence did not write the back-filled graph");
+            assertTrue(SegmentLayout.indexExists(indexDir, "emb"),
+                "background persistence did not write the back-filled graph");
         }
     }
 }

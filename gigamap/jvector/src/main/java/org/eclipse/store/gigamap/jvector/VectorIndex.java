@@ -27,17 +27,21 @@ import io.github.jbellis.jvector.quantization.PQVectors;
 import io.github.jbellis.jvector.quantization.ProductQuantization;
 import io.github.jbellis.jvector.util.Bits;
 import io.github.jbellis.jvector.util.ExplicitThreadLocal;
+import io.github.jbellis.jvector.util.PhysicalCoreExecutor;
 import io.github.jbellis.jvector.vector.VectorizationProvider;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
 import org.eclipse.serializer.collections.BulkList;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 import org.eclipse.serializer.persistence.binary.types.BinaryTypeHandler;
+import org.eclipse.serializer.persistence.types.PersistenceStoreHandler;
 import org.eclipse.serializer.persistence.types.Storer;
+import org.eclipse.serializer.util.X;
+import org.eclipse.store.gigamap.jvector.BackgroundTaskManager.IndexingOperation;
 import org.eclipse.store.gigamap.types.AbstractStateChangeFlagged;
-import org.eclipse.store.gigamap.types.BitmapIndex;
 import org.eclipse.store.gigamap.types.GigaIndex;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexGroup;
 import org.eclipse.store.gigamap.types.IndexLocation;
 import org.eclipse.store.gigamap.types.IndexLocations;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
@@ -46,17 +50,35 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.lang.ref.Cleaner;
+import java.lang.ref.WeakReference;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
+import java.util.function.IntFunction;
 import java.util.stream.IntStream;
 
 import static org.eclipse.serializer.math.XMath.positive;
@@ -116,7 +138,9 @@ import static org.eclipse.serializer.util.X.notNull;
  * }</pre>
  *
  * <h2>Vectorizer Implementation</h2>
- * The {@link Vectorizer} extracts vector representations from entities. Two modes are supported:
+ * The {@link Vectorizer} extracts vector representations from entities. Whichever way it gets them, it must
+ * reproduce the vector of a persisted entity: the index keeps its vectors in a memory-mapped vector file, a
+ * cache it repairs from the entities after a crash (see {@link Vectorizer}).
  *
  * <h3>Embedded Mode (vectors stored in entity)</h3>
  * Use when vectors are already part of your entity:
@@ -129,13 +153,14 @@ import static org.eclipse.serializer.util.X.notNull;
  *
  *     @Override
  *     public boolean isEmbedded() {
- *         return true;  // Don't duplicate storage
+ *         return true;  // Documents where the vector lives
  *     }
  * }
  * }</pre>
  *
- * <h3>Computed Mode (vectors stored separately)</h3>
- * Use when vectors are computed externally (e.g., from an embedding API):
+ * <h3>Computed Mode (vectors computed from the entity)</h3>
+ * Use when vectors are computed externally (e.g., from an embedding API), which must return the same vector
+ * for the same persisted entity:
  * <pre>{@code
  * class ComputedVectorizer extends Vectorizer<Document> {
  *     private final EmbeddingService embeddingService;
@@ -145,7 +170,7 @@ import static org.eclipse.serializer.util.X.notNull;
  *         return embeddingService.embed(doc.content());
  *     }
  *
- *     // isEmbedded() defaults to false - vectors stored in VectorIndex
+ *     // isEmbedded() defaults to false
  * }
  * }</pre>
  *
@@ -189,12 +214,13 @@ import static org.eclipse.serializer.util.X.notNull;
  *
  * <h2>Eventual Indexing</h2>
  * When enabled, expensive HNSW graph mutations (add, update, remove) are deferred to a background
- * thread. The vector store is still updated synchronously, so no data is lost, but graph construction
+ * thread. The vector file is still updated synchronously, so no data is lost, but graph construction
  * happens asynchronously. This reduces the latency of mutation operations at the cost of eventual
  * consistency — search results may not immediately reflect the most recent mutations.
  * <p>
- * The graph is automatically drained (all pending operations applied) before
- * {@code optimize()}, {@code persistToDisk()}, and {@code close()}.
+ * Pending operations are applied to the graph before {@code optimize()} and {@code close()}.
+ * {@code persistToDisk()} does not drain the queue: it moves the pending operations into the graph
+ * it freezes, and the flush applies them there.
  * <pre>{@code
  * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
  *     .dimension(768)
@@ -283,9 +309,11 @@ import static org.eclipse.serializer.util.X.notNull;
  * <ul>
  *   <li><b>Search</b> - Thread-safe, multiple concurrent searches allowed</li>
  *   <li><b>Add/Remove</b> - Thread-safe via GigaMap synchronization</li>
- *   <li><b>Optimization</b> - Briefly blocks add/remove/search during cleanup</li>
+ *   <li><b>Optimization</b> - Blocks add/remove/search during cleanup of an in-memory index; an
+ *       on-disk index cleans up each segment as it writes it</li>
+ *   <li><b>Persistence</b> - Add/remove/search go on while a segment is written</li>
  *   <li><b>Eventual Indexing</b> - Graph mutations are applied sequentially by a single
- *       background worker thread; vector store updates remain synchronous</li>
+ *       background worker thread; vector file updates remain synchronous</li>
  * </ul>
  *
  * <h2>Limitations</h2>
@@ -338,8 +366,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      */
     public default Path indexDirectory()
     {
-        // an in-memory index has no files, whatever directory its configuration may carry
-        final IndexLocation location = this.configuration().onDisk()
+        // an index without files has no directory, whatever its configuration may carry (see keepsIndexFiles)
+        final IndexLocation location = this.keepsIndexFiles()
             ? this.configuration().indexLocation()
             : null
         ;
@@ -406,6 +434,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      *         and lazy entity access; never null but may contain fewer than k results if the
      *         index has fewer entities
      * @throws IllegalArgumentException if queryVector is null, has wrong dimension, or k &lt;= 0
+     * @throws IllegalStateException    if {@link #close()} is in progress while the in-memory graph
+     *                                  still has to be rebuilt (the first access after a load, or after
+     *                                  a failed persist): the rebuild is not done or is abandoned, with
+     *                                  the message "is closing; its graph was not rebuilt", rather than
+     *                                  answering from an incomplete graph
      * @see #search(Object, int)
      * @see VectorSearchResult
      */
@@ -431,6 +464,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * @return the search result
      * @throws IllegalArgumentException if queryVector is null, has wrong dimension, or
      *                                  {@code k} / {@code searchBeamWidth} are not positive
+     * @throws IllegalStateException    if {@link #close()} is in progress while the graph still has
+     *                                  to be rebuilt, see {@link #search(float[], int)}
      * @see #search(float[], int)
      * @see VectorIndexConfiguration#minSearchBeamWidth()
      */
@@ -525,9 +560,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     /**
      * Performs cleanup and optimization of the index graph structure.
      * <p>
-     * This method removes excess neighbor connections that accumulate during graph
-     * construction, reducing memory usage and improving query latency. It is recommended
-     * to call this periodically after bulk insertions or when query performance degrades.
+     * This method purges removed entities from the graph and removes excess neighbor connections
+     * that accumulate during graph construction, reducing memory usage and improving query
+     * latency. It is recommended to call this periodically after bulk insertions or when query
+     * performance degrades. The graph stays open for further mutations afterwards.
      *
      * <h4>Example</h4>
      * <pre>{@code
@@ -556,13 +592,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * }</pre>
      *
      * <h4>Thread Safety</h4>
-     * This method acquires an exclusive lock on the graph structure. While optimization
-     * is running:
+     * For an in-memory index this method acquires an exclusive lock on the graph structure. While
+     * optimization is running:
      * <ul>
      *   <li>Add/remove operations will block until optimization completes</li>
      *   <li>Search operations will block until optimization completes</li>
      * </ul>
-     * For large indices, consider using background optimization to minimize disruption.
+     * For large indices, consider using background optimization to minimize disruption. An on-disk
+     * index leaves its graphs alone here, so the call returns at once: every persist cleans up the
+     * in-memory graph it writes, and the segments on disk are immutable. An in-memory index configured
+     * with {@link ApproximateScoring#PQ_IN_MEMORY} trains its codebook and switches to compressed
+     * scoring here, once enough vectors exist.
      *
      * <h4>When to Optimize</h4>
      * <ul>
@@ -573,8 +613,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * </ul>
      * <p>
      * Must not be called while holding the parent {@link GigaMap}'s monitor (inside {@code synchronized(map)} or
-     * {@code GigaMap.apply} / {@code update} logic): the graph cleanup runs on worker threads that, for an embedded
-     * vectorizer, read entities through that monitor, so the call would wait for itself.
+     * {@code GigaMap.apply} / {@code update} logic): it waits for the graph's write lock, whose holders may be
+     * waiting for that monitor, so the call could wait for itself.
      *
      * @throws IllegalStateException if the calling thread holds the parent GigaMap's monitor
      * @see VectorIndexConfiguration#backgroundOptimization()
@@ -585,22 +625,38 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     /**
      * Persists the index to disk if on-disk mode is enabled.
      * <p>
-     * For on-disk indices, this writes the graph structure and metadata to the configured
-     * {@link VectorIndexConfiguration#indexDirectory()}. If PQ compression is enabled, the
-     * compressed vectors are embedded in the graph file.
+     * For on-disk indices, this writes the in-memory graph, which holds the changes since the
+     * previous persist, as one more segment in the configured
+     * {@link VectorIndexConfiguration#indexDirectory()}, together with the deletions of the existing
+     * segments, and commits them with a new manifest. Nothing is rebuilt: the graph is frozen in an
+     * instant and written while a fresh in-memory graph takes new mutations. Segments are combined by
+     * background merges (see {@link VectorIndexConfiguration#segmentMergeFactor()}), and a persist
+     * commits what they published. Segments that no longer match the configured format or codebook are
+     * rewritten by a background merge as well, but this explicit persist rewrites them itself, on the
+     * calling thread, and commits the rewrite before it returns. Only when the segments would exceed {@link VectorIndexConfiguration#maxSegments()}
+     * all the same does the persist consolidate them, rebuilding the index from its vector file into
+     * one segment. With {@link ApproximateScoring#FUSED_PQ} the PQ codes are fused into each segment's
+     * graph file; with {@link ApproximateScoring#PQ_IN_MEMORY} they go to the segment's {@code .pqv}
+     * sidecar.
      * <p>
      * For in-memory indices ({@link #isOnDisk()} returns false), this method is a no-op.
      * <p>
      * An index that holds no vectors has nothing to write: any files from an earlier, non-empty
-     * state are removed instead, so the next load rebuilds from the stored vectors. This applies to
+     * state are removed instead, so the next load rebuilds from the vector file. This applies to
      * this explicit persist and to background persistence. A persist on the shutdown path may
      * instead leave those files in place, see {@link #close()}.
      *
      * <h4>Files Created</h4>
      * <ul>
-     *   <li><code>{indexName}.graph</code> - The HNSW graph structure</li>
-     *   <li><code>{indexName}.meta</code> - Metadata including vector count and configuration</li>
+     *   <li><code>{indexName}.manifest</code> - The commit point: the segments of the index, the
+     *       format and deletions of each, and the store state they describe</li>
+     *   <li><code>{indexName}.seg-{n}.graph</code> and <code>{indexName}.seg-{n}.l2g</code> - The
+     *       HNSW graph of segment {@code n} and its local-to-global ordinal map</li>
+     *   <li><code>{indexName}.seg-{n}.pqv</code> - The PQ codes of segment {@code n}, only with
+     *       {@link ApproximateScoring#PQ_IN_MEMORY}</li>
      * </ul>
+     * The vectors themselves are in the index's vector file (<code>{indexName}.vec</code> and its chunks
+     * <code>{indexName}.vec-{n}</code>), which mutations write directly; this persist does not write it.
      *
      * <h4>Example</h4>
      * <pre>{@code
@@ -610,15 +666,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * }
      * index.persistToDisk();
      *
-     * // Or before application shutdown
-     * Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-     *     try {
-     *         index.persistToDisk();
-     *     } catch (IOException e) {
-     *         logger.error("Failed to persist index", e);
-     *     }
-     * }));
      * }</pre>
+     * Shutting the storage down closes the index, which persists it when
+     * {@link VectorIndexConfiguration#persistOnShutdown()} is set; no shutdown hook is needed.
      *
      * <h4>Background Persistence</h4>
      * Instead of calling this method manually, you can enable automatic background
@@ -635,19 +685,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * }</pre>
      *
      * <h4>Thread Safety</h4>
-     * This method acquires a write lock that blocks concurrent searches during persistence.
-     * Add/remove operations are also blocked. For minimal disruption, prefer background
-     * persistence or call during low-traffic periods.
+     * Searches and add/remove operations go on while the segment is written; they wait only for the
+     * instant in which the in-memory graph is frozen, and for the rebuild of a consolidation. One
+     * persist writes at a time: a call waits for a background persist that is writing.
      *
      * <h4>Recovery</h4>
-     * On restart, the persisted graph is automatically loaded if the files exist and are
-     * valid. If the files are corrupted or the vector count doesn't match, the graph is
-     * rebuilt from the stored vectors.
+     * On restart, the segments are loaded if the manifest exists, its checksum holds and the
+     * state it records (vector count, highest entity id, structural modification count) matches the
+     * stored index. Otherwise, or if a segment fails to open, the graph is rebuilt from the vector
+     * file and the next persist replaces the rejected files.
      * <p>
      * For an on-disk index, must not be called while holding the parent {@link GigaMap}'s monitor (inside
-     * {@code synchronized(map)} or {@code GigaMap.apply} / {@code update} logic): the graph cleanup and disk write run
-     * on worker threads that, for an embedded vectorizer, read entities through that monitor, so the call would wait
-     * for itself. For an in-memory index this method does nothing.
+     * {@code synchronized(map)} or {@code GigaMap.apply} / {@code update} logic): it waits for a flush in flight,
+     * which may be waiting for that monitor, so the call could wait for itself. For an in-memory index this method
+     * does nothing.
      *
      * @throws IllegalStateException if the index is on disk and the calling thread holds the parent GigaMap's
      *         monitor
@@ -671,6 +722,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     public default boolean isOnDisk()
     {
         return this.configuration().onDisk();
+    }
+
+    /**
+     * Whether this index keeps files in its index directory: the graph segments and the vector file of an
+     * on-disk index, or the vector file alone of an in-memory index with a computed vectorizer and a configured
+     * directory or location. Such an in-memory index keeps its vectors across restarts and rebuilds its graph
+     * from them without a vectorizer call per entity; one without a directory, like every embedded in-memory
+     * index, uses a temporary vector file and vectorizes every entity at each start.
+     *
+     * @return whether the index directory holds files of this index
+     */
+    public default boolean keepsIndexFiles()
+    {
+        return this.configuration().onDisk()
+            || !this.vectorizer().isEmbedded() && this.configuration().indexLocation() != null
+        ;
     }
 
     /**
@@ -746,8 +813,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     /**
      * Retrieves the vector associated with the given entity ID.
      * <p>
-     * If the vectorizer is embedded, the vector is computed on-the-fly from the entity
-     * stored in the parent map. Otherwise, the vector is looked up from the vector store.
+     * Read from the index's vector file, in both vectorizer modes, without calling the vectorizer. The result
+     * is a copy: changing it changes nothing in the index.
      *
      * <h4>Example</h4>
      * <pre>{@code
@@ -770,11 +837,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * This method should be called when the index is no longer needed. It performs
      * the following cleanup in order:
      * <ol>
-     *   <li>Shuts down background optimization (optionally runs final optimization
-     *       if {@link VectorIndexConfiguration#optimizeOnShutdown()} is enabled)</li>
-     *   <li>Shuts down background persistence (optionally persists pending changes
-     *       if {@link VectorIndexConfiguration#persistOnShutdown()} is enabled)</li>
-     *   <li>Closes file handles and releases memory-mapped buffers (for on-disk indices)</li>
+     *   <li>Stops segment merges: a merge in flight stops at its next stage, and no new one starts
+     *       (on-disk indices)</li>
+     *   <li>Shuts down the background tasks: applies the queued indexing operations, then optionally
+     *       runs a final optimization if {@link VectorIndexConfiguration#optimizeOnShutdown()} is
+     *       enabled, and optionally persists pending changes if
+     *       {@link VectorIndexConfiguration#persistOnShutdown()} is enabled (on-disk indices)</li>
+     *   <li>Tears down the graph, the searchers, the segments and the vector file, once no flush is
+     *       writing (a flush still running is told to stop at its next stage)</li>
      * </ol>
      *
      * <h4>Example</h4>
@@ -799,6 +869,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * After calling close, the index should not be used. Subsequent calls to search,
      * optimize, or persistToDisk may throw exceptions or produce undefined behavior.
      *
+     * @throws IllegalStateException if the calling thread holds the parent GigaMap's monitor
+     *         (inside {@code synchronized(map)} or {@code GigaMap.apply} logic)
      * @see VectorIndexConfiguration#optimizeOnShutdown()
      * @see VectorIndexConfiguration#persistOnShutdown()
      */
@@ -821,6 +893,36 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * @param configuration the new configuration
          */
         public void internalReplaceConfiguration(VectorIndexConfiguration configuration);
+
+        /**
+         * Gives an in-memory index with a computed vectorizer and no index location its first one, effective at
+         * once: its vectors move from the temporary vector file into a vector file at the new location, without a
+         * vectorizer call, and its graph is rebuilt from that file at the next access. Must be called like
+         * {@link #internalRemoveAll()}: with the parent-map monitor and the lock of
+         * {@link #internalTryLockExclusive()} held.
+         *
+         * @param configuration the index's configuration with the new location
+         */
+        public default void internalAssignFirstLocation(final VectorIndexConfiguration configuration)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        /**
+         * Seals the vector file's writes into the store epoch when the GigaMap is stored, before any entity
+         * segment of that store is written, see {@link IndexGroup.Internal#internalPrepareStore(Storer)}.
+         *
+         * @param storer the storer of the store
+         */
+        public void internalPrepareStore(Storer storer);
+
+        /**
+         * Completes the deferred initialization, the vector recovery included, before the parent map applies a
+         * mutation, see {@link IndexGroup.Internal#internalPrepareMutation()}. The recovery repairs from the
+         * entities at the store epoch, which counts as committed, so it must read the map as stored, not with the
+         * mutation already applied.
+         */
+        public void internalPrepareMutation();
 
         public void internalAdd(long entityId, E entity);
 
@@ -892,8 +994,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
     /**
      * Default implementation of VectorIndex using the HNSW graph algorithm.
-     * Vectors are stored in a separate GigaMap for lazy loading and persistence.
-     * Entity IDs are used directly as graph ordinals.
+     * Vectors are kept in a memory-mapped {@link VectorFile}, a cache of what the {@link Vectorizer}
+     * computes from the entities, and read from it without any lock. Entity IDs are used directly as
+     * graph ordinals.
      *
      * @param <E> the entity type
      */
@@ -907,6 +1010,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private static final Logger LOG = LoggerFactory.getLogger(Default.class);
 
         /**
+         * System property ({@code true}/{@code false}, default {@code false}) that lets a computed in-memory index
+         * without an index location, loaded from a 4.x storage, drop the vectors of its 4.x vector store at the
+         * next store, so that every later start vectorizes every entity. Without it such a store is refused until
+         * the index has a location ({@link VectorIndices#changeIndexLocation(String, IndexLocation)}), since the
+         * current layout keeps no vectors in the storage.
+         */
+        public static final String DROP_LEGACY_VECTORS_PROPERTY =
+            "org.eclipse.store.gigamap.jvector.dropLegacyVectorsWithoutLocation";
+
+        // Shuts down the insert pool of an index that was dropped without a close(): its workers outlive the
+        // batches by design and hold nothing of the index, so nothing else would ever stop them.
+        private static final Cleaner INSERT_POOL_CLEANER = Cleaner.create();
+
+        /**
          * Fixed seed for the PQ training-set reservoir sample, so that training the same data twice
          * yields the same codebook. The value itself is arbitrary.
          */
@@ -917,6 +1034,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * awaitNoPendingExclusive).
          */
         private static final long EXCLUSIVE_GATE_MAX_NANOS = 100_000_000L;
+
+        /**
+         * Counts the threads waiting for the write lock under the parent monitor, see {@link #exclusiveWaiters}.
+         */
+        @SuppressWarnings("rawtypes")
+        private static final AtomicIntegerFieldUpdater<Default> EXCLUSIVE_WAITERS =
+            AtomicIntegerFieldUpdater.newUpdater(Default.class, "exclusiveWaiters");
+
+        /**
+         * The longest a mutation that reached the flush threshold tries to take the write lock for a
+         * freeze before leaving it to the background task thread (see
+         * {@link #tryFreezeForBackgroundFlush()}): about one search, which is what it waits for.
+         */
+        private static final long INLINE_FREEZE_MAX_NANOS = 5_000_000L;
 
         static BinaryTypeHandler<Default<?>> provideTypeHandler()
         {
@@ -934,36 +1065,84 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         volatile VectorIndexConfiguration configuration;
         final Vectorizer<? super E>      vectorizer   ;
 
-        // Vector storage - null if vectorizer.isEmbedded()
-        // Key: entity ID (used as ordinal), Value: vector
-        final GigaMap<VectorEntry> vectorStore;
+        // The identity of the vector file this record describes (see VectorFile#nonce()), 0 for none: a file
+        // with another nonce belongs to another store state and is rebuilt from the entities.
+        long vectorFileNonce;
 
-        // Persisted, monotonically increasing count of graph-affecting mutations (add / remove /
-        // vec↔null transition). It is the witness used to detect, on reload, whether the persisted
-        // GigaMap state has advanced past the on-disk graph: the value is stamped into the disk
-        // .meta at persist time and compared against the store-recovered value in
-        // DiskIndexManager.verifyMetadata. Unlike parentMap().size()/highestUsedId(), it changes on
-        // a vec↔null transition, so it catches the crash-restart window those proxies are blind to.
-        // Not transient — it must survive (de)serialization.
+        // The store epoch E of the vector file: every slot written at an epoch above it was written after the
+        // store this record comes from, and is repaired from its entity at the next open. Set on the store
+        // path by internalSealVectorEpochOnStore.
+        long vectorFileEpoch;
+
+        // The storer whose store sealed the epoch in internalPrepareStore, so that the record's own store hook
+        // does not seal again. Weak: a store that never writes the record must not keep its storer alive.
+        // Under the parent monitor.
+        transient WeakReference<Object> sealedForStore;
+
+        // Test-only seam: run by the type handler when it stores this record, before the record's store hook.
+        // Null (and a no-op) in production.
+        transient volatile Runnable storeRecordTestHook;
+
+        // The number of entities with a vector, maintained under the parent monitor by every vector mutation.
+        // The vector-count witness of the disk manifest (see getExpectedVectorCount()). Volatile: read by the
+        // PQ training gates without the monitor.
+        volatile long vectorCount;
+
+        // Persisted, monotonically increasing count of content changes, bumped by markContentChanged():
+        // an add that writes at least one vector (an add of entities without a vector does not), every
+        // remove (also of an entity that never had a vector), an update whose vector changed (vec→vec',
+        // vec↔null), a removeAll, a 4.x import, and a recovery that changed the vector count. It is the
+        // witness used to detect, on reload, whether the persisted GigaMap state has advanced past the
+        // on-disk graph: the value is stamped into the disk manifest at persist time and compared against
+        // the store-recovered value in DiskIndexManager.tryLoad. Unlike parentMap().size()/highestUsedId(),
+        // it changes on a vec↔null transition, so it catches the crash-restart window those proxies are
+        // blind to. Not transient — it must survive (de)serialization.
         //
-        // Volatile because it is also the witness the in-memory PQ switch revalidates against before
-        // adopting a replacement. Mutations bump it holding only the parentMap monitor, and that
-        // revalidation happens under builderLock with the monitor released, so the write lock
-        // supplies no happens-before edge between them: without volatile the switch could read a
-        // stale count and adopt a graph built before a mutation it never saw.
+        // Volatile because mutations bump it holding only the parentMap monitor, while the compression
+        // training gates also read it without the monitor (a merge checks them on its own thread).
         volatile long structuralModCount;
 
-        // HNSW graph components (transient - rebuilt on load)
-        // Volatile: the pair is swapped wholesale by exitIncrementalMode / reenterIncrementalMode /
-        // initializeInMemoryBuilder under builderLock.writeLock(), but read by sync-mode mutations and
-        // by drainDeferredBuilderOps, neither of which holds that lock. Without volatile a reader can
-        // observe a torn pair (stale index, fresh builder), which is how a guard evaluated on `index`
-        // ended up authorizing a mutation on a different `builder` (internal #142). Code that mutates
-        // the graph must additionally read `builder` ONCE into a local and derive the graph from it
-        // (see internalReplaceGraphNode) so guard and mutation cannot target different objects.
+        // The live in-memory graph (transient - rebuilt on load for an in-memory index, empty after a
+        // load for an on-disk one, whose segments hold the rest).
+        // Volatile: the pair is swapped wholesale by a freeze, a consolidation and the in-memory PQ
+        // switch, while mutations read it under the parent monitor only and background callbacks under
+        // the read lock. Without volatile a reader can observe a torn pair (stale index, fresh builder),
+        // which is how a guard evaluated on `index` once authorized a mutation on a different `builder`.
+        // Code that mutates the graph reads `builder` ONCE into a local, derives the
+        // graph from it and passes it on (see internalReplaceGraphNode), so guard and mutation cannot
+        // target different objects.
         private transient VectorTypeSupport          vectorTypeSupport;
         private transient volatile GraphIndexBuilder builder          ;
         private transient volatile OnHeapGraphIndex  index            ;
+
+        // The vectors, read lock-free by every scoring path and written under the parent monitor by every
+        // mutation. Opened by initializeIndex, kept across removeAll, closed by close() and discarded with
+        // the index. In the index directory for an on-disk index, in a private temporary directory for an
+        // in-memory one.
+        private transient volatile VectorFile vectorFile;
+
+        // The vector store of a computed index persisted before the vector file, handed over by the legacy
+        // handler and imported into the file at the index's first access (or with a sibling's import), in
+        // place of the file's recovery, which would re-vectorize every entity (see ensureVectorsRecovered and
+        // importLegacyVectorStore). Null otherwise, and again once imported, except for a computed index that
+        // keeps no files: its vectors would only be in a temporary file, so the store stays until the index gets
+        // a location or the vectors are dropped deliberately, and a store of the record is refused meanwhile.
+        transient GigaMap<VectorEntry> legacyVectorStore;
+
+        // Set by the legacy handler for every index loaded from a layout before the vector file: once its vectors
+        // are in place, the index flags itself and the path from the map, so the next store persists the current
+        // layout even without a mutation (see ensureVectorsRecovered).
+        transient boolean legacyLayout;
+
+        // The vectors the live builder scores from, handed to the generation a freeze makes of it, which keeps
+        // the freeze-time vectors of its nodes from then on (see GenerationVectorValues). Replaced with the
+        // builder. Set even when the builder scores from in-memory PQ codes; null only before the first
+        // builder is created.
+        private transient volatile GenerationVectorValues liveVectorValues;
+
+        // Whether the repairs the vector file needed at its open are done (see ensureVectorsRecovered). They
+        // read entities, a nested load, so they cannot run in complete().
+        private transient volatile boolean    vectorsRecovered;
 
         // Managers (transient - recreated on load)
         private transient DiskIndexManager      diskManager          ;
@@ -999,8 +1178,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * The NVQ counterpart of {@code pqTrainingDeclinedAtModCount}, guarding against less but
          * not against nothing. NVQ declines on a far smaller sample than PQ - 16 vectors against
          * 256, and as a sanity floor rather than a mathematical requirement, since a mean needs one
-         * vector and not 256 clusters per subspace - but it does decline, and an embedded index
-         * with enough entities and too few embeddings can land under that floor. This witness
+         * vector and not 256 clusters per subspace - but it does decline, and a sample can land
+         * under that floor. This witness
          * covers that as well as an outright exception: it is set whenever an attempt leaves the
          * manager untrained, whichever of the two happened. The name records the commoner case, not
          * the only one.
@@ -1011,47 +1190,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // GraphSearcher pool for thread-local reuse
         private transient ExplicitThreadLocal<GraphSearcher> inMemorySearcherPool;
 
-        // Computed-mode fast index: source entity id (graph ordinal) -> vector store's own
-        // internal entity id. Lets vector lookups use a direct, lazy vectorStore.get(internalId)
-        // instead of an index query per call (which is far too costly on the hot scoring path),
-        // while still resolving by source entity id so it stays correct when the store's id
-        // allocator drifts from the parent's (deletion holes, or entities without an embedding
-        // that get no store entry). Null in embedded mode.
-        //
-        // Built lazily on first access via computedIdIndex(): from the vector store's identity index
-        // bitmaps (cheap, loads no VectorEntry / no vectors) once the store is queryable, falling back
-        // to a positional store scan during the deserialization window when the index registry is not
-        // yet wired. Deferring the build off the load path is what keeps incremental on-disk startup
-        // O(1) in the vector payload.
-        //
-        // A dense ordinal-indexed table rather than a map: ordinals are dense ints, so a lookup is two
-        // array reads with no hashing and no boxing (see OrdinalStoreIdTable).
-        //
-        // Concurrency: the volatile FIELD is published (assigned) once under the vector store's own
-        // monitor by the double-checked lazy build in computedIdIndex() (a leaf lock - see there);
-        // search threads read it lock-free. Per-entry put/remove by mutations are not synchronized on
-        // that monitor - the table is single-writer / lock-free-reader, and its writers are serialized
-        // against each other by the parent GigaMap monitor the mutation already holds.
-        private transient volatile OrdinalStoreIdTable computedIdIndex;
 
         // One-shot guard for the deferred graph rebuild. The HNSW graph is transient and must be
-        // rebuilt from the store after deserialization, but that rebuild iterates the parent GigaMap
-        // / vector store (a nested object-graph load) and therefore may NOT run inside the enclosing
+        // rebuilt from the vector file after deserialization, but that file's repairs read the parent
+        // GigaMap (a nested object-graph load) and therefore may NOT run inside the enclosing
         // deserialization's complete() phase (internal #87). So complete() only does the nested-load-
         // free transient setup (initializeAfterLoad -> initializeIndex); the graph rebuild is deferred
         // to the first search/mutation/optimize via ensureGraphRebuilt(), which runs it exactly once
         // under the parent GigaMap monitor (see there). Volatile: fast-path read lock-free; the actual
-        // rebuild + set happens under synchronized(parentMap()). Also set true by the runtime rebuild
-        // in exitIncrementalMode() so it is not repeated, and by the standard constructor, to keep the
-        // deferred rebuild from racing the one-time registration back-fill that populates a newly
+        // rebuild + set happens under synchronized(parentMap()). Also set true by a load of an on-disk
+        // index's segments, which leaves nothing to rebuild, and by the standard constructor, to keep
+        // the deferred rebuild from racing the one-time registration back-fill that populates a newly
         // created index (see there).
         private transient volatile boolean                   graphRebuilt       ;
 
-        // Incremental on-disk mode: after disk reload, use disk index for search
-        // and in-memory builder only for new mutations. Full rebuild deferred to persistToDisk().
-        // Volatile: written under writeLock (reenterIncrementalMode, exitIncrementalMode)
-        // but read by mutation methods (internalUpdate, internalRemove) under parentMap
-        // monitor only, without builderLock.
         /**
          * Whether this instance came back from storage rather than being newly constructed.
          * <p>
@@ -1083,25 +1235,124 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // named location nor a changed configuration moves an open index; both apply from the next load.
         private transient volatile Path resolvedDirectory;
 
-        private transient volatile boolean                   incrementalMode    ;
-        private transient DiskSupersededOrdinals             diskDeletedOrdinals;
-        // The .meta witnesses the loaded disk graph was accepted against. A persist is due whenever the
-        // live witnesses moved away from them, even if no change reached the graph or the deletion mask
-        // (e.g. removing an entity that never had a vector): a restart would reject the graph otherwise.
-        private transient DiskIndexManager.MetaState         diskGraphMeta      ;
-        private transient ExplicitThreadLocal<GraphSearcher> diskSearcherPool    ;
+        /**
+         * The searchable sources of an on-disk index besides its live in-memory graph - its segments
+         * and the in-memory graphs frozen for a flush - with the owner table, or {@code null} for an
+         * in-memory index and while the index is not initialized.
+         * <p>
+         * Replaced copy-on-write: by a freeze and a consolidation under {@code builderLock.writeLock()}
+         * and the parent monitor, and by a flush publishing its segments and a merge publishing its
+         * segment under {@link #commitLock} only, both holding the flush permit. The owner table itself is
+         * replaced only by a consolidation, so a mutation reading it under the monitor always finds the
+         * current one. Its entries change under the monitor by mutations, and without it by a merge, which
+         * moves owners by compare-and-set (see {@link OwnerTable#move(int, int, int)}): an entry read under
+         * the monitor can change before the monitor is released, and a reader that needs it stable uses
+         * the result of its own atomic update rather than a read. A search acquires the set it reads (see
+         * {@link #acquireSources()}), which keeps every source in it open until the search is done.
+         */
+        private transient volatile SourceSet                 sources            ;
+
+        // The slot the live in-memory graph of an on-disk index holds in the owner table of sources.
+        // Replaced under the write lock and the monitor, by a freeze and a consolidation.
+        private transient OwnerTable.Lease                   liveLease          ;
+
+        // The witnesses the manifest on disk was committed or accepted with, or null if there is
+        // none. A persist is due whenever the live witnesses moved away from them, even if no change
+        // reached the graph or the owners (e.g. removing an entity that never had a vector): a restart
+        // would reject the index otherwise. Written under the flush permit.
+        private transient volatile DiskIndexManager.MetaState committedWitness  ;
+
+        // Sequence numbers for this instance's whole life, across removeAll (see SegmentSequences).
+        private transient SegmentSequences                   segmentSequences   ;
+
+        // At most one flush at a time: taken before the freeze and released once its write is done,
+        // on the persisting thread or on the flush writer, or right after the freeze if that yields
+        // nothing to write or declines. Also held by compressor training, by a merge publishing its
+        // segment, and by close while it tears the index down, so none of them overlaps a flush.
+        // Survives removeAll, whose generation an abandoned flush must not overlap.
+        private transient Semaphore                          flushPermit        ;
+
+        // Runs the writes of background flushes, so the background task thread can go on applying
+        // indexing operations meanwhile. Created on first use; holds no thread while idle.
+        private transient volatile ExecutorService           flushExecutor      ;
+
+        // The last lock a flush takes, around its commit and the publication of its segments, and the
+        // one removeAll and close take to retire the sources it would publish into. Taken by nothing
+        // that holds it for long: the commit writes and moves one small file.
+        private transient Object                             commitLock         ;
+
+        // Advanced under commitLock by removeAll and close: a flush planned in an earlier epoch
+        // commits nothing, since the index it describes no longer exists.
+        private transient volatile long                      sourceEpoch        ;
+
+        // Set by close() while it waits for a flush in flight, which then stops at its next stage.
+        private transient volatile boolean                   flushAbortRequested;
+
+        // How many threads try to take builderLock.writeLock() under the parent monitor (a freeze, an optimization,
+        // a close), so that new searches hold back for them (see awaitNoPendingExclusive). A count, not a flag: one
+        // waiter giving up or succeeding must not open the gate for another still waiting. See EXCLUSIVE_WAITERS.
+        private transient volatile int                       exclusiveWaiters   ;
+
+        // Set when a graph operation failed, which leaves the graph without a change the store has:
+        // the next persist that may consolidate rebuilds from the store instead of flushing, and a
+        // shutdown persist commits nothing, so the next start rebuilds.
+        private transient volatile boolean                   consolidationRequired;
+
+        // Set when the files on disk have to be replaced although nothing changed - a rejected load,
+        // vectors recovered that no longer match the loaded segments - so the next background persist
+        // flushes below the threshold.
+        private transient volatile boolean                   forceFlush         ;
+
+        // Diagnostics and tests: completed flushes and consolidations.
+        private transient volatile long                      flushCount         ;
+        private transient volatile long                      consolidationCount ;
+
+        // Held by the merge thread for a whole merge, and by close() from its start to its end, so a close
+        // waits for a merge reading the vector file before it unmaps the file, and no merge starts on a
+        // closing index. Taken before the flush permit. Survives removeAll, like the flush permit.
+        private transient Semaphore                          mergePermit        ;
+
+        // Whether a merge is scheduled or running on the merge thread, so triggers do not pile up tasks.
+        private transient AtomicBoolean                      mergeScheduled     ;
+
+        // Whether a trigger found a merge due while a run was scheduled or running, and so scheduled none:
+        // the run looks once more when it ends, whatever its outcome, so the request is not lost.
+        private transient volatile boolean                   mergeRequested     ;
+
+        // Runs the background merges. Created on first use; holds no thread while idle.
+        private transient volatile ExecutorService           mergeExecutor      ;
+
+        // Set by close() before it waits for the merge permit: a merge in flight stops at its next stage.
+        private transient volatile boolean                   mergeAbortRequested;
+
+        // Whether a merge has published a segment the manifest on disk does not list yet: the published set
+        // differs from the committed state until the next flush commits a manifest, so that one is due even
+        // with nothing else changed. Set under the flush permit, cleared by a flush's publication and by
+        // the retirement of the sources.
+        private transient volatile boolean                   mergeUncommitted   ;
+
+        // Diagnostics and tests: published merges.
+        private transient volatile long                      mergeCount         ;
 
         // Read/write lock for builder operations.
         // Read lock: concurrent searches and background-worker mutations
         // Write lock: exclusive access for cleanup, persistence, removeAll, close
         private transient ReentrantReadWriteLock builderLock;
 
-        // When true, sync-mode mutations defer builder ops to avoid racing with cleanup().
-        // cleanup()'s ForkJoinPool workers need the GigaMap monitor (for embedded vectorizers),
-        // so sync-mode mutations (which hold that monitor) cannot use builderLock — they use
-        // this flag instead. The synchronized(parentMap) barrier in optimize()/persistToDisk()
-        // ensures any in-flight mutation completes before cleanup begins.
-        private transient volatile boolean                cleanupInProgress;
+        // Guards the structure of a graph against removeDeletedNodes() running into inserts, which jVector
+        // does not support concurrently. Inserts take it shared, a batch for its whole parallel phase, and
+        // every removeDeletedNodes() takes it exclusive. Taken last, after the builder lock and the parent
+        // monitor, and held while waiting for nothing but the inserting workers, which take no lock.
+        private transient ReentrantReadWriteLock structureLock;
+
+        // The workers that insert the nodes of a batch into the live graph, see insertBatch. Private to this
+        // index, so nothing else can occupy them while the caller waits holding the parent monitor, and
+        // long-lived, so the builder's per-thread state is not allocated anew for every batch. Created
+        // with the builder lock, threads started on first use, shut down by close() or once the index is collected.
+        private transient volatile ForkJoinPool  insertPool   ;
+
+        // Shuts insertPool down, once: run by close(), or by the cleaner once this index is unreachable.
+        private transient Cleaner.Cleanable      insertPoolShutdown;
 
         /**
          * Whether {@link #close()} has torn this index down for good.
@@ -1118,14 +1369,34 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private transient volatile boolean                closed           ;
 
         /**
+         * Set by {@link #close()} before it waits for the write lock and the parent GigaMap monitor
+         * to tear the index down: before the background task manager is shut down, unless that
+         * shutdown has to optimize or persist the complete graph, and after it otherwise.
+         * <p>
+         * Lets the deferred load-path rebuild ({@link #ensureGraphRebuilt()}) give up early instead of
+         * finishing a graph that is about to be discarded; {@code ensureGraphRebuilt()} then throws
+         * rather than let its caller use the partial graph. Cleared again if the close fails, so the
+         * still open index can redo the rebuild. That rebuild holds the monitor and close
+         * tears down under the monitor, so the two never overlap; without this flag close would
+         * merely wait, possibly for minutes on a large index. The rebuild of a consolidation ignores
+         * the flag: it runs under the write lock, which close cannot take until it has finished, and
+         * the graph it builds is about to be written to disk, where a partial one must never end up.
+         */
+        private transient volatile boolean                closeRequested   ;
+
+        // Set while removeAll re-initializes the index: the disk load then rejects without retiring (see
+        // DiskIndexManager#load(MetaState, OwnerTable, boolean)). Under the parent monitor and the write lock.
+        private transient boolean                         reloadingAfterRemoveAll;
+
+        /**
          * Whether a codebook was trained outside a persist and has not been written yet.
          * <p>
          * {@code trainCompressionIfNeeded()} exists so a caller can pay the training cost at a
          * moment of their choosing. That leaves the state a persist would normally produce for
-         * itself already made, and both of the questions the clean-incremental shortcut asks then
-         * answer the wrong way: this persist trained nothing, and nothing is pending either,
-         * because the manager is trained. The shortcut would skip the write that has to put the
-         * codebook on disk, and the index would report compression as active while the graph did
+         * itself already made, and both of the questions the clean-index shortcut asks then answer
+         * the wrong way: this persist trained nothing, and nothing is pending either, because the
+         * manager is trained. The shortcut would skip the persist that has to rewrite the segments
+         * with the codebook, and the index would report compression as active while the segments did
          * not carry it.
          * <p>
          * Cleared once a persist has actually written, not merely once one has started: a persist
@@ -1133,22 +1404,33 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * again.
          */
         private transient volatile boolean                compressionTrainedOutsidePersist;
-        private transient ConcurrentLinkedQueue<Runnable> deferredBuilderOps;
 
-        /**
-         * Whether a deferred builder op failed since the graph was last built from the source of truth. Its
-         * mutation is already counted in {@code structuralModCount}, but the graph lacks the change (or holds a
-         * half-inserted node), so a persist must not capture this graph: it rebuilds it first
-         * ({@link #rebuildInMemoryGraph()}), or on shutdown writes nothing. Cleared only by a successful rebuild or a
-         * new generation.
-         */
-        private transient volatile boolean                graphIncomplete;
+        // Test-only seam: run by every search once it holds the read lock, before it scores anything. A hook
+        // that blocks holds a search inside the lock. Null (and a no-op) in production.
+        transient volatile Runnable searchTestHook;
 
-        // Test-only seam: run once at the start of persist Phase 2 (parentMap monitor released,
-        // builder about to be swapped by reenterIncrementalMode). Lets a test deterministically inject
-        // a mutation into the exact window where a deferred builder op is drained after the swap.
-        // Null (and a no-op) in production. See VectorIndex(persist-window deletion) regression test.
-        transient volatile Runnable persistPhase2TestHook;
+        // Test-only seam: run by every search of an on-disk index once it holds its set of sources, before it
+        // searches any of them. Null (and a no-op) in production.
+        transient volatile Runnable sourcesAcquiredTestHook;
+
+        // Test-only seam: run before each eventual-indexing operation a flush applies to the graph it froze;
+        // a hook that throws makes that operation fail. Null (and a no-op) in production.
+        transient volatile Runnable movedOpTestHook;
+
+        // Test-only seam: run before the purge of a frozen graph's deleted nodes after its moved operations; not
+        // before the purge an insert runs when the entry node is marked deleted. No-op in prod.
+        transient volatile Runnable frozenPurgeTestHook;
+
+        // Test-only seam: handed each stage a flush reaches, on the thread doing the flush - the flush
+        // writer for a background persist, the persisting thread otherwise - with no lock held. A hook
+        // that blocks holds the flush there while searches and mutations go on; one that throws fails
+        // the flush at that stage. Null (and a no-op) in production.
+        transient volatile Consumer<FlushStage> flushStageTestHook;
+
+        // Test-only seam: run by a mutation that preserves freeze-time vectors for frozen generations, holding
+        // the parent monitor, once it holds the published set and before it reads the generations. Null (and a
+        // no-op) in production.
+        transient volatile Runnable preserveTestHook;
 
         // Test-only seam: run once the PQ replacement is complete and before it is published, with
         // the parentMap monitor held. A codebook exists at that point but no codes are visible,
@@ -1157,11 +1439,45 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Null (and a no-op) in production.
         transient volatile Runnable pqSwitchPublishTestHook;
 
-        // Test-only seam: run on entry to drainDeferredBuilderOps, BEFORE the parentMap monitor is
-        // acquired. Lets a test collide two drains deterministically (persist thread vs application
-        // thread) to assert that the drain is serialized. Null (and a no-op) in production.
-        // See VectorIndexPersistWindowConcurrencyTest.
-        transient volatile Runnable drainEntryTestHook;
+        // Test-only seam: run on the rebuilding thread, with the parent monitor held, once the stored
+        // vectors are collected and prepared and before any code or node is written. No-op in prod.
+        transient volatile Runnable rebuildBeforeInsertTestHook;
+
+        // Test-only seam: run by every rebuild worker before each insert. No-op in prod.
+        transient volatile Runnable rebuildWorkerTestHook;
+
+        // Test-only seam: handed the code store once a rebuild or PQ replay has encoded every code,
+        // before its first graph insert. No-op in prod.
+        transient volatile Consumer<MutablePQVectors> rebuildCodesEncodedTestHook;
+
+        // Test-only seam: handed every unpublished builder (a partial rebuild graph, an abandoned PQ
+        // replacement) right after it was closed. No-op in prod.
+        transient volatile Consumer<GraphIndexBuilder> unpublishedBuilderClosedTestHook;
+
+        // Test-only seam: handed whether the cleanup of a frozen graph before its write refines the graph, right
+        // before the cleanup. No-op in prod.
+        transient volatile Consumer<Boolean> cleanupTestHook;
+
+        // Test-only seam: run by close() under the write lock and the parent monitor, right before the
+        // teardown; a hook that throws makes the close fail there. No-op in prod.
+        transient volatile Runnable closeTeardownTestHook;
+
+        // Test-only seam: handed each stage a background merge reaches, on the merge thread, with no lock held.
+        // A hook that blocks holds the merge there while searches, mutations and flushes go on; one that
+        // throws fails the merge at that stage. Null (and a no-op) in production.
+        transient volatile Consumer<MergeStage> mergeStageTestHook;
+
+        // Test-only seam: while set, no merge is scheduled, so a test can build up segments without one.
+        transient volatile boolean mergesSuspended;
+
+        // Test-only seam: read by every disk manager this index creates, through commitStageTestHook(),
+        // at each stage of committing a manifest; a hook that throws simulates a crash there. No-op in
+        // prod.
+        transient volatile Consumer<DiskIndexManager.CommitStage> commitStageTestHook;
+
+        // Test-only seam: read by every disk manager this index creates, through reapListingTestHook(),
+        // right before a cleanup of unlisted files lists the index directory. No-op in prod.
+        transient volatile Runnable reapListingTestHook;
 
 
         ///////////////////////////////////////////////////////////////////////////
@@ -1190,25 +1506,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.configuration = configuration;
             this.vectorizer    = vectorizer   ;
 
-            this.vectorStore = vectorizer.isEmbedded()
-                ? null
-                : GigaMap.<VectorEntry>Builder()
-                    .withBitmapIdentityIndex(VectorEntry.SOURCE_ENTITY_ID_INDEXER)
-                    .build()
-            ;
-
             // Initialize builder lock early (before initializeIndex)
             this.builderLock         = new ReentrantReadWriteLock();
-            this.deferredBuilderOps  = new ConcurrentLinkedQueue<>();
+            this.structureLock       = new ReentrantReadWriteLock();
 
             // Publish the one-shot rebuild guard right away, so the deferred rebuild never runs for an
             // index created here: this one is populated by the back-fill in internalBackfill(), immediately
             // after construction, and that is its single population path - embedded and computed alike. A
-            // rebuild would not find an empty source and stay a no-op: in embedded mode
-            // rebuildGraphFromStore() reads the *parent map*, so it would create a node per existing entity
-            // and the back-fill would then add each one a second time - jvector rejects the duplicate with
-            // "Node 0 already exists" (internal #123). Rebuilding
-            // from the store is meaningful only for an index that has a store to rebuild, i.e. after a load.
+            // rebuild racing the back-fill would read the vectors the back-fill has written so far and
+            // insert their nodes, and the back-fill would then add each one a second time - jvector rejects
+            // the duplicate with "Node 0 already exists". Rebuilding is meaningful only for
+            // an index whose vectors came back from storage, i.e. after a load.
             // Set before initializeIndex() so a background task started there cannot observe a false flag
             // and rebuild behind the back-fill.
             this.graphRebuilt = true;
@@ -1218,6 +1526,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Transient setup only - deliberately NOT ensureIndexInitialized(), see above.
             this.initializeIndex();
+
+            // A new index starts with an empty vector file of its own, which the back-fill fills: there is
+            // nothing to recover from.
+            this.vectorFile.recovered();
+            this.vectorsRecovered = true;
+            this.vectorFileNonce  = this.vectorFile.nonce();
         }
 
         /**
@@ -1231,15 +1545,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.name             = null;
             this.configuration    = null;
             this.vectorizer       = null;
-            this.vectorStore      = null;
         }
 
         /**
          * Nested-load-free transient setup run from the binary handler's {@code complete()} during
          * deserialization: (re)creates the transient managers, locks and (empty) in-memory builder,
          * and, for on-disk indices, loads the disk graph. It deliberately does NOT rebuild the
-         * in-memory graph from the store, because that rebuild iterates the parent GigaMap / vector
-         * store (a nested object-graph load) which must not run inside the enclosing load's
+         * in-memory graph or repair the vector file, because the repairs read the parent GigaMap
+         * (a nested object-graph load) which must not run inside the enclosing load's
          * completeInstances phase (internal #87). The rebuild is deferred to first access via
          * {@link #ensureGraphRebuilt()}.
          */
@@ -1268,21 +1581,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.initializeIndex();
             }
 
+            this.ensureVectorsRecovered();
             this.ensureGraphRebuilt();
         }
 
         /**
-         * Returns whether the transient index state exists, i.e. whether there is either an
-         * in-memory builder or a loaded disk index. {@code false} before the first
-         * {@link #initializeIndex()} and after {@link #closeInternalResources()} has torn the
-         * state down again.
+         * Returns whether the transient index state exists, i.e. whether there is an in-memory
+         * builder, which every initialized index has, on-disk or not. {@code false} before the first
+         * {@link #initializeIndex()} and after {@link #closeInternalResources()} has torn the state
+         * down again.
          *
-         * @return {@code true} if an in-memory builder or a loaded disk index is present
+         * @return {@code true} if the transient state is present
          */
         private boolean isIndexPresent()
         {
-            final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
-            return this.builder != null || diskLoaded;
+            return this.builder != null;
         }
 
         /**
@@ -1292,35 +1605,80 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * search path calls this before taking {@code builderLock.readLock()}, so it never holds the
          * read lock and the monitor at the same time.
          * <p>
-         * Deadlock-free despite the builder-swapping paths using opposite lock orders
-         * ({@code internalRemoveAll}: monitor then {@code builderLock.writeLock()};
-         * {@code doPersistToDisk}: write lock then monitor): the rebuild acquires NO
-         * {@code builderLock} while it holds the monitor — {@code addGraphNodesSequential} adds nodes
-         * to the builder directly, and {@code collectStoredVectors} only re-enters this monitor (and,
-         * in computed mode, the vector store's own leaf monitor). A thread rebuilding here therefore
+         * Deadlock-free with the builder-swapping paths ({@code internalRemoveAll}, a freeze, an in-memory
+         * optimize and close: monitor, then only trying {@code builderLock.writeLock()}):
+         * the rebuild acquires NO
+         * {@code builderLock} while it holds the monitor - {@code rebuildGraphFromStore} adds nodes
+         * to the builder directly and reads the vector file without a lock. A thread rebuilding here therefore
          * holds only the monitor and waits for no lock a write-lock holder needs, so it cannot sit in
-         * a monitor↔builderLock cycle.
+         * a monitor↔builderLock cycle. It does wait for the rebuild's worker threads, which is safe
+         * because they score from the vector file and take neither the monitor nor any other
+         * lock (see {@link #rebuildGraphFromStore(boolean)}). A concurrent {@link #close()} tears down
+         * under this monitor too, so it waits rather than closing the builder mid-rebuild, and the
+         * rebuild gives up early once that close is requested (see {@link #closeRequested}).
          * <p>
          * Because every builder-swapping path also calls {@code ensureIndexInitialized()} before its
          * swap, the first caller wins the rebuild under the monitor and publishes {@code graphRebuilt};
-         * all others see the flag and skip. Skipped in incremental on-disk mode (the disk index serves
-         * search; the in-memory graph is rebuilt later by {@code exitIncrementalMode}).
+         * all others see the flag and skip. An on-disk index whose segments loaded never gets here:
+         * the load sets the flag, since the segments hold the graph and the live in-memory graph
+         * starts empty. One whose load was rejected rebuilds into the live graph, which then owns
+         * every entity it holds.
+         *
+         * @throws RebuildAbandonedException (an {@link IllegalStateException}) if the graph still needs
+         *                                   its rebuild and {@link #close()} has been requested, so the
+         *                                   rebuild was not done or was abandoned
          */
         private void ensureGraphRebuilt()
         {
-            if(this.graphRebuilt || this.incrementalMode)
+            if(this.graphRebuilt)
             {
                 return;
             }
             synchronized(this.parentMap())
             {
-                if(this.graphRebuilt || this.incrementalMode)
+                if(this.graphRebuilt)
                 {
                     return;
                 }
-                this.rebuildGraphFromStore();
+                if(!this.rebuildGraphFromStore(true))
+                {
+                    // A close cut the rebuild short, or had already been requested. graphRebuilt stays
+                    // unset and the rebuild has put an empty builder in place of the partial one, so
+                    // the next call rebuilds from scratch once the close has either finished (then the
+                    // index is gone) or failed (close() then clears closeRequested again).
+                    // Failing loudly rather than returning keeps the caller - a search, a persist, a
+                    // mutation - from carrying on against a partial graph and silently answering with
+                    // truncated results or writing them to disk.
+                    throw new RebuildAbandonedException(this.name);
+                }
+                this.assignLiveGraphOwners();
                 this.graphRebuilt = true;
             }
+        }
+
+        /**
+         * Makes the live in-memory graph of an on-disk index the owner of every entity it holds, after
+         * a rebuild filled it from the store: a node is live only while its entity's owner is the
+         * graph's slot. Under the parent monitor. Does nothing for an in-memory index.
+         */
+        private void assignLiveGraphOwners()
+        {
+            final SourceSet         set     = this.sources;
+            final GraphIndexBuilder current = this.builder;
+            if(set == null || current == null)
+            {
+                return;
+            }
+            final OwnerTable owners = set.owners();
+            final int        slot   = owners.liveSlot();
+            final OnHeapGraphIndex graph = graphOf(current);
+            graph.nodeStream(0).forEach(ordinal ->
+            {
+                if(!graph.getDeletedNodes().get(ordinal))
+                {
+                    owners.set(ordinal, slot);
+                }
+            });
         }
 
         /**
@@ -1334,10 +1692,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * <b>Must be called with the {@code parentMap} monitor held, and it takes no
          * {@code builderLock}.</b> That is {@link #ensureGraphRebuilt()}'s posture, for the reason
          * given there: a thread that holds only the monitor waits for no lock a write-lock holder
-         * needs, so it cannot sit in a monitor/{@code builderLock} cycle. Everything this reads
-         * reaches the GigaMap - whether training is pending, the training sample, the vectors to
-         * replay, the ordinal-space warning - and the monitor is the lock that makes those reads
-         * consistent.
+         * needs, so it cannot sit in a monitor/{@code builderLock} cycle. Everything this reads -
+         * whether training is pending, the training sample, the vectors to replay, the ordinal-space
+         * warning - comes from the vector file and the index's counters, which every mutation writes
+         * under the monitor, and the monitor is the lock that makes those reads consistent.
          * <p>
          * <b>The replaced builder and graph are deliberately not closed.</b> Searches hold
          * {@code builderLock.readLock()} and never this monitor, so one can be traversing the old
@@ -1361,13 +1719,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          *     through {@code internalAddGraphNodeIdempotent}, which tolerates an ordinal the graph
          *     already carries.</li>
          * </ul>
-         * On the scheduled path the question does not even arise: the manager drains pending
-         * indexing ops inline on its single executor thread before calling {@code doOptimize}.
+         * On the scheduled path the manager applies one turn of queued indexing ops on its single
+         * executor thread before calling {@code doOptimize}, but not the whole queue, so the worker's
+         * callbacks can still run alongside the switch and the argument above is what covers them.
          */
         private void performPqSwitch()
         {
-            // Read once. close() does not take this monitor, so closeInternalResources can null the
-            // field between two reads of it and turn the guard below into an NPE.
+            // Read once and kept: closeInternalResources nulls the field, and the rest of the switch
+            // works with this manager.
             final PQCompressionManager manager = this.pqManager;
 
             if(this.configuration.onDisk()
@@ -1390,10 +1749,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.warnIfOrdinalSpaceIsSparse();
 
-            // The generation this switch is being built for. close() and internalRemoveAll take the
-            // write lock without this monitor, so either can replace or null the builder while the
-            // work below runs; publishing regardless would resurrect a graph on an index that has
-            // been torn down, with its searcher pools already closed.
+            // The generation this switch is being built for. close() and internalRemoveAll replace or
+            // null the builder; both hold this monitor, so neither can run while the work below does,
+            // and the check before publishing is defensive. Publishing over a torn-down index would
+            // resurrect a graph whose searcher pools are already closed.
             final GraphIndexBuilder plannedFor = this.builder;
 
             try
@@ -1462,31 +1821,98 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             final MutablePQVectors codes = new MutablePQVectors(codebook);
 
-            final GraphIndexBuilder replacement = new GraphIndexBuilder(
-                BuildScoreProvider.pqBuildScoreProvider(this.jvectorSimilarityFunction(), codes),
-                this.configuration.dimension(),
-                this.configuration.maxDegree(),
-                this.configuration.beamWidth(),
-                this.configuration.neighborOverflow(),
-                this.configuration.alpha(),
-                true // use hierarchical index
+            final GraphIndexBuilder replacement = this.newGraphIndexBuilder(
+                BuildScoreProvider.pqBuildScoreProvider(this.jvectorSimilarityFunction(), codes)
             );
 
-            for(final VectorEntry entry : this.collectStoredVectors())
+            // Closed on every way out that does not publish it - a close request, a generation
+            // mismatch, an exception from encoding or inserting - so the per-thread scratch its
+            // workers left behind is released (see ParallelGraphInsertion). A published replacement
+            // is the index's builder from then on and is never closed here.
+            boolean   published = false;
+            Throwable failure   = null;
+            try
             {
-                if(entry.vector == null)
-                {
-                    // Entities without an embedding are not graph nodes.
-                    continue;
-                }
-                final int            ordinal = toOrdinal(entry.sourceEntityId);
-                final VectorFloat<?> vf      = this.vectorTypeSupport.createFloatVector(entry.vector);
-
-                // The code before the node, always: the builder scores the incoming node against
-                // the codes while inserting it, so its own has to be there first.
-                codes.encodeAndSet(ordinal, vf);
-                replacement.addGraphNode(ordinal, vf);
+                published = this.fillAndPublishPqReplacement(replacement, codes, plannedFor);
+                return published;
             }
+            catch(final RuntimeException | Error e)
+            {
+                failure = e;
+                throw e;
+            }
+            finally
+            {
+                if(!published)
+                {
+                    this.closeUnpublishedBuilder(replacement, failure);
+                }
+            }
+        }
+
+        /**
+         * Fills the compressed replacement and publishes it, the body of
+         * {@link #buildAndPublishPqReplacement}. The caller closes the replacement unless this
+         * returns {@code true}.
+         *
+         * @param replacement the empty replacement builder, scoring from {@code codes}
+         * @param codes       the code store for the trained codebook, still empty
+         * @param plannedFor  the builder this switch was planned against
+         * @return whether the replacement was published
+         */
+        private boolean fillAndPublishPqReplacement(
+            final GraphIndexBuilder replacement,
+            final MutablePQVectors  codes      ,
+            final GraphIndexBuilder plannedFor
+        )
+        {
+            // The replay runs in parallel, like the full rebuild, and for the same reason it may: the
+            // replacement scores from the codes alone and the workers read the vector file lock-free, so
+            // no worker needs the monitor this thread holds, and the replacement is unreachable until
+            // published below, so the workers are its only writers. Entities without an embedding have
+            // no vector in the file and are not graph nodes.
+            final RebuildNodes nodes = this.collectRebuildNodes(true);
+            if(this.closeRequested)
+            {
+                this.logPqSwitchAbandoned("while collecting the stored vectors");
+                return false;
+            }
+
+            // Two phases: every code first, then the graph. Encoding each node right before its own
+            // insert would already be safe - a worker only scores nodes it found through the graph
+            // or the builder's in-progress set, concurrent structures that publish a node after the
+            // code its inserting thread wrote first - but it makes the argument depend on jVector's
+            // internals. With the codes complete before any insert starts, and the join between
+            // the phases ordering every encode before every insert, no worker can score a candidate
+            // whose code is still the zero of a freshly allocated chunk, exactly as in the
+            // sequential replay. Both phases give up for a close: the replacement would be
+            // discarded by it anyway, and the caller rolls the codebook back.
+            this.encodeRebuildCodes(codes, nodes, true);
+            if(this.closeRequested)
+            {
+                this.logPqSwitchAbandoned("after encoding, before inserting");
+                return false;
+            }
+            final int seeded = seedIfEmpty(replacement, nodes.count(), index -> this.insertFromFile(replacement, nodes.ordinals()[index]));
+            ParallelGraphInsertion.forEach(
+                nodes.count() - seeded,
+                index ->
+                {
+                    if(this.closeRequested)
+                    {
+                        return;
+                    }
+                    this.insertFromFile(replacement, nodes.ordinals()[index + seeded]);
+                },
+                this.rebuildThreadNamePrefix()
+            );
+            if(this.closeRequested)
+            {
+                this.logPqSwitchAbandoned("while inserting");
+                return false;
+            }
+            // Unpublished, so this thread has the replacement to itself without the structure lock.
+            GraphReachability.repair(replacement, nodes.ordinals(), nodes.count(), this::vectorOf, this.name);
 
             // Test-only injection point: the replacement is complete and still unpublished.
             // No-op in production.
@@ -1498,11 +1924,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             if(this.builder != plannedFor)
             {
-                // A teardown took the write lock while this was being built - close() nulls the
-                // builder, internalRemoveAll replaces it - so the replacement describes an index
-                // that no longer exists. Dropping it is the whole response: the caller's rollback
-                // untrains the codebook, and a later optimization plans again from whatever the
-                // index is then. Nothing has been published, so there is nothing else to undo.
+                // The builder changed while this was being built, so the replacement describes an
+                // index that no longer exists. Defensive today: close() and internalRemoveAll, the
+                // paths that null or replace the builder, both need the monitor this thread holds.
+                // Dropping it is the whole response: the caller closes it and rolls the codebook
+                // back, and a later optimization plans again from whatever the index is then.
+                // Nothing has been published, so there is nothing else to undo.
                 LOG.info("Discarding the PQ switch for '{}': the index was torn down or rebuilt"
                     + " while the replacement was being built", this.name);
                 return false;
@@ -1589,10 +2016,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private void warnIfOrdinalSpaceIsSparse()
         {
             final long highest = this.getHighestEntityId();
-            // The graph's node count, not getVectorCount(): that returns parentMap().size() for an
-            // embedded vectorizer, so 100 vectors among 900 entities without one would read as 1000
-            // live and this would stay quiet on exactly the shape it exists for - the codes are
-            // allocated per ordinal, so those 900 holes are what is being paid for.
+            // The graph's node count where there is a graph, the vector count otherwise: the codes are
+            // allocated per ordinal, so the holes between the live ordinals are what is being paid for.
             final OnHeapGraphIndex current = this.index;
             final long live = current != null ? current.size(0) : this.getVectorCount();
             if(live > 0 && highest + 1 > live * 4)
@@ -1607,167 +2032,941 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Rebuilds the HNSW graph from stored data.
+         * Rebuilds the HNSW graph from the vector file, in parallel.
+         * <p>
+         * Called with the parent GigaMap monitor held, by {@link #ensureGraphRebuilt()} on the first
+         * access after a load of an in-memory index, or of an on-disk one whose segments did not load,
+         * once {@link #ensureVectorsRecovered()} has made the vector file match the entities. A
+         * consolidation fills its own builder the same way (see {@link #consolidate}). The inserts run
+         * concurrently ({@code addGraphNode} supports it) on a private pool, see
+         * {@link ParallelGraphInsertion}. Not {@code build(ravv)}: it assumes dense ordinals and ends in
+         * {@code cleanup()}, which must not run on a builder that stays live.
+         * <p>
+         * <b>Deadlock invariant:</b> the worker threads never take the parent GigaMap monitor, because the
+         * caller holds it and waits for the workers. They only touch the graph, the vector file
+         * (lock-free) and the in-memory PQ codes, if any. Anything added to the per-node step below must
+         * keep it that way.
+         * <p>
+         * <b>Always from scratch:</b> the rebuild fills an empty builder. A builder that holds nodes
+         * anyway (left by operations applied after an earlier rebuild was abandoned) is replaced by an
+         * empty one first. With in-memory PQ codes, all codes are written in a phase of their own before
+         * the first insert.
+         * <p>
+         * <b>Builder lifetime:</b> the builder is read once and stays valid throughout. The load path
+         * holds no {@code builderLock}, but every path that closes or replaces the builder holds the
+         * parent monitor this thread holds, and {@link #close()} takes it too. A close that arrives
+         * during a load-path rebuild therefore waits for it; with {@code abortOnClose} the rebuild
+         * notices {@link #closeRequested} and stops early so that wait stays short.
+         *
+         * @param abortOnClose whether to give up once {@link #close()} has been requested; only for
+         *                     the load path, whose graph is discarded by that close anyway
+         * @return {@code false} if the rebuild was given up because of a close; {@code true} otherwise.
+         *         A rebuild that is given up, or fails with an exception, leaves an empty builder in
+         *         place of the partial one, never a partial graph (see
+         *         {@link #discardPartialGraph(GraphIndexBuilder)})
          */
-        private void rebuildGraphFromStore()
+        private boolean rebuildGraphFromStore(final boolean abortOnClose)
         {
-            final List<VectorEntry> entries = this.collectStoredVectors();
+            // Checked before collecting the ordinals, which reads the whole file.
+            if(abortOnClose && this.closeRequested)
+            {
+                return false;
+            }
+            if(this.builder == null)
+            {
+                return true;
+            }
 
-            if(entries.isEmpty())
+            final RebuildNodes nodes = this.collectRebuildNodes(abortOnClose);
+            // Again after collecting, which stops early for a close, so that a partial collection is
+            // never taken for a complete one, empty or not.
+            if(abortOnClose && this.closeRequested)
+            {
+                return false;
+            }
+            if(nodes.count() == 0)
+            {
+                return true;
+            }
+
+            // The builder, null-checked above, cannot change meanwhile: every path that replaces or
+            // closes it holds the parent monitor this thread holds - close() takes it before tearing
+            // down.
+            if(graphOf(this.builder).size(0) > 0)
+            {
+                // Always from an empty builder. A non-empty one here holds nodes inserted after an
+                // earlier rebuild was abandoned and left its empty replacement behind. The file
+                // already reflects those changes, so they are rebuilt with everything else; keeping
+                // their nodes would keep links built against a graph that was nearly empty.
+                this.discardPartialGraph(this.builder);
+            }
+            // Read once, and empty from here on.
+            final GraphIndexBuilder target = this.builder;
+
+            // All or nothing: a rebuild given up for a close, or failed in a worker, must not leave a
+            // partial graph behind for the next attempt to build on. Its nodes were linked against an
+            // incomplete graph, and a worker that failed inside addGraphNode can leave a node in the
+            // graph without its links. Starting the next attempt from an empty builder makes it a
+            // full rebuild like the first one.
+            boolean complete = false;
+            try
+            {
+                complete = this.fillRebuiltGraph(target, nodes, abortOnClose);
+                return complete;
+            }
+            finally
+            {
+                if(!complete)
+                {
+                    this.discardPartialGraph(target);
+                }
+            }
+        }
+
+        /**
+         * The body of {@link #rebuildGraphFromStore(boolean)} once there are nodes to insert and an
+         * empty builder to insert them into: the PQ codes, if any, then the parallel insertion.
+         *
+         * @param target       the empty builder to fill, read once by the caller
+         * @param nodes        the ordinals to insert
+         * @param abortOnClose whether to give up once a close has been requested
+         * @return {@code false} if the rebuild was given up because of a close
+         */
+        private boolean fillRebuiltGraph(
+            final GraphIndexBuilder target      ,
+            final RebuildNodes      nodes       ,
+            final boolean           abortOnClose
+        )
+        {
+            assert graphOf(target).size(0) == 0 : "a rebuild fills an empty builder, see rebuildGraphFromStore";
+
+            final Runnable beforeInsertHook = this.rebuildBeforeInsertTestHook;
+            if(beforeInsertHook != null)
+            {
+                beforeInsertHook.run();
+            }
+            // Last check before any worker starts: a close requested while the nodes were collected
+            // gets nothing written at all.
+            if(abortOnClose && this.closeRequested)
+            {
+                return false;
+            }
+
+            // With in-memory PQ codes the builder scores from them, so they are all written before the
+            // first insert, in a phase of their own (see buildAndPublishPqReplacement for why).
+            final MutablePQVectors codes = this.inMemoryPqVectors;
+            if(codes != null)
+            {
+                this.encodeRebuildCodes(codes, nodes, abortOnClose);
+                if(abortOnClose && this.closeRequested)
+                {
+                    return false;
+                }
+            }
+
+            final Runnable workerHook = this.rebuildWorkerTestHook;
+            final long     startNanos = System.nanoTime();
+            final int      inserted   = nodes.count();
+            // A virtual-thread caller (e.g. a first search on one) pins its carrier here: it waits for
+            // the workers inside synchronized(parentMap()), which JDK 21 cannot unmount (JEP 491 lifts
+            // that in JDK 24). Not a regression - the sequential rebuild held the same monitor for longer.
+            // Inserts, so under the structure lock shared, like a batch.
+            final ReentrantReadWriteLock.ReadLock structure = this.structureLock.readLock();
+            structure.lock();
+            try
+            {
+                final int seeded = seedIfEmpty(target, inserted, index -> this.insertFromFile(target, nodes.ordinals()[index]));
+                ParallelGraphInsertion.forEach(
+                    inserted - seeded,
+                    insertIndex ->
+                    {
+                        if(workerHook != null)
+                        {
+                            workerHook.run();
+                        }
+                        // Only a shortcut: close() cannot tear the builder down while this runs, since it
+                        // needs the monitor the waiting caller holds. It just should not wait for a graph
+                        // that is about to be discarded.
+                        if(abortOnClose && this.closeRequested)
+                        {
+                            return;
+                        }
+                        this.insertFromFile(target, nodes.ordinals()[insertIndex + seeded]);
+                    },
+                    this.rebuildThreadNamePrefix()
+                );
+            }
+            finally
+            {
+                structure.unlock();
+            }
+
+            if(abortOnClose && this.closeRequested)
+            {
+                LOG.info("Rebuild of the graph of '{}' abandoned: the index is closing", this.name);
+                return false;
+            }
+            this.repairReachability(target, nodes.ordinals(), inserted);
+            LOG.info("Rebuilt the graph of '{}' from {} vectors in {} ms",
+                this.name, inserted, (System.nanoTime() - startNanos) / 1_000_000L);
+            return true;
+        }
+
+        /**
+         * Inserts the node of {@code ordinal} into {@code target} with its vector from the file. Called
+         * by rebuild workers while the caller holds the parent monitor, so the vector cannot change or
+         * disappear meanwhile; it is skipped should it have none.
+         */
+        private void insertFromFile(
+            final GraphIndexBuilder target ,
+            final int               ordinal
+        )
+        {
+            final VectorFloat<?> vector = this.vectorOf(ordinal);
+            if(vector != null)
+            {
+                target.addGraphNode(ordinal, vector);
+            }
+        }
+
+        /**
+         * Returns the vector of {@code ordinal} from the vector file, or {@code null} if it has none.
+         */
+        private VectorFloat<?> vectorOf(final int ordinal)
+        {
+            final float[] vector = this.vectorFile.read(ordinal);
+            return vector == null ? null : this.vectorTypeSupport.createFloatVector(vector);
+        }
+
+        private void logPqSwitchAbandoned(final String stage)
+        {
+            LOG.info("PQ switch of '{}' abandoned {}: the index is closing", this.name, stage);
+        }
+
+        /**
+         * Writes the PQ code of every node of {@code nodes}, in parallel, as the first phase of a rebuild or
+         * replay that scores from codes. Returns once every code is written: the loop joins its workers,
+         * which orders these writes before anything the caller does next, in particular before the
+         * parallel inserts of the second phase.
+         * <p>
+         * The highest ordinal is encoded first, on this thread, so the code store allocates its whole
+         * chunk table before the workers start and never grows while they write.
+         *
+         * @param codes        the code store to fill
+         * @param nodes        the rebuild's nodes
+         * @param abortOnClose whether to stop once a close has been requested; the caller must then
+         *                     check {@link #closeRequested} before using the codes
+         */
+        private void encodeRebuildCodes(
+            final MutablePQVectors codes       ,
+            final RebuildNodes     nodes       ,
+            final boolean          abortOnClose
+        )
+        {
+            if(nodes.count() > 0)
+            {
+                final int highest = nodes.ordinals()[nodes.count() - 1];
+                codes.encodeAndSet(highest, this.vectorOf(highest));
+            }
+            ParallelGraphInsertion.forEach(
+                nodes.count(),
+                index ->
+                {
+                    if(abortOnClose && this.closeRequested)
+                    {
+                        return;
+                    }
+                    final int            ordinal = nodes.ordinals()[index];
+                    final VectorFloat<?> vector  = this.vectorOf(ordinal);
+                    if(vector != null)
+                    {
+                        codes.encodeAndSet(ordinal, vector);
+                    }
+                },
+                this.rebuildThreadNamePrefix()
+            );
+
+            final Consumer<MutablePQVectors> hook = this.rebuildCodesEncodedTestHook;
+            if(hook != null)
+            {
+                hook.accept(codes);
+            }
+        }
+
+        /**
+         * Replaces the builder a rebuild gave up on, or failed in, with a fresh empty one, so that the
+         * next attempt rebuilds from scratch rather than on top of a partial graph.
+         * <p>
+         * Runs with the parent monitor held, like the rebuild, and swaps the builder the way the
+         * in-memory PQ switch does: the searcher pools read {@code this.index} on every search, so
+         * nothing else needs replacing. The partial builder can be closed (which releases the
+         * per-thread scratch its workers left behind) because nothing else can be using it: searches
+         * and background callbacks wait for the rebuild before they touch the builder, and the
+         * persist-time rebuild runs under the write lock that excludes both.
+         *
+         * @param partial the builder the rebuild was filling
+         */
+        private void discardPartialGraph(final GraphIndexBuilder partial)
+        {
+            if(this.builder != partial)
             {
                 return;
             }
-
-            this.addGraphNodesSequential(entries);
+            this.initializeInMemoryBuilder();
+            this.closeUnpublishedBuilder(partial, null);
         }
 
         /**
-         * Returns the computed-mode {@link #computedIdIndex}, building it lazily on first access.
-         * {@code null} in embedded mode (or before the vector store exists).
+         * Closes a builder that is not, or no longer, the index's builder, releasing the per-thread
+         * scratch and searchers the rebuild workers left in it. Never called for a builder that is
+         * published: searches may be traversing that one.
          * <p>
-         * The build is deferred out of {@code complete()}: at deserialization time the vector store's
-         * index registry is not yet queryable, and — more importantly — building eagerly there would
-         * reintroduce the O(n) I/O + heap spike that incremental on-disk mode exists to avoid. On first
-         * access the table is reconstructed cheaply from the identity index bitmaps (no {@link VectorEntry},
-         * no vectors); see {@link #buildComputedIdIndex()}.
-         * <p>
-         * Thread-safety: double-checked with {@link #computedIdIndex} volatile. The build holds the
-         * vector store's own monitor — a leaf lock independent of the parent GigaMap monitor and
-         * {@code builderLock}, so triggering it from a search (under {@code builderLock.readLock}) or a
-         * mutation (under the parent monitor) cannot deadlock. Mutations route their store lookups
-         * through this accessor too, so the table is present before any {@code put}/{@code get}.
+         * A failure to close must not replace the failure that got the builder discarded, so it is
+         * added to that one as suppressed, or logged when there is none.
+         *
+         * @param unpublished the builder to close
+         * @param failure     the failure being propagated, or {@code null}
          */
-        private OrdinalStoreIdTable computedIdIndex()
+        private void closeUnpublishedBuilder(
+            final GraphIndexBuilder unpublished,
+            final Throwable         failure
+        )
         {
-            if(this.isEmbedded() || this.vectorStore == null)
+            try
             {
-                return null;
+                unpublished.close();
             }
-            OrdinalStoreIdTable idx = this.computedIdIndex;
-            if(idx == null)
+            catch(final IOException | RuntimeException e)
             {
-                synchronized(this.vectorStore)
+                if(failure != null)
                 {
-                    idx = this.computedIdIndex;
-                    if(idx == null)
-                    {
-                        this.computedIdIndex = idx = this.buildComputedIdIndex();
-                    }
+                    failure.addSuppressed(e);
+                }
+                else
+                {
+                    LOG.warn("Failed to close a discarded graph builder of '{}': {}", this.name, e.getMessage(), e);
                 }
             }
-            return idx;
-        }
-
-        /**
-         * Builds the {@code sourceEntityId -> storeId} table, from the vector store's
-         * {@code sourceEntityId} identity index where possible
-         * ({@link #buildComputedIdIndexFromIndex()}), else by a positional store scan
-         * ({@link #buildComputedIdIndexByScan()}) during the {@code complete()} deserialization
-         * window, when the index registry is not yet queryable. Both paths yield the same table.
-         */
-        private OrdinalStoreIdTable buildComputedIdIndex()
-        {
-            final OrdinalStoreIdTable fromIndex = this.buildComputedIdIndexFromIndex();
-            return fromIndex != null
-                ? fromIndex
-                : this.buildComputedIdIndexByScan()
-            ;
-        }
-
-        /**
-         * The preferred {@link #buildComputedIdIndex()} path: reconstructs the table from the vector
-         * store's {@code sourceEntityId} identity index bitmaps, loading no {@code VectorEntry} and
-         * therefore no stored vectors. Returns {@code null} when that index is not queryable yet, in
-         * which case the caller falls back to {@link #buildComputedIdIndexByScan()}.
-         * <p>
-         * Package-private for {@code VectorIndexIdDriftTest}, which asserts both paths agree.
-         */
-        OrdinalStoreIdTable buildComputedIdIndexFromIndex()
-        {
-            final BitmapIndex<VectorEntry, Long> idIndex = this.vectorStore.index().bitmap()
-                .get(Long.class, VectorEntry.SOURCE_ENTITY_ID_INDEXER.name());
-            if(idIndex == null)
+            finally
             {
-                return null;
-            }
-
-            final OrdinalStoreIdTable index = new OrdinalStoreIdTable();
-            // (key = sourceEntityId, entityId = storeId) - no value loaded, nothing boxed.
-            idIndex.iterateLongKeyEntityPairs((sourceEntityId, storeId) -> index.put(toOrdinal(sourceEntityId), storeId));
-            return index;
-        }
-
-        /**
-         * The {@link #buildComputedIdIndex()} fallback: a positional store scan, reading
-         * {@link VectorEntry#sourceEntityId} off each entry. Only reached by a non-incremental graph
-         * rebuild, which loads every vector anyway, so its value pass is not an added cost.
-         * <p>
-         * Package-private for {@code VectorIndexIdDriftTest}, which asserts both paths agree.
-         */
-        OrdinalStoreIdTable buildComputedIdIndexByScan()
-        {
-            final OrdinalStoreIdTable index = new OrdinalStoreIdTable();
-            this.vectorStore.iterateIndexed((storeId, entry) -> index.put(toOrdinal(entry.sourceEntityId), storeId));
-            return index;
-        }
-
-        /**
-         * Resolves the raw vector for a graph ordinal (source entity id) in computed mode via the
-         * {@link #computedIdIndex} and a direct, lazy {@code vectorStore.get(internalId)} — no index
-         * query on the hot scoring path. Returns {@code null} if the entity has no stored vector.
-         */
-        private float[] lookupComputedVector(final int ordinal)
-        {
-            final OrdinalStoreIdTable index = this.computedIdIndex();
-            final long storeId = index == null ? OrdinalStoreIdTable.ABSENT : index.get(ordinal);
-            if(storeId == OrdinalStoreIdTable.ABSENT)
-            {
-                return null;
-            }
-            final VectorEntry entry = this.vectorStore.get(storeId);
-            return entry == null ? null : entry.vector;
-        }
-
-        private List<VectorEntry> collectStoredVectors()
-        {
-            final List<VectorEntry> entries = new ArrayList<>();
-
-            if(this.isEmbedded())
-            {
-                this.parentMap().iterateIndexed((entityId, entity) ->
+                final Consumer<GraphIndexBuilder> hook = this.unpublishedBuilderClosedTestHook;
+                if(hook != null)
                 {
-                    final float[] vector = this.vectorize(entity);
-                    // Entities without an embedding (opted-in null vectors) are not graph nodes.
-                    if(vector != null)
+                    hook.accept(unpublished);
+                }
+            }
+        }
+
+        /**
+         * The ordinals a full rebuild inserts: every ordinal the vector file has a vector for, ascending.
+         * The vectors themselves stay in the file, where the workers read them.
+         *
+         * @param ordinals the ordinals, ascending
+         */
+        private record RebuildNodes(int[] ordinals)
+        {
+            int count()
+            {
+                return this.ordinals.length;
+            }
+        }
+
+        /**
+         * Collects the ordinals of the vector file that have a vector, ascending. Under the parent
+         * monitor, so the file does not change meanwhile. Sized by the vector count, not by the highest
+         * ordinal, so a churned map with few vectors and a high maximum id does not pay for its holes.
+         *
+         * @param abortOnClose whether to stop collecting once {@link #close()} has been requested; the
+         *                     result is then incomplete, and the caller must check
+         *                     {@link #closeRequested} before using it
+         * @return the ordinals with a vector
+         */
+        private RebuildNodes collectRebuildNodes(final boolean abortOnClose)
+        {
+            final int[][] ordinals = {new int[(int)Math.min(Integer.MAX_VALUE - 8, Math.max(16L, this.vectorCount))]};
+            final int[]   count    = {0};
+            this.vectorFile.forEachPresent(ordinal ->
+            {
+                if(abortOnClose && (count[0] & 0xFFF) == 0 && this.closeRequested)
+                {
+                    return false;
+                }
+                if(count[0] == ordinals[0].length)
+                {
+                    ordinals[0] = Arrays.copyOf(ordinals[0], Math.min(Integer.MAX_VALUE - 8, count[0] * 2));
+                }
+                ordinals[0][count[0]++] = ordinal;
+                return true;
+            });
+            final int[] collected = ordinals[0];
+            return new RebuildNodes(count[0] == collected.length ? collected : Arrays.copyOf(collected, count[0]));
+        }
+
+        /**
+         * Test seam: the current in-memory graph builder, or {@code null}.
+         *
+         * @return the builder
+         */
+        GraphIndexBuilder currentBuilder()
+        {
+            return this.builder;
+        }
+
+        /**
+         * Test seam: the number of nodes in the current in-memory graph's base layer, or {@code -1}
+         * without a builder.
+         *
+         * @return the node count
+         */
+        int inMemoryGraphNodeCount()
+        {
+            final GraphIndexBuilder current = this.builder;
+            return current == null ? -1 : graphOf(current).size(0);
+        }
+
+        /**
+         * Test seam: the vector file, or {@code null} if the index is closed or not initialized.
+         *
+         * @return the vector file
+         */
+        VectorFile vectorFile()
+        {
+            return this.vectorFile;
+        }
+
+        /**
+         * Test seam: whether {@link #close()} has been requested.
+         *
+         * @return the current value of {@link #closeRequested}
+         */
+        boolean isCloseRequested()
+        {
+            return this.closeRequested;
+        }
+
+        private String rebuildThreadNamePrefix()
+        {
+            return "vector-rebuild-" + this.name;
+        }
+
+        /**
+         * Opens the vector file: in the index directory for an index that keeps files there (an on-disk
+         * index, or an in-memory one with a computed vectorizer and a configured directory, see
+         * {@link #keepsIndexFiles()}), against the nonce and the store epoch this record carries, and in a
+         * fresh private temporary directory otherwise, which therefore always starts empty and is rebuilt
+         * from the entities. The repairs the open finds necessary are left to
+         * {@link #ensureVectorsRecovered()}.
+         */
+        private void openVectorFile()
+        {
+            final String     description = "vector index '" + this.name + "'";
+            final long       chunkBytes  = this.checkedVectorChunkBytes();
+            final boolean    persistent  = this.keepsIndexFiles();
+            if(!persistent && !this.vectorizer.isEmbedded())
+            {
+                LOG.warn("Vector index '{}' has a computed vectorizer but no index directory or location: its"
+                    + " vector file is temporary, so every start calls the vectorizer once per entity. Configure"
+                    + " indexDirectory or indexLocation to keep the vectors across restarts.", this.name);
+            }
+            final VectorFile file        = persistent
+                ? VectorFile.open(
+                    this.indexDirectoryForDisk(),
+                    this.name,
+                    this.configuration.dimension(),
+                    chunkBytes,
+                    this.vectorFileNonce,
+                    this.vectorFileEpoch,
+                    description
+                )
+                : VectorFile.openTemporary(
+                    this.name,
+                    this.configuration.dimension(),
+                    chunkBytes,
+                    description
+                )
+            ;
+            file.checkpointInterval(this.configuration.vectorCheckpointIntervalMs());
+            this.vectorsRecovered = false;
+            this.vectorFile       = file;
+        }
+
+        /**
+         * Returns the configured chunk size, checked against the minimum here as well as in the builder: a custom
+         * {@link VectorIndexConfiguration} implementation bypasses the builder, and a chunk of fewer than
+         * {@link VectorFile#MIN_SLOTS_PER_CHUNK} slots lets sparse ids grow the dense chunk table without bound.
+         *
+         * @throws IllegalArgumentException if the configured chunk holds fewer than the minimum slots
+         */
+        private long checkedVectorChunkBytes()
+        {
+            final long chunkBytes = this.configuration.vectorChunkBytes();
+            final long minimum    = (long)VectorFile.strideOf(this.configuration.dimension())
+                * VectorFile.MIN_SLOTS_PER_CHUNK;
+            if(chunkBytes < minimum)
+            {
+                throw new IllegalArgumentException("The vectorChunkBytes of " + chunkBytes + " configured for vector"
+                    + " index '" + this.name + "' hold fewer than " + VectorFile.MIN_SLOTS_PER_CHUNK + " vectors of"
+                    + " dimension " + this.configuration.dimension() + "; at least " + minimum + " are required");
+            }
+            return chunkBytes;
+        }
+
+        /**
+         * Repairs what the vector file found at its open, once, on first access: the slots of hot chunks
+         * written after the last committed store, every ordinal of a hot chunk after a reboot, or every
+         * entity after the file had to be replaced (see {@link VectorFile}). Runs under the parent monitor,
+         * before the graph rebuild that reads the file, and not in {@code complete()}: it reads entities,
+         * which is a nested load.
+         * <p>
+         * Repairs stream through the ordinals in ascending order, so the entity segments, and whatever the
+         * vectorizer reads, are loaded once per run of ordinals rather than once per ordinal.
+         * <p>
+         * The witnesses were sampled before this, when the segments were loaded. A repair restores the
+         * committed vectors and so leaves the vector count as the store recorded it, unless the vectorizer
+         * breaks its contract and returns {@code null} for an entity that must have a vector. That vector is
+         * dropped and counted at ERROR; the count changes, which makes the loaded segments stale, so they are
+         * dropped too and the graph is rebuilt from the file.
+         */
+        private void ensureVectorsRecovered()
+        {
+            if(this.vectorsRecovered)
+            {
+                return;
+            }
+            synchronized(this.parentMap())
+            {
+                final VectorFile file = this.vectorFile;
+                if(this.vectorsRecovered || file == null)
+                {
+                    return;
+                }
+                final GigaMap<VectorEntry> legacy = this.legacyVectorStore;
+                if(legacy != null)
+                {
+                    this.importLegacyVectorStore(file, legacy);
+                }
+                else
+                {
+                    this.recoverVectors(file);
+                }
+                this.vectorsRecovered = true;
+                if(this.legacyLayout)
+                {
+                    // Loaded from a layout before the vector file: the record must be written in the current
+                    // layout by the next store, mutation or not, so the path from the map down to it is flagged.
+                    this.legacyLayout = false;
+                    this.markStateChangeInstance();
+                    if(this.parent instanceof VectorIndices.Default<E> group)
                     {
-                        entries.add(new VectorEntry(entityId, vector));
+                        group.internalReportIndexStateChange();
                     }
+                }
+                // The segments of a load may be due for a merge, a flagged one above all, which waited for
+                // the vectors it is rebuilt from.
+                this.scheduleMergeIfDue();
+            }
+        }
+
+        /**
+         * Imports or recovers the vectors of an index loaded from a layout before the vector file, if that has not
+         * happened yet. Called by the group when another of its indices did: its import flags the group, the next
+         * store then writes every index of it, and a record still carrying its 4.x vector store must not be
+         * written (see {@link BinaryHandlerVectorIndexDefault}). Under the parent monitor.
+         */
+        void importLegacyLayout()
+        {
+            if(this.legacyLayout)
+            {
+                this.ensureVectorsRecovered();
+            }
+        }
+
+        /**
+         * Imports the vectors of the vector store a computed index persisted before the vector file (see
+         * {@link BinaryLegacyTypeHandlerVectorIndexDefault}) into the file, in place of the recovery the open
+         * found necessary: the record carried no nonce, so the open replaced the file and would otherwise call
+         * the vectorizer once per entity, which for a vectorizer backed by an embedding service is one request
+         * per entity. Every non-null vector is written under its entity's ordinal, the chunks are marked
+         * repaired and the file recovered, the count follows the vectors, and the store is dropped; the next
+         * store of the map persists the current layout. Under the parent monitor, like the recovery.
+         * <p>
+         * The store is not trusted blindly. Up to 4.1.0 the index addressed it by position, and its ids drift from
+         * the entity ids once the index was added to a map with deletion holes: a remove then deleted another
+         * entity's entry and left its own (a ghost), an update overwrote another entity's entry and kept the old
+         * one (a duplicate, and an entity without an entry). A store can also be short of entities a 4.x failure
+         * never gave a vector. So an entry whose entity no longer exists is skipped, and when there was a ghost, a
+         * duplicate, or the entries do not match the entities in number, every entity without exactly one entry is
+         * repaired from the entity, as a recovery would: a field read for an embedded vectorizer, one call for a
+         * computed one, for those entities only. A consistent store, which every 4.2.0 one should be, costs no
+         * vectorizer call.
+         */
+        private void importLegacyVectorStore(final VectorFile file, final GigaMap<VectorEntry> legacy)
+        {
+            final long             startNanos  = System.nanoTime();
+            final int              perChunk    = file.slotsPerChunk();
+            final GigaMap<E>       map         = this.parentMap();
+            final long             highest     = map.highestUsedId();
+            final int[]            chunk       = {-1};
+            final long[]           imported    = {0L};
+            final long[]           ghosts      = {0L};
+            final java.util.BitSet seen        = new java.util.BitSet();
+            final java.util.BitSet conflicting = new java.util.BitSet();
+            legacy.iterate(entry ->
+            {
+                this.checkRecoveryNotClosing();
+                // An entry past the map's highest id, or of an id the map no longer holds, belongs to an entity
+                // that no longer exists: written, it would be found by search with no entity behind it.
+                if(entry.sourceEntityId > highest || map.get(entry.sourceEntityId) == null)
+                {
+                    ghosts[0]++;
+                    return;
+                }
+                final int ordinal = toOrdinal(entry.sourceEntityId);
+                if(seen.get(ordinal))
+                {
+                    // Which entry is the entity's current one cannot be told: the entity decides, below.
+                    conflicting.set(ordinal);
+                    return;
+                }
+                seen.set(ordinal);
+                if(entry.vector == null)
+                {
+                    // a null embedding was stored as a null vector and never had a slot
+                    return;
+                }
+                if(chunk[0] >= 0 && ordinal / perChunk != chunk[0])
+                {
+                    file.repaired(chunk[0]);
+                }
+                chunk[0] = ordinal / perChunk;
+                file.repair(ordinal, entry.vector, Vectorizer.NO_KEY);
+                imported[0]++;
+            });
+            if(chunk[0] >= 0)
+            {
+                file.repaired(chunk[0]);
+            }
+
+            // The count only tells when every entity must have a vector: with null embeddings allowed, 4.2.0 kept no
+            // entry for an entity without one, so a missing entry is legitimate there. Drift always leaves a ghost
+            // or a duplicate behind, which still triggers the pass.
+            final boolean     inconsistent = ghosts[0] > 0
+                || !conflicting.isEmpty()
+                || !this.vectorizer.allowsNullVectors() && seen.cardinality() != map.size();
+            final RepairCount repaired     = new RepairCount();
+            if(inconsistent)
+            {
+                final java.util.BitSet touched = new java.util.BitSet();
+                map.iterateIndexed((entityId, entity) ->
+                {
+                    final int ordinal = toOrdinal(entityId);
+                    if(seen.get(ordinal) && !conflicting.get(ordinal))
+                    {
+                        return;
+                    }
+                    if((repaired.slots & 0xFF) == 0)
+                    {
+                        this.checkRecoveryNotClosing();
+                    }
+                    this.repairSlot(file, ordinal, entity, repaired);
+                    touched.set(ordinal / perChunk);
                 });
+                for(int c = touched.nextSetBit(0); c >= 0; c = touched.nextSetBit(c + 1))
+                {
+                    file.repaired(c);
+                }
+            }
+            file.recovered();
+
+            if(this.keepsIndexFiles() || this.vectorizer.isEmbedded() || Boolean.getBoolean(DROP_LEGACY_VECTORS_PROPERTY))
+            {
+                this.legacyVectorStore = null;
             }
             else
             {
-                // Computed mode: rebuild from vector store. Null-vector entries are never
-                // stored, but keep a defensive filter in case of legacy data.
-                if(this.vectorStore != null && !this.vectorStore.isEmpty())
+                LOG.warn("Vector index '{}' imported the vectors of its 4.x vector store into a temporary file: it"
+                    + " has no index directory or location, and the current layout keeps no vectors in the storage."
+                    + " Storing it is refused until it has one (VectorIndices.changeIndexLocation), or until the"
+                    + " system property {}=true lets the store drop them, after which every start vectorizes every"
+                    + " entity.", this.name, DROP_LEGACY_VECTORS_PROPERTY);
+            }
+            this.vectorCount       = inconsistent ? countPresent(file) : imported[0];
+            if(this.keepsIndexFiles())
+            {
+                this.vectorFileNonce = file.nonce();
+            }
+            this.markContentChanged();
+            if(inconsistent)
+            {
+                LOG.warn("The 4.x vector store of '{}' did not match its entities: {} entries of entities that no"
+                    + " longer exist skipped; {} entities with more than one entry and {} without one re-vectorized"
+                    + " from the entities",
+                    this.name, ghosts[0], conflicting.cardinality(), repaired.slots - conflicting.cardinality());
+            }
+            if(repaired.dropped > 0)
+            {
+                LOG.error("The vectorizer of '{}' returned no vector for {} entities that must have one: their"
+                    + " vectors are dropped. Vectorizer.vectorize must reproduce the vector of a persisted entity",
+                    this.name, repaired.dropped);
+            }
+            LOG.info("Imported the {} vectors of '{}' from its vector store into its vector file in {} ms; the next"
+                + " store of the map persists the index without the store",
+                this.vectorCount, this.name, (System.nanoTime() - startNanos) / 1_000_000L);
+        }
+
+        private void recoverVectors(final VectorFile file)
+        {
+            final VectorFile.Recovery recovery   = file.recovery();
+            final long                startNanos = System.nanoTime();
+            final RepairCount         repaired   = new RepairCount();
+            final long                before     = this.vectorCount;
+            final long                after;
+            if(recovery.fullRebuild())
+            {
+                final int perChunk = file.slotsPerChunk();
+                final int[] chunk  = {-1};
+                this.parentMap().iterateIndexed((entityId, entity) ->
                 {
-                    this.vectorStore.iterate(entry ->
+                    this.checkRecoveryNotClosing();
+                    final int ordinal = toOrdinal(entityId);
+                    if(chunk[0] >= 0 && ordinal / perChunk != chunk[0])
                     {
-                        if(entry.vector != null)
-                        {
-                            entries.add(entry);
-                        }
-                    });
+                        file.repaired(chunk[0]);
+                    }
+                    chunk[0] = ordinal / perChunk;
+                    this.repairSlot(file, ordinal, entity, repaired);
+                });
+                if(chunk[0] >= 0)
+                {
+                    file.repaired(chunk[0]);
+                }
+                after = repaired.present;
+            }
+            else
+            {
+                final long highest = this.parentMap().highestUsedId();
+                for(final int chunk : recovery.scanChunks())
+                {
+                    this.repairChunk(file, chunk, highest, true, repaired);
+                }
+                for(final int chunk : recovery.repairChunks())
+                {
+                    this.repairChunk(file, chunk, highest, false, repaired);
+                }
+                // A vectorizer that may return null can return it in breach of its contract too, for an entity
+                // that has a vector, and that drop is not counted: the slots are counted again instead.
+                after = repaired.slots > 0 && this.vectorizer.allowsNullVectors()
+                    ? countPresent(file)
+                    : before - repaired.dropped;
+            }
+            file.recovered();
+
+            if(repaired.dropped > 0)
+            {
+                LOG.error("The vectorizer of '{}' returned no vector for {} entities that must have one: their"
+                    + " vectors are dropped. Vectorizer.vectorize must reproduce the vector of a persisted entity",
+                    this.name, repaired.dropped);
+            }
+            if(recovery.fullRebuild() || repaired.slots > 0)
+            {
+                LOG.info("Recovered the vectors of '{}': {} slots repaired from the entities in {} ms",
+                    this.name, repaired.slots, (System.nanoTime() - startNanos) / 1_000_000L);
+            }
+            if(file.nonce() != this.vectorFileNonce && this.keepsIndexFiles())
+            {
+                // The record must name the file it now describes, or the next open takes it for foreign and
+                // re-vectorizes every entity again. Flagged up to the map, not only here: GigaMap.store() reaches
+                // a record only through flagged groups, and no mutation may follow to flag them. Not as a content
+                // change, whose mod count would make the loaded segments' witnesses stale.
+                this.vectorFileNonce = file.nonce();
+                this.markStateChangeInstance();
+                // An index loaded from a 4.x layout reports itself once this recovery is done (ensureVectorsRecovered);
+                // reported from here, still marked as such, the group would recover it a second time.
+                if(!this.legacyLayout && this.parent instanceof final VectorIndices.Default<E> group)
+                {
+                    group.internalReportIndexStateChange();
                 }
             }
+            if(after != before)
+            {
+                this.vectorCount = after;
+                this.markContentChanged();
+                this.dropLoadedSegments();
+            }
+        }
 
-            return entries;
+        /**
+         * Counts the slots of the vector file that hold a vector, skipping the chunks never created.
+         */
+        private static long countPresent(final VectorFile file)
+        {
+            final long[] count = {0L};
+            file.forEachPresent(ordinal ->
+            {
+                count[0]++;
+                return true;
+            });
+            return count[0];
+        }
+
+        /**
+         * Gives a recovery up once {@link #close()} has been requested: it runs under the monitor the close
+         * waits for, and vectorizing every entity can take long. What it repaired so far stays repaired; the
+         * rest is repaired at the next open, or by a later access if the close fails.
+         *
+         * @throws RebuildAbandonedException if a close has been requested
+         */
+        private void checkRecoveryNotClosing()
+        {
+            if(this.closeRequested)
+            {
+                throw new RebuildAbandonedException(this.name);
+            }
+        }
+
+        /**
+         * Repairs one hot chunk: only the slots written after the store, or half written, for an epoch scan,
+         * every ordinal up to the highest entity id otherwise.
+         */
+        private void repairChunk(
+            final VectorFile  file    ,
+            final int         chunk   ,
+            final long        highest ,
+            final boolean     scanOnly,
+            final RepairCount repaired
+        )
+        {
+            final long first = (long)chunk * file.slotsPerChunk();
+            // The whole chunk, not up to the file's highest ordinal: a recreated chunk reads as zeros, so the
+            // highest ordinal can lie below ordinals of it that still need their vectors back.
+            final long last  = Math.min(first + file.slotsPerChunk() - 1L, Integer.MAX_VALUE);
+            for(long position = first; position <= last; position++)
+            {
+                final int ordinal = (int)position;
+                if((ordinal & 0xFF) == 0)
+                {
+                    this.checkRecoveryNotClosing();
+                }
+                if(position > highest)
+                {
+                    // No entity can have this id: only a vector of a store rolled back past its additions
+                    // is left to remove. Zero slots are skipped, so a chunk's empty tail costs no write.
+                    if(file.isPresent(ordinal) || file.needsRepair(ordinal))
+                    {
+                        this.repairSlot(file, ordinal, null, repaired);
+                    }
+                    continue;
+                }
+                if(scanOnly && !file.needsRepair(ordinal))
+                {
+                    continue;
+                }
+                this.repairSlot(file, ordinal, this.parentMap().get(position), repaired);
+            }
+            file.repaired(chunk);
+        }
+
+        /**
+         * Writes what the entity's vectorizer returns into the slot, at the store epoch. A vectorizer that
+         * fails is not caught: recovery is retried at the next access. One that returns no vector, or an
+         * invalid one, for an entity that must have one breaks its contract; the vector is dropped and
+         * counted.
+         */
+        private void repairSlot(
+            final VectorFile  file    ,
+            final int         ordinal ,
+            final E           entity  ,
+            final RepairCount repaired
+        )
+        {
+            float[] vector = null;
+            long    key    = Vectorizer.NO_KEY;
+            if(entity != null)
+            {
+                key    = this.vectorizer.vectorKey(entity);
+                vector = this.vectorizer.vectorize(entity);
+                if(vector != null)
+                {
+                    try
+                    {
+                        this.validateVector(vector);
+                    }
+                    catch(final IllegalStateException e)
+                    {
+                        LOG.error("Dropping the vector of entity {} of '{}': {}", ordinal, this.name, e.getMessage());
+                        vector = null;
+                    }
+                }
+                if(vector == null && !this.vectorizer.allowsNullVectors())
+                {
+                    repaired.dropped++;
+                }
+            }
+            // Nothing to keep and nothing to clear: like an add, an entity without a vector writes no slot, so a
+            // full rebuild does not create chunks across the ids of vector-less entities only to hold empty ones.
+            final boolean empty = vector == null
+                && key == Vectorizer.NO_KEY
+                && !file.isPresent(ordinal)
+                && file.key(ordinal) == Vectorizer.NO_KEY
+                && !file.needsRepair(ordinal);
+            if(!empty)
+            {
+                file.repair(ordinal, vector, key);
+            }
+            repaired.slots++;
+            if(vector != null)
+            {
+                repaired.present++;
+            }
+        }
+
+        /**
+         * Counts what a recovery did.
+         */
+        private static final class RepairCount
+        {
+            long slots  ;
+            long present;
+            long dropped;
+        }
+
+        /**
+         * Drops the segments an on-disk index loaded, after a recovery changed the vector count they were
+         * accepted with: the graph is rebuilt from the vector file into the live graph instead, and the next
+         * persist replaces the files. The same state a rejected load leaves. Under the parent monitor, before
+         * the first search, so nothing holds the segments yet.
+         */
+        private void dropLoadedSegments()
+        {
+            final SourceSet set = this.sources;
+            if(set == null || set.segments().isEmpty() && set.frozen().isEmpty())
+            {
+                return;
+            }
+            LOG.warn("Dropping the loaded segments of '{}': the vectors recovered from the entities no longer match"
+                + " them, so the graph is rebuilt from the vector file", this.name);
+            this.retireSources();
+            final OwnerTable owners = OwnerTable.New();
+            this.liveLease = owners.allocate();
+            owners.liveSlot(this.liveLease.slot());
+            synchronized(this.commitLock)
+            {
+                this.sources = new SourceSet(List.of(), List.of(), owners);
+            }
+            this.committedWitness = null;
+            this.forceFlush       = true;
+            this.graphRebuilt     = false;
+            if(this.backgroundTaskManager != null)
+            {
+                this.backgroundTaskManager.markPersistRequired();
+            }
         }
 
         private void initializeIndex()
         {
             // First, before anything is built: an unbound location name must fail here and leave nothing
             // behind, or a present in-memory builder would make the half-initialized index look ready.
-            if(this.configuration.onDisk())
+            if(this.keepsIndexFiles())
             {
                 this.indexDirectoryForDisk();
             }
@@ -1783,16 +2982,45 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.builderLock = new ReentrantReadWriteLock();
             }
-            if(this.deferredBuilderOps == null)
+            if(this.structureLock == null)
             {
-                this.deferredBuilderOps = new ConcurrentLinkedQueue<>();
+                this.structureLock = new ReentrantReadWriteLock();
+            }
+            // Kept across removeAll, which re-initializes; again after a close that failed past the shutdown.
+            final ForkJoinPool pool = this.insertPool;
+            if(pool == null || pool.isShutdown())
+            {
+                final ForkJoinPool created = ParallelGraphInsertion.newPool("vector-insert-" + this.name);
+                this.insertPool         = created;
+                // The action captures the pool only, never this index, or the index could not become unreachable.
+                this.insertPoolShutdown = INSERT_POOL_CLEANER.register(this, created::shutdown);
+            }
+            // Kept across removeAll, which re-initializes: a flush still writing for the generation it
+            // discards must not share sequences, a permit or a commit lock with the new one.
+            if(this.segmentSequences == null)
+            {
+                this.segmentSequences = new SegmentSequences();
+            }
+            if(this.flushPermit == null)
+            {
+                this.flushPermit = new Semaphore(1);
+            }
+            if(this.commitLock == null)
+            {
+                this.commitLock = new Object();
+            }
+            if(this.mergePermit == null)
+            {
+                this.mergePermit    = new Semaphore(1);
+                this.mergeScheduled = new AtomicBoolean();
             }
 
-            // Reset the computed-mode fast lookup index; it is (re)built lazily on first access
-            // (see computedIdIndex()). Clearing here covers reinitialization after internalRemoveAll,
-            // where a stale table would otherwise survive. A non-incremental graph rebuild that follows
-            // triggers the lazy build itself via lookupComputedVector() during node scoring.
-            this.computedIdIndex = null;
+            // Opened once and kept across removeAll, which re-initializes: pure file I/O, so it may run in
+            // complete(). The repairs it may need read entities and run on first access instead.
+            if(this.vectorFile == null)
+            {
+                this.openVectorFile();
+            }
 
             // Initialize the compression managers for whichever format dimensions are configured on.
             // Both must exist before the tryLoad() below, which adopts their quantizers from the
@@ -1823,40 +3051,60 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Try to load from disk if on-disk mode is enabled
             if(this.configuration.onDisk())
             {
-                this.diskManager = new DiskIndexManager.Default(
-                    this,
-                    this.name,
-                    this.indexDirectoryForDisk(),
-                    this.configuration.dimension(),
-                    GraphFormat.of(this.configuration),
-                    this.configuration.parallelOnDiskWrite()
-                );
-                final DiskIndexManager.MetaState liveMeta = this.currentMetaState();
-                if(this.diskManager.tryLoad(liveMeta))
+                this.diskManager = this.newDiskManager();
+                this.logFilesOfTheLayoutBeforeSegments();
+                // Before the load, which deletes what it cannot use.
+                final boolean                       indexFilesExisted = this.diskManager.indexFilesExist();
+                final DiskIndexManager.MetaState    liveMeta          = this.currentMetaState();
+                final OwnerTable                    owners            = OwnerTable.New();
+                final DiskIndexManager.LoadedIndex  loaded            =
+                    this.diskManager.load(liveMeta, owners, !this.reloadingAfterRemoveAll);
+                final List<DiskSegment>             segments;
+                if(loaded != null)
                 {
                     // Recover the codebook the loaded graph was actually written with, rather than
                     // assuming one is present. A graph written before compression was enabled - or
                     // written while too few vectors existed to train - carries no FusedPQ, and
                     // claiming otherwise would leave the manager "trained" with a null codebook,
                     // permanently suppressing training while every persist wrote uncompressed.
-                    this.adoptCompressorsFromLoadedGraph();
+                    this.adoptCompressorsFromLoadedGraph(loaded);
+                    segments              = loaded.segments();
+                    this.committedWitness = liveMeta;
 
-                    // Enter incremental on-disk mode: disk index serves search,
-                    // in-memory builder only handles new mutations.
-                    // Set state fields first, then flip incrementalMode last for safe publication.
-                    this.diskDeletedOrdinals = this.newDiskDeletedOrdinals();
-                    this.diskGraphMeta       = liveMeta;
-                    this.incrementalMode     = true;
-                    LOG.info("Entering incremental on-disk mode for '{}' — skipping full graph rebuild", this.name);
+                    // The segments hold the graph; the live in-memory graph starts empty and takes the
+                    // mutations from here on, so there is nothing to rebuild.
+                    this.graphRebuilt = true;
+                    LOG.info("Loaded the on-disk index of '{}' with {} segments, no graph rebuild needed",
+                        this.name, segments.size());
+
+                    // A segment written for another format is searchable, but only exactly, until a
+                    // background merge rewrites it. The merge reads the vector file, so it starts once the
+                    // vectors are recovered, on the first access (see ensureVectorsRecovered), and the next
+                    // persist commits it.
+                    if(loaded.hasFlaggedSegments())
+                    {
+                        LOG.info("The on-disk index of '{}' has segments that no longer match its configuration;"
+                            + " they are searched exactly until a background merge rewrites them", this.name);
+                    }
                 }
                 else
                 {
                     LOG.info("Could not load disk index for '{}', will build in-memory and persist later", this.name);
+                    segments              = List.of();
+                    this.committedWitness = null;
 
-                    // Distinguish "a persisted index was rejected" from "nothing persisted yet":
-                    // only the former leaves stale files that the rebuilt graph has to replace.
-                    diskRebuildPending = this.diskManager.indexFilesExist();
+                    // A rejected manifest leaves stale files the rebuilt graph has to replace. Without one, vectors
+                    // that exist (a 4.x layout, or sessions that ended before their first persist) are rebuilt
+                    // from the vector file at every start until a persist writes them, and a merely searched
+                    // index counts no change that would schedule one. Only an index without a vector has nothing
+                    // to persist yet.
+                    diskRebuildPending = indexFilesExisted || this.vectorCount > 0L || this.legacyLayout;
                 }
+                this.liveLease = owners.allocate();
+                owners.liveSlot(this.liveLease.slot());
+                this.sources   = new SourceSet(segments, List.of(), owners);
+                // The set is the first holder of the segments, see IndexSource.
+                this.forceFlush = diskRebuildPending;
             }
 
             // Initialize searcher pool
@@ -1865,17 +3113,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Start background managers if enabled
             this.startBackgroundManagersIfEnabled();
 
-            // A rejected load is not a change, so nothing would otherwise schedule the persist that
-            // replaces the stale files: background persistence waits for its change threshold and the
+            // A rejected or missing load is not a change, so nothing would otherwise schedule the persist that
+            // writes the rebuilt graph: background persistence waits for its change threshold and the
             // shutdown persist for a non-zero count. Left alone, a read-mostly index would rebuild
             // from the store on every restart, which is exactly what the format bump was supposed to
             // cost only once. Must follow the start above, since the manager does not exist before it.
             //
             // This only reaches indices that run a background task manager - without one there is
             // nothing to schedule against. Such an index is not stranded, though: close() calls
-            // doPersistToDisk directly for it, and a rejected load leaves incrementalMode false, so
-            // that persist proceeds and replaces the files. The gap is a process that is killed
-            // rather than closed, which repeats the rebuild on the next start.
+            // doPersistToDisk directly for it, which flushes the rebuilt graph over the rejected files.
+            // The gap is a process that is killed rather than closed, which repeats the work on the next
+            // start.
             if(diskRebuildPending && this.backgroundTaskManager != null)
             {
                 this.backgroundTaskManager.markPersistRequired();
@@ -1938,26 +3186,46 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void initializeInMemoryBuilder()
         {
-            final RandomAccessVectorValues vectorValues = new NullSafeVectorValues(
-                this.createVectorValues(), this.configuration.dimension(), this.vectorTypeSupport
-            );
-
             // Construction dominates the vector-lookup cost of an in-memory index: it performs
-            // thousands of comparisons per insertion, each one a lookup through the uncached view
-            // above, and the count per insertion grows as the graph deepens. Scoring from the codes
-            // replaces every one of those with an in-heap read.
+            // thousands of comparisons per insertion, each one a copy out of the vector file, and the
+            // count per insertion grows as the graph deepens. Scoring from the codes replaces every one
+            // of those with an in-heap read.
             //
             // The codes have to exist first, which is why this is not the state a new index starts
             // in. The switch does not come through here at all - performPqSwitch constructs its
             // replacement itself - so this branch serves the paths that rebuild an index that has
             // already switched, where the codes are present and populated.
-            final MutablePQVectors pqVectors = this.inMemoryPqVectors;
+            final MutablePQVectors       pqVectors = this.inMemoryPqVectors;
+            final GenerationVectorValues vectors   =
+                new GenerationVectorValues(this.vectorFile, this.vectorTypeSupport);
             final BuildScoreProvider scoreProvider = pqVectors != null
                 ? BuildScoreProvider.pqBuildScoreProvider(this.jvectorSimilarityFunction(), pqVectors)
-                : BuildScoreProvider.randomAccessScoreProvider(vectorValues, this.jvectorSimilarityFunction())
+                : BuildScoreProvider.randomAccessScoreProvider(
+                    this.nullSafe(vectors), this.jvectorSimilarityFunction()
+                )
             ;
 
-            this.builder = new GraphIndexBuilder(
+            this.liveVectorValues = vectors;
+            this.builder = this.newGraphIndexBuilder(scoreProvider);
+            this.index = (OnHeapGraphIndex)this.builder.getGraph();
+        }
+
+        /**
+         * Creates an empty graph builder with this index's configured graph parameters.
+         * <p>
+         * jVector 4.0.1 deprecates its constructors in favour of {@code GraphIndexBuilder.builder(...)},
+         * but that builder takes {@code addHierarchy} and {@code refineFinalGraph} from
+         * {@code GraphIndexBuilderConfig}, a process-wide singleton that can be changed at runtime through
+         * JMX. The constructor pins both per index (a hierarchical graph, refined at the end), so an index
+         * builds the same graph whatever another component of the process has configured.
+         *
+         * @param scoreProvider how the builder scores candidate neighbors
+         * @return a new, empty builder
+         */
+        @SuppressWarnings("deprecation")
+        private GraphIndexBuilder newGraphIndexBuilder(final BuildScoreProvider scoreProvider)
+        {
+            return new GraphIndexBuilder(
                 scoreProvider,
                 this.configuration.dimension(),
                 this.configuration.maxDegree(),
@@ -1966,71 +3234,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.configuration.alpha(),
                 true // use hierarchical index
             );
-            this.index = (OnHeapGraphIndex)this.builder.getGraph();
         }
 
         /**
-         * Initializes the thread-local searcher pool.
+         * Initializes the thread-local searcher pool of the in-memory graph. Each disk segment has a
+         * pool of its own (see {@link DiskSegment#searcher()}), which lives as long as the segment.
          */
         private void initializeSearcherPool()
         {
             // Close existing pools if present
             this.closeSearcherPools();
 
-            final boolean diskLoaded = this.diskManager != null && this.diskManager.isLoaded();
-
-            if(this.incrementalMode && diskLoaded && this.diskManager.getDiskIndex() != null)
+            if(this.index != null)
             {
-                // Incremental mode: two pools — disk searcher for existing data,
-                // in-memory searcher for newly added data
-                final var diskIndex = this.diskManager.getDiskIndex();
-                this.diskSearcherPool = ExplicitThreadLocal.withInitial(() ->
-                {
-                    try
-                    {
-                        return new GraphSearcher(diskIndex);
-                    }
-                    catch(final Exception e)
-                    {
-                        throw new RuntimeException("Failed to create GraphSearcher for disk index", e);
-                    }
-                });
-
-                // In-memory pool for the builder's graph (new mutations)
-                if(this.index != null)
-                {
-                    this.inMemorySearcherPool = ExplicitThreadLocal.withInitial(() ->
-                    {
-                        try
-                        {
-                            return new GraphSearcher(this.index);
-                        }
-                        catch(final Exception e)
-                        {
-                            throw new RuntimeException("Failed to create GraphSearcher for in-memory index", e);
-                        }
-                    });
-                }
-            }
-            else if(diskLoaded && this.diskManager.getDiskIndex() != null)
-            {
-                // Non-incremental disk mode: single pool for disk index
-                final var diskIndex = this.diskManager.getDiskIndex();
-                this.inMemorySearcherPool = ExplicitThreadLocal.withInitial(() ->
-                {
-                    try
-                    {
-                        return new GraphSearcher(diskIndex);
-                    }
-                    catch(final Exception e)
-                    {
-                        throw new RuntimeException("Failed to create GraphSearcher for disk index", e);
-                    }
-                });
-            }
-            else if(this.index != null)
-            {
-                // In-memory only pool
                 this.inMemorySearcherPool = ExplicitThreadLocal.withInitial(() ->
                 {
                     try
@@ -2050,19 +3266,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void closeSearcherPools()
         {
-            if(this.diskSearcherPool != null)
-            {
-                try
-                {
-                    this.diskSearcherPool.close();
-                }
-                catch(final Exception e)
-                {
-                    LOG.warn("Error closing disk searcher pool: {}", e.getMessage());
-                }
-                this.diskSearcherPool = null;
-            }
-
             if(this.inMemorySearcherPool != null)
             {
                 try
@@ -2082,12 +3285,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // methods //
         ////////////
 
-        private static int toOrdinal(final long entityId)
+        /**
+         * Returns the graph ordinal of an entity id. The highest ordinal is {@code Integer.MAX_VALUE - 1}: the
+         * vector values are bounded by the highest ordinal plus one, which must fit an int, so an id that would
+         * make every scoring and segment write fail later is rejected here, before anything is written.
+         *
+         * @throws IllegalStateException if the id is {@code Integer.MAX_VALUE} or above
+         */
+        static int toOrdinal(final long entityId)
         {
-            if(entityId > Integer.MAX_VALUE)
+            if(entityId >= Integer.MAX_VALUE)
             {
                 throw new IllegalStateException(
-                    "Entity ID " + entityId + " exceeds maximum supported value of " + Integer.MAX_VALUE
+                    "Entity ID " + entityId + " exceeds maximum supported value of " + (Integer.MAX_VALUE - 1)
                 );
             }
             return (int)entityId;
@@ -2198,11 +3408,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
-        private boolean isEmbedded()
-        {
-            return this.vectorizer.isEmbedded();
-        }
-
         @Override
         public final GigaMap<E> parentMap()
         {
@@ -2211,7 +3416,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * Records a graph-affecting content change: bumps the persisted {@link #structuralModCount}
-         * (the crash-restart witness stamped into the disk {@code .meta}) and marks the index dirty
+         * (the crash-restart witness stamped into the disk manifest) and marks the index dirty
          * for the next persist. Use in place of {@link #markStateChangeChildren()} at content
          * mutation sites (add / remove / vec↔null transition); do NOT use it for {@code optimize()},
          * which reshapes the graph without changing logical content and must not force a rebuild.
@@ -2219,8 +3424,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * Marks BOTH the instance and children dirty: {@code structuralModCount} is a field of this
          * instance, so it is only re-serialized when the instance itself is flagged
          * AbstractStateChangeFlagged#isInstanceNewOrChanged() gates {@code internalStore}) —
-         * {@code markStateChangeChildren()} alone would persist only children (e.g. the computed-mode
-         * {@code vectorStore}) and silently drop the counter.
+         * {@code markStateChangeChildren()} alone would persist only children and silently drop the
+         * counter, and with it the vector count.
          */
         private void markContentChanged()
         {
@@ -2300,8 +3505,114 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalReplaceConfiguration(final VectorIndexConfiguration configuration)
         {
+            // Marking the record dirty persists it in the current layout; an index loaded from a layout before
+            // the vector file must have imported its vector store first, or the next store drops the vectors.
+            this.ensureVectorsRecovered();
             this.configuration = notNull(configuration);
             this.markStateChangeInstance();
+        }
+
+        @Override
+        public void internalAssignFirstLocation(final VectorIndexConfiguration configuration)
+        {
+            notNull(configuration);
+            if(!this.builderLock.isWriteLockedByCurrentThread())
+            {
+                throw new IllegalStateException("Vector index \"" + this.name + "\": internalAssignFirstLocation()"
+                    + " must be called via VectorIndices.changeIndexLocation, which acquires its write lock first.");
+            }
+            if(this.vectorizer.isEmbedded() || this.keepsIndexFiles())
+            {
+                throw new IllegalStateException("Vector index \"" + this.name + "\" is no computed in-memory index"
+                    + " without an index location.");
+            }
+            if(this.closed || this.closeRequested)
+            {
+                // Before anything is initialized: an access would bring the closed index back.
+                throw new IllegalStateException("Vector index \"" + this.name + "\" is closed.");
+            }
+            this.ensureIndexInitialized();
+            this.ensureVectorsRecovered();
+
+            final VectorIndexConfiguration previous  = this.configuration;
+            final VectorFile               temporary = this.vectorFile;
+            this.configuration     = configuration;
+            this.resolvedDirectory = null;
+            final VectorFile relocated;
+            try
+            {
+                // A fresh file at the store epoch the record carries, as the import of a 4.x store into an index
+                // directory makes it: written by repairs at that epoch, it is consistent with the record the next
+                // store writes, which carries its nonce. An older file of the index there is replaced.
+                relocated = VectorFile.open(
+                    this.indexDirectoryForDisk(),
+                    this.name,
+                    this.configuration.dimension(),
+                    this.checkedVectorChunkBytes(),
+                    0L,
+                    this.vectorFileEpoch,
+                    "vector index '" + this.name + "'"
+                );
+            }
+            catch(final RuntimeException | Error e)
+            {
+                this.configuration     = previous;
+                this.resolvedDirectory = null;
+                throw e;
+            }
+            try
+            {
+                copyVectors(temporary, relocated);
+            }
+            catch(final RuntimeException | Error e)
+            {
+                this.configuration     = previous;
+                this.resolvedDirectory = null;
+                relocated.closeAndDelete();
+                throw e;
+            }
+            relocated.checkpointInterval(this.configuration.vectorCheckpointIntervalMs());
+
+            // From here on the index runs on the relocated file. Like removeAll: the pending operations are stale,
+            // and the graph, built on the temporary file, is rebuilt from the relocated one at the next access.
+            if(this.backgroundTaskManager != null)
+            {
+                this.backgroundTaskManager.shutdownWithoutWaiting();
+                this.backgroundTaskManager = null;
+            }
+            this.closeInternalResources();
+            this.vectorFile        = relocated;
+            this.vectorsRecovered  = true;
+            this.vectorFileNonce   = relocated.nonce();
+            this.legacyVectorStore = null;
+            temporary.close();
+            this.initializeIndex();
+            this.markStateChangeInstance();
+        }
+
+        /**
+         * Copies every present vector with its key from {@code source} into {@code target} by repairs, chunk by
+         * chunk, and ends the target's recovery.
+         */
+        private static void copyVectors(final VectorFile source, final VectorFile target)
+        {
+            final int   perChunk = target.slotsPerChunk();
+            final int[] chunk    = {-1};
+            source.forEachPresent(ordinal ->
+            {
+                if(chunk[0] >= 0 && ordinal / perChunk != chunk[0])
+                {
+                    target.repaired(chunk[0]);
+                }
+                chunk[0] = ordinal / perChunk;
+                target.repair(ordinal, source.read(ordinal), source.key(ordinal));
+                return true;
+            });
+            if(chunk[0] >= 0)
+            {
+                target.repaired(chunk[0]);
+            }
+            target.recovered();
         }
 
         private io.github.jbellis.jvector.vector.VectorSimilarityFunction jvectorSimilarityFunction()
@@ -2320,20 +3631,45 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * parent map already holds - its single population path (see the constructor).
          * <p>
          * Without eventual indexing the graph is built here, synchronously. With eventual indexing only the
-         * vectors are computed and validated here, and the graph is built in the background once the index
-         * is registered ({@link #internalAddBackfilled(List)}), so registration does not wait for it. Either
-         * way every entity's own vector is computed here, so a throwing vectorizer leaves nothing behind but
-         * this unregistered instance, which the caller discards ({@link #internalDiscard(Throwable)}).
+         * vectors are computed, validated and written to the vector file here, and the graph is built in the
+         * background once the index is registered ({@link #internalAddBackfilled(int[])}), so registration
+         * does not wait for it. Either way every entity's own vector is computed here, so a throwing
+         * vectorizer leaves nothing behind but this unregistered instance, which the caller discards
+         * ({@link #internalDiscard(Throwable)}) together with its vector file.
          * <p>
          * Must be called with the parent-map monitor held.
          *
-         * @return with eventual indexing the entries to add after registration, otherwise {@code null}
+         * @return with eventual indexing the ordinals to add after registration, otherwise {@code null}
          */
-        List<VectorEntry> internalBackfill()
+        int[] internalBackfill()
         {
             if(this.configuration.eventualIndexing())
             {
-                return this.collectParentVectors();
+                final VectorFile file   = this.vectorFile;
+                final int[][]    holder = {new int[16]};
+                final int[]      size   = {0};
+                this.parentMap().iterateIndexed((entityId, entity) ->
+                {
+                    // validates the id range on this thread, as internalAdd does
+                    final int     ordinal = toOrdinal(entityId);
+                    final float[] vector  = this.vectorize(entity);
+                    final long    key     = this.vectorizer.vectorKey(entity);
+                    if(vector == null)
+                    {
+                        if(key != Vectorizer.NO_KEY)
+                        {
+                            this.writeSlot(file, ordinal, null, key);
+                        }
+                        return;
+                    }
+                    this.writeSlot(file, ordinal, vector, key);
+                    if(size[0] == holder[0].length)
+                    {
+                        holder[0] = Arrays.copyOf(holder[0], size[0] * 2);
+                    }
+                    holder[0][size[0]++] = ordinal;
+                });
+                return Arrays.copyOf(holder[0], size[0]);
             }
 
             // No manager exists yet, so the adds below build the graph synchronously and their changes are
@@ -2345,26 +3681,55 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Computes and validates the vector of every entity of the parent map, changing nothing.
-         * Must be called with the parent-map monitor held.
+         * Computes and validates the vector of every entity of the parent map, changing nothing: a vectorizer
+         * that throws for one entity leaves the index as it was. The vectors stay on the heap until the rebuild
+         * writes them, as the vector store held them before: written into the vector file now, the removeAll of
+         * the rebuild would make them absent again. Must be called with the parent-map monitor held.
          */
-        private List<VectorEntry> collectParentVectors()
+        private CollectedVectors collectParentVectors()
         {
-            final List<VectorEntry> entries = new ArrayList<>();
+            final CollectedVectors collected = new CollectedVectors();
             this.parentMap().iterateIndexed((entityId, entity) ->
             {
                 // validates the id range on this thread, as internalAdd does
-                toOrdinal(entityId);
-                entries.add(new VectorEntry(entityId, this.vectorize(entity)));
+                final int ordinal = toOrdinal(entityId);
+                collected.add(ordinal, this.vectorize(entity), this.vectorizer.vectorKey(entity));
             });
-            return entries;
+            return collected;
+        }
+
+        /**
+         * The vectors of a computed reindex between its validation pass and its rebuild: ordinal, vector
+         * ({@code null} for an entity without one) and vector key per entity, in parent-map order.
+         */
+        private static final class CollectedVectors
+        {
+            int[]     ordinals = new int[16]    ;
+            float[][] vectors  = new float[16][];
+            long[]    keys     = new long[16]   ;
+            int       size                      ;
+
+            void add(final int ordinal, final float[] vector, final long key)
+            {
+                if(this.size == this.ordinals.length)
+                {
+                    final int capacity = this.size * 2;
+                    this.ordinals = Arrays.copyOf(this.ordinals, capacity);
+                    this.vectors  = Arrays.copyOf(this.vectors , capacity);
+                    this.keys     = Arrays.copyOf(this.keys    , capacity);
+                }
+                this.ordinals[this.size] = ordinal;
+                this.vectors [this.size] = vector ;
+                this.keys    [this.size] = key    ;
+                this.size++;
+            }
         }
 
         @Override
         public void internalReindex()
         {
             // Before anything is dropped: a vectorizer that throws for one entity must leave the index as it was.
-            if(this.isEmbedded())
+            if(this.vectorizer.isEmbedded())
             {
                 // Validation only. The vectors live in the entities and are read from them again while re-adding,
                 // so keeping this pass's results would hold every vector a second time for a vectorizer that
@@ -2379,12 +3744,33 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return;
             }
 
-            // Computed: one vectorizer call per entity. The entries are kept and stored as they are, so this holds
-            // no more than the rebuilt vector store does anyway.
-            final List<VectorEntry> entries = this.collectParentVectors();
+            // Computed: one vectorizer call per entity, before anything is dropped. The vectors are kept on the
+            // heap for the rebuild, no more than the vector store held before.
+            final CollectedVectors collected = this.collectParentVectors();
 
             this.internalRemoveAll();
-            this.internalAddBackfilled(entries);
+
+            // The file survived the removeAll in place (every slot absent), so the vectors are written back under
+            // the ordinals the validation pass collected and their nodes added as internalAdd would, without a
+            // second vectorizer call. An entity without a vector keeps its key and counts, as in internalAdd.
+            final VectorFile file = this.vectorFile;
+            for(int i = 0; i < collected.size; i++)
+            {
+                final int     ordinal = collected.ordinals[i];
+                final float[] vector  = collected.vectors[i] ;
+                final long    key     = collected.keys[i]    ;
+                if(vector == null)
+                {
+                    if(key != Vectorizer.NO_KEY)
+                    {
+                        this.writeSlot(file, ordinal, null, key);
+                    }
+                    this.markWitnessChanged(1);
+                    continue;
+                }
+                this.writeSlot(file, ordinal, vector, key);
+                this.addWrittenVector(ordinal, vector);
+            }
         }
 
         @Override
@@ -2409,8 +3795,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * Keeps a new search out while GigaMap.removeAll() / reindex() wait for the write lock of this index's
-         * group. They only try the lock and wait on the parent-map monitor in between, so without this, searches
-         * overlapping each other would hold the read lock forever and the attempt would never succeed.
+         * group, or a freeze for a flush waits for it. They only try the lock while holding the parent-map monitor,
+         * so without this, searches overlapping each other would hold the read lock forever and the attempt would
+         * never succeed.
          * <p>
          * Does not wait on a thread that holds the parent-map monitor (the waiting writer cannot proceed before
          * that monitor is released, and holds no lock such a search needs), or that already holds the read lock
@@ -2420,16 +3807,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void awaitNoPendingExclusive()
         {
-            // the pending check first: it is a single volatile read, and almost always false
-            if(!(this.parent instanceof final VectorIndices.Internal<E> group)
-                || !group.internalIsExclusivePending()
+            // the pending check first: volatile reads, and almost always false
+            if(!this.isExclusivePending()
                 || this.builderLock.getReadHoldCount() > 0
                 || Thread.holdsLock(this.parentMap()))
             {
                 return;
             }
             final long deadline = System.nanoTime() + EXCLUSIVE_GATE_MAX_NANOS;
-            while(group.internalIsExclusivePending()
+            while(this.isExclusivePending()
                 && System.nanoTime() - deadline < 0
                 && !Thread.currentThread().isInterrupted())
             {
@@ -2438,10 +3824,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Rejects {@link #persistToDisk()} and {@link #optimize()} on a thread holding the parent-map monitor
-         * (inside {@code synchronized(map)} or {@code GigaMap.apply} logic). Their graph cleanup and disk write run
-         * on worker threads that, in embedded mode, read entities through that monitor, so the call would wait
-         * for itself; and they wait for the write lock, whose holders may need the monitor.
+         * Whether a writer tries the write lock while holding the parent monitor: GigaMap.removeAll() /
+         * reindex() for this index's group, or a freeze, an optimization or a close of this index (see
+         * {@link #exclusiveWaiters}).
+         */
+        private boolean isExclusivePending()
+        {
+            return this.exclusiveWaiters > 0
+                || this.parent instanceof final VectorIndices.Internal<E> group && group.internalIsExclusivePending();
+        }
+
+        /**
+         * Rejects {@link #persistToDisk()}, {@link #optimize()} and {@link #close()} on a thread holding the
+         * parent-map monitor (inside {@code synchronized(map)} or {@code GigaMap.apply} logic). They wait for the
+         * write lock, a flush or a merge in flight, whose holders may need the monitor, so the call could wait for
+         * itself.
          */
         private void ensureNotHoldingParentMonitor(final String operation)
         {
@@ -2482,25 +3879,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Adds the entries collected by {@link #internalBackfill()} with eventual indexing, once the index is
+         * Adds the ordinals collected by {@link #internalBackfill()} with eventual indexing, once the index is
          * registered and activated, one queued operation per entity - exactly as {@link #internalAdd} does.
          * Not batched: the worker catches failures per operation, so a failed insertion costs only its own
          * entity, and each operation holds the builder's read lock for a single insertion. Calls no
-         * vectorizer on this thread: the vectors are already computed, and the graph is built by the worker.
+         * vectorizer on this thread: the vectors are in the vector file already, and the graph is built by
+         * the worker.
          * <p>
          * Must be called with the parent-map monitor held.
          *
-         * @param entries the entries returned by {@link #internalBackfill()}
+         * @param ordinals the ordinals returned by {@link #internalBackfill()}
          */
-        void internalAddBackfilled(final List<VectorEntry> entries)
+        void internalAddBackfilled(final int[] ordinals)
         {
-            for(final VectorEntry entry : entries)
+            for(final int ordinal : ordinals)
             {
-                // opted-in null vectors: no embedding, neither stored nor a graph node
-                if(entry.vector != null)
-                {
-                    this.addVectorEntry(entry);
-                }
+                this.addWrittenVector(ordinal, null);
             }
         }
 
@@ -2516,8 +3910,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.builderLock.writeLock().lock();
             try
             {
-                this.deferredBuilderOps.clear();
                 this.closeInternalResources();
+                final VectorFile file = this.vectorFile;
+                this.vectorFile = null;
+                if(file != null)
+                {
+                    file.closeAndDelete();
+                }
             }
             catch(final Throwable t)
             {
@@ -2535,315 +3934,426 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             // Validates the id range before anything else happens.
-            toOrdinal(entityId);
+            final int ordinal = toOrdinal(entityId);
 
             this.ensureIndexInitialized();
 
             final float[] vector = this.vectorize(entity);
+            final long    key    = this.vectorizer.vectorKey(entity);
 
-            // Null vector (opted-in): the entity has no embedding — keep it out of the vector
-            // store and the graph entirely, so it never appears in search results.
+            // Null vector (opted-in): the entity has no embedding — keep it out of the graph entirely, so
+            // it never appears in search results. Its key is kept, so an update that leaves it without one
+            // skips the vectorizer.
             if(vector == null)
             {
+                if(key != Vectorizer.NO_KEY)
+                {
+                    this.writeSlot(this.vectorFile, ordinal, null, key);
+                }
+                this.markWitnessChanged(1);
                 return;
             }
 
-            this.addVectorEntry(new VectorEntry(entityId, vector));
+            this.writeSlot(this.vectorFile, ordinal, vector, key);
+            this.addWrittenVector(ordinal, vector);
         }
 
         /**
-         * Adds an entity whose non-null vector is already computed and validated: stores it (computed mode)
-         * and adds its graph node, deferred to the background worker with eventual indexing. Does not
-         * vectorize the entity itself; the synchronous graph insertion may still call the vectorizer for
-         * neighbours in embedded mode.
+         * Writes the vector of an ordinal to the vector file, or makes it absent, and keeps the vector
+         * count. Under the parent monitor, which makes this thread the file's only writer.
+         *
+         * @return whether the ordinal had a vector before
          */
-        private void addVectorEntry(final VectorEntry vectorEntry)
+        private boolean writeSlot(
+            final VectorFile file   ,
+            final int        ordinal,
+            final float[]    vector ,
+            final long       key
+        )
         {
-            final long entityId = vectorEntry.sourceEntityId;
-            final int  ordinal  = toOrdinal(entityId);
-
-            // Store based on vectorizer type
-            if(!this.isEmbedded())
+            final boolean wasPresent = file.isPresent(ordinal);
+            this.preserveForFrozenGenerations(file, ordinal);
+            file.write(ordinal, vector, key);
+            if(vector != null && !wasPresent)
             {
-                final long storeId = this.vectorStore.add(vectorEntry);
-                this.computedIdIndex().put(ordinal, storeId);
+                this.vectorCount++;
             }
+            else if(vector == null && wasPresent)
+            {
+                this.vectorCount--;
+            }
+            return wasPresent;
+        }
 
+        /**
+         * Hands the current vector of an ordinal about to be rewritten to every frozen generation that holds its
+         * node and is not written yet, so the flush writes the node as it was at the freeze (see
+         * {@link GenerationVectorValues}). Costs a volatile read unless a flush is in flight.
+         */
+        private void preserveForFrozenGenerations(
+            final VectorFile file   ,
+            final int        ordinal
+        )
+        {
+            final SourceSet published = this.sources;
+            if(published == null || published.frozen().isEmpty())
+            {
+                return;
+            }
+            // Acquired like a search does: a flush publishes on its own thread under the commit lock, not the
+            // monitor held here, and could otherwise release the set and close a generation this loop reads.
+            final SourceSet set = this.acquireSources();
+            if(set == null)
+            {
+                return;
+            }
+            try
+            {
+                final Runnable hook = this.preserveTestHook;
+                if(hook != null)
+                {
+                    hook.run();
+                }
+                float[] current = null;
+                boolean read    = false;
+                for(final HeapGeneration frozen : set.frozen())
+                {
+                    if(frozen.vectorValues().isFrozen() && frozen.graph().containsNode(ordinal))
+                    {
+                        if(!read)
+                        {
+                            current = file.read(ordinal);
+                            read    = true;
+                        }
+                        frozen.vectorValues().preserve(ordinal, current);
+                    }
+                }
+            }
+            finally
+            {
+                set.release();
+            }
+        }
+
+        /**
+         * Adds the graph node of an ordinal whose vector is in the vector file already, deferred to the
+         * background worker with eventual indexing. Does not vectorize the entity.
+         *
+         * @param ordinal the ordinal
+         * @param vector  its vector, or {@code null} to read it from the file
+         */
+        private void addWrittenVector(
+            final int     ordinal,
+            final float[] vector
+        )
+        {
             this.markContentChanged();
 
             if(this.isEventualIndexing())
             {
+                // The owner first, at enqueue: the operation is counted in the witnesses from now on,
+                // and a freeze before it is applied moves it into the frozen graph, whose slot this is.
+                this.setOwner(ordinal, true);
                 // Defer graph update to background thread
-                this.backgroundTaskManager.enqueueAdd(vectorEntry);
+                this.backgroundTaskManager.enqueueAdd(ordinal);
             }
             else
             {
-                // Drain any deferred builder ops before adding a new graph node.
-                if(!this.cleanupInProgress)
+                // Add to HNSW graph using entity ID as ordinal. Idempotent, since an add can name an
+                // ordinal the graph already carries, e.g. a re-added entity.
+                final VectorFloat<?> vf = vector != null
+                    ? this.vectorTypeSupport.createFloatVector(vector)
+                    : this.vectorOf(ordinal)
+                ;
+                if(vf != null)
                 {
-                    this.drainDeferredBuilderOps();
+                    this.internalAddGraphNodeIdempotent(this.builder, ordinal, vf);
                 }
-
-                // Add to HNSW graph using entity ID as ordinal. Idempotent: a deferred op may be
-                // drained into a builder that already carries the ordinal (internal #142).
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vectorEntry.vector);
-                this.executeOrDeferBuilderOp(() -> this.internalAddGraphNodeIdempotent(ordinal, vf));
+                // After the insert, so the entity is never missing from every source meanwhile.
+                this.setOwner(ordinal, true);
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
             }
+            this.requestFlushIfDue();
+        }
+
+        /**
+         * Sets which source of an on-disk index an entity is live in after a mutation: the live
+         * in-memory graph if it has a vector there now, nobody if it has none. Hides every other copy
+         * at once. Under the parent monitor; does nothing for an in-memory index.
+         *
+         * @param ordinal the entity's ordinal
+         * @param live    whether the entity is live in the live in-memory graph now
+         */
+        private void setOwner(
+            final int     ordinal,
+            final boolean live
+        )
+        {
+            final SourceSet set = this.sources;
+            if(set != null)
+            {
+                final OwnerTable owners = set.owners();
+                owners.set(ordinal, live ? owners.liveSlot() : SegmentOwners.NONE);
+            }
+        }
+
+        /**
+         * Starts a background flush once the live in-memory graph of an on-disk index has reached the
+         * flush threshold: frozen right here if that can be done at once (see
+         * {@link #tryFreezeForBackgroundFlush()}), otherwise by asking the background task manager for
+         * a persist run ahead of its schedule. Cheap enough for every mutation, under the parent monitor,
+         * and for every operation the eventual-indexing worker applies, without it.
+         */
+        private void requestFlushIfDue()
+        {
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            final GraphIndexBuilder     current = this.builder;
+            // Without background persistence only explicit and shutdown persists write, even with a
+            // manager running for eventual indexing or background optimization.
+            if(manager == null
+                || !this.configuration.backgroundPersistence()
+                || this.sources == null
+                || current == null
+                || graphOf(current).size(0) < this.configuration.flushThreshold())
+            {
+                return;
+            }
+            // While a flush holds the permit, a requested persist could only decline, and with eventual
+            // indexing every applied operation would ask again. The flush asks once it is done, see
+            // requestFlushIfStillDue.
+            final Semaphore permit = this.flushPermit;
+            if(permit == null || permit.availablePermits() == 0)
+            {
+                return;
+            }
+            if(!this.tryFreezeForBackgroundFlush())
+            {
+                manager.requestFlush();
+            }
+        }
+
+        /**
+         * Freezes the live graph for a background flush on the mutating thread, which holds the parent
+         * monitor already, and hands the write to the flush thread.
+         * <p>
+         * The background task thread has to win the monitor for a freeze, and the monitor is not fair:
+         * a sustained ingest that takes it again right after each batch can keep that thread waiting for
+         * as long as the ingest lasts, while the live graph grows far past the threshold. A mutation
+         * already holds the monitor, and the GigaMap updates its own state before it calls the indices,
+         * so the witnesses sampled here describe the state the mutation leaves.
+         * <p>
+         * Only ever tried, so a mutation is never held up for more than about one search: the flush
+         * permit and the write lock are tried, and so is the whole freeze - a compressor to train, a
+         * consolidation, a graph left frozen by a failed flush, or eventual indexing (whose lock comes
+         * before the monitor) leave it to the background task thread, which can wait for them.
+         *
+         * @return whether a flush was handed to the flush thread
+         */
+        private boolean tryFreezeForBackgroundFlush()
+        {
+            final SourceSet set = this.sources;
+            if(this.configuration.eventualIndexing()
+                || this.closed
+                || !Thread.holdsLock(this.parentMap())
+                || set == null
+                || !set.frozen().isEmpty()
+                || this.isCompressionTrainingPending()
+                || this.isConsolidationDue(set, true))
+            {
+                return false;
+            }
+            final Semaphore permit = this.flushPermit;
+            if(permit == null || !permit.tryAcquire())
+            {
+                return false;
+            }
+            FlushPlan plan = null;
+            try
+            {
+                plan = this.tryFreezeUnderPermit();
+            }
+            finally
+            {
+                if(plan == null)
+                {
+                    permit.release();
+                }
+            }
+            return plan != null && this.handOffFlush(plan, permit, false);
+        }
+
+        /**
+         * The freeze of {@link #tryFreezeForBackgroundFlush()}, with the flush permit held.
+         *
+         * @return the plan to hand to the flush thread, or {@code null} if nothing was frozen
+         */
+        private FlushPlan tryFreezeUnderPermit()
+        {
+            if(!this.tryLockBuilderBriefly())
+            {
+                return null;
+            }
+            final FlushPlan plan;
+            try
+            {
+                // Under the write lock, which close() and a flush's publication of the sources
+                // exclude: both checked again with the set the freeze replaces.
+                if(this.closed || this.sources == null)
+                {
+                    return null;
+                }
+                plan = this.freezeUnderLocks(PersistKind.BACKGROUND, false, this.sources, null, false);
+            }
+            finally
+            {
+                this.builderLock.writeLock().unlock();
+            }
+            return plan == FlushPlan.DECLINED ? null : plan;
+        }
+
+        /**
+         * Tries {@code builderLock.writeLock()} for a freeze on a thread that holds the parent monitor
+         * in the middle of a mutation, for at most {@link #INLINE_FREEZE_MAX_NANOS}: new searches hold
+         * back meanwhile, so the ones in flight drain. They can, whatever the vectorizer: a search reads
+         * its vectors from the vector file and never needs the monitor this thread holds.
+         */
+        private boolean tryLockBuilderBriefly()
+        {
+            final ReentrantReadWriteLock.WriteLock lock = this.builderLock.writeLock();
+            if(lock.tryLock())
+            {
+                return true;
+            }
+            EXCLUSIVE_WAITERS.incrementAndGet(this);
+            try
+            {
+                final long deadline = System.nanoTime() + INLINE_FREEZE_MAX_NANOS;
+                while(System.nanoTime() - deadline < 0)
+                {
+                    LockSupport.parkNanos(50_000L);
+                    if(lock.tryLock())
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            finally
+            {
+                EXCLUSIVE_WAITERS.decrementAndGet(this);
+            }
+        }
+
+        private boolean isCompressionTrainingPending()
+        {
+            return this.pqManager != null && this.isPqTrainingPending()
+                || this.nvqManager != null && this.isNvqTrainingPending();
         }
 
         @Override
         public void internalAddAll(final long firstEntityId, final Iterable<? extends E> entities)
         {
             // Collect vectors first (outside of main synchronized block)
-            final List<VectorEntry> entries = this.collectVectors(firstEntityId, entities);
+            final List<? extends E> list    = this.toList(entities);
+            final List<float[]>     vectors = this.vectorize(list);
 
-            if(!entries.isEmpty())
+            if(!vectors.isEmpty())
             {
-                this.addVectorEntries(entries);
+                final long[] keys = new long[list.size()];
+                for(int i = 0; i < keys.length; i++)
+                {
+                    keys[i] = this.vectorizer.vectorKey(list.get(i));
+                }
+                this.addVectors(firstEntityId, vectors, keys);
             }
         }
 
+        /**
+         * {@inheritDoc}
+         * <p>
+         * Both vectorizer modes take the same path: the vector file holds what the index was built from,
+         * so an update is a no-op whenever the slot already holds the new vector. With a
+         * {@link Vectorizer#vectorKey(Object) vector key} the vectorizer is not even called: an equal key
+         * means an equal vector. Without one the new vector is computed and compared with the slot's floats.
+         * Callers that touch unrelated entity fields (an adjacency list, say) would otherwise pay full
+         * graph repair per update.
+         */
         @Override
         public void internalUpdate(final long entityId, final E replacedEntity, final E entity)
         {
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
 
-            final float[]  vector   = this.vectorize(entity);
-            final int      ordinal  = toOrdinal(entityId);
-            final boolean  embedded = this.isEmbedded();
-
-            // Update the computed-mode vector store to reflect the new (possibly absent) vector.
-            // Keyed by source entity id (not positionally), so the four vec/null transitions map
-            // cleanly onto add / replace / remove.
-            boolean changed         = false;
-            boolean vectorUnchanged = false;
-            if(!embedded)
+            final int        ordinal = toOrdinal(entityId);
+            final VectorFile file    = this.vectorFile;
+            final long       key     = this.vectorizer.vectorKey(entity);
+            if(key != Vectorizer.NO_KEY && key == file.key(ordinal))
             {
-                // Resolve the store-internal id by source entity id via the fast index, then
-                // mutate via id-based ops (set / removeById / add), keeping the index in sync.
-                final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
-                final long storeId = computedIdIndex.get(ordinal);
-                if(vector == null)
-                {
-                    // vec→null: drop the stored entry so the entity is no longer indexed.
-                    // null→null: nothing stored, nothing to do.
-                    if(storeId != OrdinalStoreIdTable.ABSENT)
-                    {
-                        this.vectorStore.removeById(storeId);
-                        computedIdIndex.remove(ordinal);
-                        changed = true;
-                    }
-                }
-                else if(storeId != OrdinalStoreIdTable.ABSENT)
-                {
-                    // vec→vec (store-internal id unchanged). An update whose vector did not actually
-                    // change is a no-op for this index: unlike the embedded case there is no live
-                    // re-scoring from the entity, the stored vector IS the indexed value. Detect it
-                    // with one lazy store read and skip the store write, the graph repair
-                    // (markNodeDeleted + removeDeletedNodes + addGraphNode, two ForkJoinPool round
-                    // trips per level) and all the change bookkeeping. Callers that touch unrelated
-                    // entity fields (an adjacency list, say) would otherwise pay full graph repair
-                    // per update (internal #142), which is also what floods the deferred op queue.
-                    final VectorEntry existing = this.vectorStore.get(storeId);
-                    if(existing != null && Arrays.equals(existing.vector, vector))
-                    {
-                        vectorUnchanged = true;
-                    }
-                    else
-                    {
-                        this.vectorStore.set(storeId, new VectorEntry(entityId, vector));
-                        changed = true;
-                    }
-                }
-                else
-                {
-                    // null→vec: the entity gains an embedding.
-                    final long newStoreId = this.vectorStore.add(new VectorEntry(entityId, vector));
-                    computedIdIndex.put(ordinal, newStoreId);
-                    changed = true;
-                }
+                return;
             }
 
-            // Persisted structural-change witness: driven by the logical (id→vector) transition,
-            // NOT the in-memory graph op below. In incremental mode an embedded vec→null removes a
-            // disk-resident node the in-memory builder never held, so the graph-op flag would miss
-            // it (and the crash-restart rebuild would not trigger); classify embedded transitions
-            // from the old vector instead. Computed mode's store block above already set `changed`
-            // precisely (the four transitions map onto add / set / remove / no-op).
-            final boolean contentChanged;
-            if(embedded)
+            final float[] vector     = this.vectorize(entity);
+            final boolean wasPresent = file.isPresent(ordinal);
+            if(vector == null ? !wasPresent : file.holds(ordinal, vector))
             {
-                // A non-null new vector is always a change (null→vec or vec→vec). Only a null new vector
-                // needs the old vector — to tell vec→null (a change) from null→null (the only no-op) —
-                // so re-vectorize replacedEntity solely on that path, not on the common non-null update.
-                contentChanged = vector != null
-                    || (replacedEntity != null && this.vectorize(replacedEntity) != null);
+                // null→null, or the same vector: nothing for the graph or the witnesses. A new key is still
+                // kept, so the next update with it skips the vectorizer.
+                if(key != file.key(ordinal))
+                {
+                    file.write(ordinal, vector, key);
+                }
+                return;
             }
-            else
-            {
-                contentChanged = changed;
-            }
-
-            // In incremental mode, mark the ordinal as deleted from disk graph so disk search excludes
-            // the stale version immediately, regardless of whether indexing is synchronous or eventual.
-            // Gated on contentChanged: a null→null no-op has no stale disk version to exclude.
-            if(contentChanged)
-            {
-                this.recordDiskOrdinalSuperseded(ordinal);
-            }
+            this.writeSlot(file, ordinal, vector, key);
 
             if(this.isEventualIndexing())
             {
-                // Only a real (id→vector) transition needs background graph work. null→null is a no-op
-                // in both modes; contentChanged is the reliable synchronous witness (for embedded it is
-                // derived from the old vector above, so — unlike the raw graph-op flag — it is not racy
-                // against queued mutations). applyGraphUpdate then derives the actual transition
-                // (add / delete / delete+re-add) from the enqueued entry's vector nullness.
-                if(contentChanged)
-                {
-                    this.backgroundTaskManager.enqueueUpdate(new VectorEntry(entityId, vector));
-                }
+                // At enqueue, for the reason given in addWrittenVector. Its copies in segments and frozen
+                // graphs are hidden from now on; the live graph shows the entity as it holds it until the
+                // operation is applied, which is what eventual indexing promises.
+                this.setOwner(ordinal, vector != null);
+                this.backgroundTaskManager.enqueueUpdate(ordinal);
             }
             else
             {
-                // Drain any deferred builder ops (e.g. from a preceding addAll()) before
-                // modifying graph nodes. This avoids interleaving batch-add ops with
-                // delete+re-add ops, which can corrupt HNSW neighbor lists.
-                if(!this.cleanupInProgress)
-                {
-                    this.drainDeferredBuilderOps();
-                }
-
-                // Classify against ONE builder read, derived graph included: two separate reads of
-                // the volatile fields can straddle a persist's builder swap and answer from
-                // different graphs.
+                // One builder read, derived graph included: the in-memory PQ switch can publish a
+                // replacement between two separate reads of the volatile fields.
                 final GraphIndexBuilder currentBuilder = this.builder;
-                final OnHeapGraphIndex  currentGraph   = currentBuilder == null ? null : graphOf(currentBuilder);
-                final boolean           inGraph        = currentGraph != null && currentGraph.containsNode(ordinal);
-
                 if(vector == null)
                 {
-                    // vec→null / null→null: remove the node from the in-memory graph if present.
-                    // No removeDeletedNodes() — unnecessary (markNodeDeleted already excludes it
-                    // from liveNodes), and its ForkJoinPool would deadlock with the GigaMap
-                    // monitor we hold for embedded vectorizers.
-                    // Route through internalMarkOrdinalDeleted so a deferral drained after a persist
-                    // builder swap still records the deletion (via diskDeletedOrdinals) instead of
-                    // no-op'ing against the new empty builder. The pre-deferral inGraph check is no
-                    // longer sufficient on its own: in incremental mode a disk-only node is not in
-                    // the in-memory graph, so gating on it alone would queue nothing and the eager
-                    // diskDeletedOrdinals entry made above is wiped by the persist's mode swap,
-                    // leaving the stale disk node visible to search (internal #142). contentChanged
-                    // covers that case; inGraph is kept as well so a transition this method cannot
-                    // classify (a null replacedEntity) still clears the node it can see.
-                    if(contentChanged || inGraph)
-                    {
-                        this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
-                        changed = true;
-                    }
+                    // vec→null: hide every copy and remove the node from the live graph if present. No
+                    // removeDeletedNodes(): markNodeDeleted already excludes it from liveNodes. An entity
+                    // that lives only in a segment or a frozen graph is not in the live graph, and is hidden
+                    // by its owner.
+                    this.setOwner(ordinal, false);
+                    this.internalMarkOrdinalDeleted(currentBuilder, ordinal);
                 }
-                else if(embedded)
+                else
                 {
-                    // Three distinct embedded, non-null transitions, distinguished by graph state.
-                    // Note containsNode() alone is NOT enough: jvector's markNodeDeleted() only sets
-                    // a deleted bit and leaves the node in layer 0, so containsNode() stays true for
-                    // a marked-deleted node. A prior vec→null in this same session (without an
-                    // intervening optimize) leaves the node present-but-deleted, which is a third
-                    // case the plain !inGraph guard would silently mis-handle.
-                    //
-                    // The classification below only selects WHICH op to enqueue; each op re-derives
-                    // the graph state itself when it runs, because a deferred op can be drained into
-                    // a builder that was swapped in the meantime (internal #142).
-                    if(!inGraph)
-                    {
-                        // null→vec: the node was never added (or a prior optimize physically removed
-                        // it) — add it now. addGraphNode alone is monitor-safe (no removeDeletedNodes),
-                        // the same call internalAdd makes.
-                        final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                        this.executeOrDeferBuilderOp(() -> this.internalReaddGraphNode(ordinal, vf));
-                    }
-                    else if(currentGraph.getDeletedNodes().get(ordinal))
-                    {
-                        // vec→null→vec on the SAME entity: the node is still present but marked
-                        // deleted. Resurrect it by clearing the deleted bit — monitor-safe (no
-                        // ForkJoinPool), unlike removeDeletedNodes()+addGraphNode, whose workers
-                        // call parentMap.get() and would deadlock with the GigaMap monitor we hold.
-                        // The node keeps its (now stale) neighbor links and search re-scores it live
-                        // from the entity via EntityBackedVectorValues — identical to the vec→vec
-                        // "leave as-is" contract below; the next optimize/persist rebuilds connections.
-                        // Without this, the entity would stay excluded from liveNodes() forever.
-                        final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                        this.executeOrDeferBuilderOp(() -> this.internalResurrectGraphNode(ordinal, vf));
-                    }
-                    else
-                    {
-                        // vec→vec: leave the graph as-is — removeDeletedNodes() uses a ForkJoinPool
-                        // whose workers call parentMap.get(), deadlocking with the GigaMap monitor we
-                        // hold. The updated entity is already in the GigaMap, so
-                        // EntityBackedVectorValues returns the new vector during search, and the next
-                        // optimize/persist cycle rebuilds the graph connections.
-                        //
-                        // That contract rests on the vector being read LIVE from the entity at score
-                        // time, which is true of every scoring path but one. A PQ code is a copy made
-                        // when the node was indexed, so it does not follow the entity: left alone it
-                        // would keep scoring this node by the embedding it used to have, and the
-                        // entity would stop being findable by its new one. Refreshing the code is the
-                        // compressed equivalent of "search re-scores it live" - one encode, no pool,
-                        // and therefore monitor-safe.
-                        //
-                        // Queued unconditionally rather than only when codes already exist. During a
-                        // PQ switch there are none yet - they are published at the very end - so a
-                        // check here would skip the refresh for any update that lands while the
-                        // replacement is being built, and after the swap nothing would ever revisit
-                        // it: the switch does not run again once codes are present, so that entity
-                        // would be scored by its old embedding for the rest of the index's life.
-                        // trackPqCode is a no-op while there are no codes, so queueing always costs
-                        // nothing and is re-evaluated when the op actually runs.
-                        final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                        this.executeOrDeferBuilderOp(() -> this.trackPqCode(ordinal, vf));
-                    }
-                    changed = true;
-                }
-                else if(!vectorUnchanged)
-                {
-                    // Computed, non-null and actually different (vec→vec' or null→vec): vectors are
-                    // stored separately, so removeDeletedNodes() won't call parentMap.get().
-                    // Safe to inline.
+                    // vec→vec' or null→vec. The repair scores through the vector file, so its ForkJoin
+                    // workers never need the monitor this thread holds, whichever the vectorizer.
                     final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
-                    this.executeOrDeferBuilderOp(() -> this.internalReplaceGraphNode(ordinal, vf));
-                    changed = true;
+                    try
+                    {
+                        this.internalReplaceGraphNode(currentBuilder, ordinal, vf);
+                    }
+                    catch(final GraphReachability.NodesLostException e)
+                    {
+                        // A repair around the insert lost other nodes. This entity's owner must still follow
+                        // its new vector: live if the node is in the live graph, else hidden, never an older
+                        // copy with the old vector.
+                        this.setOwner(ordinal, currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal));
+                        throw e;
+                    }
+                    this.setOwner(ordinal, true);
                 }
-
-                if(changed)
-                {
-                    this.markDirtyForBackgroundManagers(1);
-                }
+                this.markDirtyForBackgroundManagers(1);
             }
 
-            // Bump the persisted structural-change counter + mark the index dirty whenever the
-            // logical mapping changed — independent of whether an in-memory graph op ran, so an
-            // incremental-mode disk-node deletion (embedded vec→null) is still recorded and forces
-            // a crash-restart rebuild. null→null is the only case that skips this.
-            if(contentChanged)
-            {
-                this.markContentChanged();
-            }
-        }
-
-        /**
-         * Collects and validates vectors from entities.
-         */
-        private List<VectorEntry> collectVectors(final long firstEntityId, final Iterable<? extends E> entities)
-        {
-            final List<float[]> vectors = this.vectorize(this.toList(entities));
-            return IntStream.range(0, vectors.size())
-                .mapToObj(i -> new VectorEntry(firstEntityId + i, vectors.get(i)))
-                .toList()
-            ;
+            this.markContentChanged();
+            this.requestFlushIfDue();
         }
 
         private List<? extends E> toList(final Iterable<? extends E> entities)
@@ -2862,63 +4372,82 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Adds vector entries to the index.
+         * Adds the vectors of consecutive entity ids, {@code null} for an entity without one.
          */
-        private void addVectorEntries(final List<VectorEntry> entriesIncludingNulls)
+        private void addVectors(
+            final long          firstEntityId,
+            final List<float[]> vectors      ,
+            final long[]        keys
+        )
         {
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
 
-            // Drop entries without a vector (opted-in null embeddings): they get neither a
-            // vector store entry nor a graph node, so they never appear in search results.
-            // The kept entries carry their own sourceEntityId, so filtering does not disturb
-            // id alignment.
-            final List<VectorEntry> entries = entriesIncludingNulls.stream()
-                .filter(e -> e.vector != null)
-                .toList()
-            ;
-
-            if(entries.isEmpty())
+            // Entities without a vector (opted-in null embeddings) get no graph node, so they never appear
+            // in search results.
+            final VectorFile file         = this.vectorFile;
+            final int[]      ordinals     = new int[vectors.size()];
+            final float[][]  addedVectors = new float[vectors.size()][];
+            int              count        = 0;
+            for(int i = 0; i < vectors.size(); i++)
             {
-                return;
-            }
-
-            if(!this.isEmbedded())
-            {
-                // Add individually to capture each store-internal id for the fast index; robust
-                // against hole reuse (a batch addAll only reports the last assigned id).
-                final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
-                for(final VectorEntry entry : entries)
+                final int     ordinal = toOrdinal(firstEntityId + i);
+                final float[] vector  = vectors.get(i);
+                if(vector != null)
                 {
-                    final long storeId = this.vectorStore.add(entry);
-                    computedIdIndex.put(toOrdinal(entry.sourceEntityId), storeId);
+                    this.writeSlot(file, ordinal, vector, keys[i]);
+                    addedVectors[count] = vector;
+                    ordinals[count++]   = ordinal;
+                }
+                else if(keys[i] != Vectorizer.NO_KEY)
+                {
+                    this.writeSlot(file, ordinal, null, keys[i]);
                 }
             }
+
+            if(count == 0)
+            {
+                this.markWitnessChanged(vectors.size());
+                return;
+            }
+            final int[] added = Arrays.copyOf(ordinals, count);
 
             this.markContentChanged();
 
             if(this.isEventualIndexing())
             {
+                // At enqueue, for the reason given in addWrittenVector.
+                for(final int ordinal : added)
+                {
+                    this.setOwner(ordinal, true);
+                }
                 // Defer graph updates to background thread as a single batch operation
-                this.backgroundTaskManager.enqueueBatchAdd(entries);
+                this.backgroundTaskManager.enqueueBatchAdd(added);
             }
             else
             {
-                // Drain any deferred builder ops (e.g. from a preceding set() or removeById())
-                // before adding new nodes. This avoids interleaving delete+re-add ops from
-                // set/remove with batch-add ops, which can corrupt HNSW neighbor lists.
-                // Safe to drain here because we hold the GigaMap monitor and cleanup is not
-                // in progress (if it were, executeOrDeferBuilderOp below would defer anyway).
-                if(!this.cleanupInProgress)
+                // In parallel: the caller holds the monitor and waits, and the workers read nothing but the
+                // vectors handed to them.
+                this.insertBatch(
+                    this.builder, added, index -> this.vectorTypeSupport.createFloatVector(addedVectors[index])
+                );
+                // After the inserts, for the reason given in addWrittenVector.
+                for(final int ordinal : added)
                 {
-                    this.drainDeferredBuilderOps();
+                    this.setOwner(ordinal, true);
                 }
 
-                this.executeOrDeferBuilderOp(() -> this.addGraphNodesSequential(entries));
-
                 // Mark dirty for background managers (with count for debouncing)
-                this.markDirtyForBackgroundManagers(entries.size());
+                this.markDirtyForBackgroundManagers(count);
             }
+            // The entities without a vector change the witness as well, so they count towards
+            // persistence as in a batch made only of them.
+            final int withoutVector = vectors.size() - count;
+            if(withoutVector > 0)
+            {
+                this.markWitnessChanged(withoutVector);
+            }
+            this.requestFlushIfDue();
         }
 
         /**
@@ -2959,28 +4488,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void markDirtyForBackgroundManagers(final int count)
         {
-            if(this.backgroundTaskManager != null)
+            // A stale operation (see BackgroundTaskManager.isApplyingDiscardedOperation) changed nothing.
+            if(this.backgroundTaskManager != null && !BackgroundTaskManager.isApplyingDiscardedOperation())
             {
                 this.backgroundTaskManager.markDirty(count);
             }
         }
 
         /**
-         * Adds graph nodes sequentially.
+         * Counts entities added without a vector as changes to persist: they change the size and
+         * highest id of the parent map, which the manifest's witnesses are checked against, so a
+         * manifest that did not record them is rejected at the next start, which then rebuilds.
          */
-        private void addGraphNodesSequential(final List<VectorEntry> entries)
+        private void markWitnessChanged(final int count)
         {
-            entries.forEach(entry ->
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            if(manager != null && this.configuration.onDisk())
             {
-                if(entry.vector == null)
-                {
-                    // Entities without an embedding are excluded from the graph.
-                    return;
-                }
-                final int ordinal = toOrdinal(entry.sourceEntityId);
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-                this.internalAddGraphNodeIdempotent(ordinal, vf);
-            });
+                manager.markPersistenceDirty(count);
+            }
         }
 
         @Override
@@ -2989,26 +4515,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // No synchronized(parentMap) needed — called from GigaMap's synchronized methods.
             this.ensureIndexInitialized();
 
-            final int ordinal = toOrdinal(entityId);
-            if(!this.isEmbedded())
+            final int        ordinal = toOrdinal(entityId);
+            final VectorFile file    = this.vectorFile;
+            // A never-indexed entity (null embedding, no key) has a zero slot and nothing to remove.
+            if(file.isPresent(ordinal) || file.key(ordinal) != Vectorizer.NO_KEY)
             {
-                // Resolve by source entity id via the fast index; a never-indexed entity
-                // (null embedding) simply has no entry and nothing is removed.
-                final OrdinalStoreIdTable computedIdIndex = this.computedIdIndex();
-                final long storeId = computedIdIndex.get(ordinal);
-                if(storeId != OrdinalStoreIdTable.ABSENT)
-                {
-                    this.vectorStore.removeById(storeId);
-                    computedIdIndex.remove(ordinal);
-                }
+                this.writeSlot(file, ordinal, null, Vectorizer.NO_KEY);
             }
 
             this.markContentChanged();
 
-            // In incremental mode, mark the ordinal as deleted from disk graph
-            // so disk search excludes it immediately, even before background
-            // processing has updated the on-disk graph.
-            this.recordDiskOrdinalSuperseded(ordinal);
+            // Hides every copy at once, in a segment, a frozen graph or the live graph, whichever
+            // mode applies the graph change and whenever it does.
+            this.setOwner(ordinal, false);
 
             if(this.isEventualIndexing())
             {
@@ -3017,22 +4536,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             else
             {
-                // Drain any deferred builder ops before modifying graph nodes.
-                if(!this.cleanupInProgress)
-                {
-                    this.drainDeferredBuilderOps();
-                }
-
-                // Mark deleted in the in-memory builder if the node exists there
-                // (e.g., added after disk reload). Disk-only nodes are excluded
-                // via diskDeletedOrdinals and won't be in the builder. Route through
-                // internalMarkOrdinalDeleted so a deferral drained after a persist builder swap
-                // still records the deletion instead of no-op'ing against the new empty builder.
-                // Enqueued unconditionally: the helper checks the builder itself when it runs, and
-                // gating here on the CURRENT builder would queue nothing for a disk-only node, whose
-                // eager diskDeletedOrdinals entry above is then wiped by a concurrent persist's mode
-                // swap, resurrecting the removed entity in search (internal #142).
-                this.executeOrDeferBuilderOp(() -> this.internalMarkOrdinalDeleted(ordinal));
+                // Mark deleted in the live in-memory graph if the node exists there; a copy anywhere
+                // else is hidden by the owner set above.
+                this.internalMarkOrdinalDeleted(this.builder, ordinal);
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -3040,15 +4546,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
+        public void internalPrepareMutation()
+        {
+            this.ensureIndexInitialized();
+        }
+
+        @Override
         public void internalRemoveAll()
         {
-            // The write lock ensures no concurrent persistToDisk() Phase 2, search, or background worker
-            // mutation is running: closeInternalResources() destroys the graph and disk manager, which would
-            // corrupt any in-flight operation.
+            // The write lock ensures no concurrent freeze, search, or background worker mutation is running:
+            // closeInternalResources() destroys the graph and retires the sources, which would corrupt any
+            // in-flight operation. A flush writing without a lock commits nothing afterwards (see retireSources).
             // Called with the parentMap monitor held, by GigaMap.removeAll() / reindex(), which have already
             // acquired this lock without waiting (internalTryLockExclusive): this is a reentrant acquisition that
-            // never waits. Waiting for it here would deadlock with a persist or an embedded search, which hold
-            // it and need the monitor, so a caller that has not acquired it is rejected instead.
+            // never waits. Waiting for it here would deadlock with a persist, which holds it and needs the
+            // monitor, so a caller that has not acquired it is rejected instead.
             if(!this.builderLock.isWriteLockedByCurrentThread())
             {
                 throw new IllegalStateException(
@@ -3061,15 +4573,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 this.ensureIndexInitialized();
 
-                if(!this.isEmbedded())
-                {
-                    this.vectorStore.removeAll();
-                }
-
-                // Reset incremental state before closing resources
-                this.incrementalMode = false;
-                this.diskDeletedOrdinals = null;
-                this.diskGraphMeta       = null;
+                // Every vector goes, in place: the file is never unmapped while open, so a reader that read the
+                // chunk table before this sees absent slots rather than unmapped memory.
+                this.removeAllVectors(this.vectorFile);
+                // The vectors a 4.x store still held are gone with the entities, or recomputed by a reindex.
+                this.legacyVectorStore = null;
 
                 // Shut the background task manager down and discard its pending ops, they are stale. Without
                 // waiting for its thread: a task of it may be waiting for the write lock or the monitor held here.
@@ -3079,23 +4587,29 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.backgroundTaskManager = null;
                 }
 
-                // Same for deferred sync-mode ops: the graph they describe is about to be destroyed,
-                // so replaying them into the fresh builder would resurrect removed entities.
-                if(this.deferredBuilderOps != null)
-                {
-                    this.deferredBuilderOps.clear();
-                }
-                // and a failed op of the old generation leaves nothing to repair in the new one
-                this.graphIncomplete = false;
-
+                // Not waiting for a flush in flight either: it may be waiting for the monitor held here.
+                // Advancing the epoch makes it commit nothing and delete what it wrote (see retireSources),
+                // and the sequences it reserved stay protected meanwhile.
                 this.closeInternalResources();
 
                 // Before initializeIndex(): the bumped counter makes tryLoad() reject the files of the
                 // generation just torn down, instead of adopting them as the new one.
                 this.markContentChanged();
 
-                // Reinitialize the index (this will also restart background managers if configured)
-                this.initializeIndex();
+                // Reinitialize the index (this will also restart background managers if configured). Without
+                // retiring the rejected manifest: it still matches the stored record until the next store.
+                this.reloadingAfterRemoveAll = true;
+                try
+                {
+                    this.initializeIndex();
+                }
+                finally
+                {
+                    this.reloadingAfterRemoveAll = false;
+                }
+                // The vector file was emptied above, so the empty graph is complete: no rebuild is due, and a
+                // reindex that re-adds right after must not trigger one.
+                this.graphRebuilt = true;
 
                 // Mark dirty for background managers
                 this.markDirtyForBackgroundManagers(1);
@@ -3106,37 +4620,70 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
+        /**
+         * Makes every slot of the vector file absent. Under the write lock and the parent monitor.
+         */
+        private void removeAllVectors(final VectorFile file)
+        {
+            file.forEachSlot(ordinal ->
+            {
+                if(file.isPresent(ordinal) || file.key(ordinal) != Vectorizer.NO_KEY)
+                {
+                    file.write(ordinal, null, Vectorizer.NO_KEY);
+                }
+                return true;
+            });
+            this.vectorCount = 0L;
+        }
+
+        /**
+         * {@inheritDoc}
+         * <p>
+         * Read from the vector file, without a lock once the vectors are recovered, and returned as a copy:
+         * changing it changes nothing in the index.
+         *
+         * @throws IllegalStateException if the index is closed
+         */
         @Override
         public float[] getVector(final long entityId)
         {
-            if(this.isEmbedded())
-            {
-                final E entity = this.parentMap().get(entityId);
-                if(entity == null)
-                {
-                    return null;
-                }
-                return this.vectorizer.vectorize(entity);
-            }
-
-            // Resolve via the fast source-id index (built lazily on first access); fall back to a
-            // direct identity-index query only in the defensive case where it is unavailable.
-            final OrdinalStoreIdTable idIndex = this.computedIdIndex();
-            final VectorEntry entry;
-            if(idIndex != null)
-            {
-                final long storeId = idIndex.get(entityId);
-                entry = storeId == OrdinalStoreIdTable.ABSENT ? null : this.vectorStore.get(storeId);
-            }
-            else
-            {
-                entry = VectorEntry.lookup(this.vectorStore, entityId);
-            }
-            if(entry == null)
+            if(entityId < 0L || entityId > Integer.MAX_VALUE)
             {
                 return null;
             }
-            return entry.vector;
+            // No file either after a close that failed, which leaves the index open: re-initialized like any
+            // other access would, rather than reported closed.
+            if(!this.vectorsRecovered || this.vectorFile == null)
+            {
+                synchronized(this.parentMap())
+                {
+                    if(!this.isIndexPresent() && !this.closed)
+                    {
+                        this.initializeIndex();
+                    }
+                    this.ensureVectorsRecovered();
+                }
+            }
+            final VectorFile file = this.vectorFile;
+            if(file == null)
+            {
+                throw new IllegalStateException("Vector index \"" + this.name + "\" is closed");
+            }
+            try
+            {
+                return file.read((int)entityId);
+            }
+            catch(final IllegalStateException e)
+            {
+                // Read without a lock: a first location (internalAssignFirstLocation) may have replaced and closed
+                // the file meanwhile. The replacement holds the same vectors.
+                final VectorFile current = this.vectorFile;
+                if(current == null || current == file)
+                {
+                    throw e;
+                }
+                return current.read((int)entityId);
+            }
         }
 
         @Override
@@ -3173,41 +4720,66 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // through, and a caller is better served by the message than by the empty result.
             this.validateFinite(queryVector, "Query vector");
 
-            // Ensure the (deferred) graph rebuild has run BEFORE acquiring the read lock: the
-            // rebuild gate takes the parent GigaMap monitor, and holding readLock while acquiring
-            // that monitor would risk the exact lock-ordering deadlock the read-lock note below
-            // warns about. Once rebuilt this is a lock-free volatile check.
-            this.ensureIndexInitialized();
-
-            // Acquire read lock — blocks during cleanup/persistence/removeAll/close,
-            // allows concurrent searches and GigaMap mutations.
-            // Not under synchronized(parentMap): the order is builderLock, then the monitor (embedded
-            // scoring reads entities via parentMap().get()), and no monitor holder waits for builderLock.
-            this.awaitNoPendingExclusive();
-            this.builderLock.readLock().lock();
+            this.acquireReadLockOnRebuiltGraph();
             try
             {
+                final Runnable hook = this.searchTestHook;
+                if(hook != null)
+                {
+                    hook.run();
+                }
                 final VectorFloat<?> query = this.vectorTypeSupport.createFloatVector(queryVector);
 
-                // Choose search strategy based on index mode
-                final SearchResult result;
-                if (this.incrementalMode)
-                {
-                    result = this.searchIncremental(query, k, rerankK);
-                }
-                else if (this.diskManager != null && this.diskManager.isLoaded() && this.diskManager.getDiskIndex() != null)
-                {
-                    result = this.searchDiskIndex(query, k, rerankK);
-                }
-                else
-                {
-                    result = this.searchInMemoryIndex(query, k, rerankK);
-                }
+                // An on-disk index searches all its sources, an in-memory one its only graph.
+                final SearchResult result = this.sources != null
+                    ? this.searchSources(query, k, rerankK)
+                    : this.searchInMemoryIndex(query, k, rerankK)
+                ;
 
                 return this.convertSearchResult(result);
             }
             finally
             {
+                this.builderLock.readLock().unlock();
+            }
+        }
+
+        /**
+         * Makes sure the graph is rebuilt and takes {@code builderLock.readLock()}, such that the
+         * graph is still rebuilt once the lock is held. The caller must release the lock.
+         * <p>
+         * The rebuild runs BEFORE the read lock is acquired: the rebuild gate takes the parent
+         * GigaMap monitor, and a thread holding builderLock must not wait for that monitor (the
+         * order is the monitor, then builderLock; a writer holding the monitor only tries the write
+         * lock, see {@link #lockBuilderUnderMonitor}, so a search under the monitor still gets the read
+         * lock). Once rebuilt this is a lock-free volatile check.
+         * <p>
+         * The flag is checked again under the read lock, so a search never answers from a graph whose
+         * rebuild became due after the check; if it has, the lock is released, the rebuild run or
+         * awaited the usual way, and the lock taken again. A nested search (this thread already held
+         * the read lock before) is never retried.
+         */
+        private void acquireReadLockOnRebuiltGraph()
+        {
+            while(true)
+            {
+                this.ensureIndexInitialized();
+
+                // Acquire read lock - blocks during a freeze, an in-memory optimize, removeAll and close,
+                // allows concurrent searches and GigaMap mutations.
+                // Not taken while waiting for the monitor: the order is the monitor, then builderLock, and
+                // a writer under the monitor only tries the write lock (lockBuilderUnderMonitor).
+                this.awaitNoPendingExclusive();
+                this.builderLock.readLock().lock();
+
+                if(this.graphRebuilt
+                    || this.closed
+                    || this.builderLock.getReadHoldCount() > 1)
+                {
+                    return;
+                }
+                // The rebuild became due after the check above. Never wait for the monitor while
+                // holding builderLock: release, then rebuild (or wait for it) at the top again.
                 this.builderLock.readLock().unlock();
             }
         }
@@ -3266,41 +4838,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Searches the on-disk index using a pooled GraphSearcher, with optional PQ-based approximate search and reranking.
-         */
-        private SearchResult searchDiskIndex(final VectorFloat<?> query, final int k, final int rerankK)
-        {
-            final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf = this.jvectorSimilarityFunction();
-
-            final SearchScoreProvider exactProvider = DefaultSearchScoreProvider.exact(
-                query,
-                vsf,
-                this.createCachingVectorValues(rerankK)
-            );
-
-            // In non-incremental disk mode initializeSearcherPool() puts the DISK searcher into
-            // inMemorySearcherPool - there is no second graph to search - so despite the field name
-            // this is the disk searcher.
-            final GraphSearcher searcher = this.inMemorySearcherPool.get();
-            return searcher.search(
-                this.diskScoreProvider(searcher, query, vsf, exactProvider, false),
-                k,
-                rerankK,
-                0f,
-                0f,
-                Bits.ALL
-            );
-        }
-
-        /**
-         * Builds the score provider for a search against the on-disk graph, dispatching on the two
-         * dimensions of the graph's format: how it scores candidates and how it stores its vectors.
+         * Builds the score provider for a search against one on-disk segment, dispatching on the two
+         * dimensions of the segment's format: how it scores candidates and how it stores its vectors.
          *
          * <table border="1">
          *   <tr><th>Graph features</th><th>Traversal</th><th>Reranking</th></tr>
-         *   <tr><td>{@code INLINE_VECTORS}</td><td>exact, from the GigaMap</td><td>-</td></tr>
+         *   <tr><td>{@code INLINE_VECTORS}</td><td>exact, from the vector file</td><td>-</td></tr>
          *   <tr><td>{@code INLINE_VECTORS + FUSED_PQ}</td><td>fused PQ codes</td><td>exact, from the mapping</td></tr>
-         *   <tr><td>{@code NVQ_VECTORS}</td><td>quantized vectors</td><td>exact, from the GigaMap</td></tr>
+         *   <tr><td>{@code NVQ_VECTORS}</td><td>quantized vectors</td><td>exact, from the vector file</td></tr>
          *   <tr><td>{@code NVQ_VECTORS + FUSED_PQ}</td><td>fused PQ codes</td><td>quantized, or exact - see below</td></tr>
          * </table>
          *
@@ -3320,63 +4865,57 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * traversal function is exact. So {@code exactFallback} plays no part on any path that
          * returns a two-argument provider, and the choice made here is the whole choice.
          *
-         * <h2>Why incremental mode forces the exact reranker</h2>
-         * {@code searchIncremental} merges this result with one from the in-memory graph <b>by raw
-         * score</b>. The in-memory half is always scored exactly, so an NVQ-dequantized disk half
-         * would sit on a systematically different scale and bias every merge. Whenever the two
-         * halves are compared, both must be exact.
-         * <p>
-         * That rule currently governs every live query against an on-disk index, because
-         * {@code incremental} is never false for one: {@code tryLoad} enters incremental mode on
-         * load and each persist ends in {@code reenterIncrementalMode}. The graph-backed reranker
-         * below is therefore unreached today. It is kept because it is the right behaviour should a
-         * non-incremental disk search become reachable, not because it runs.
+         * <h2>Why the exact reranker wherever a reranker could be lossy</h2>
+         * {@code searchSources} merges the results of all segments and of the in-memory graphs
+         * <b>by raw score</b>. The in-memory graphs are always scored exactly, so an NVQ-dequantized
+         * segment would sit on a systematically different scale and bias every merge. Whenever
+         * results are compared, all of them must be exact. That is every query against an on-disk
+         * index.
          * <p>
          * The gate is the <b>loaded graph's</b> feature set as well as the configuration: the graph
          * is self-describing, so the query path needs no happens-before edge with the training and
          * persist paths, and a graph whose training declined carries no feature to use however it is
          * configured. The configuration is still consulted so that the two must agree rather than
          * the graph being taken at its word - a file can carry a feature this build would not have
-         * written, a downgrade being the concrete case.
+         * written, a downgrade being the concrete case. A segment flagged for merge was written for
+         * another configuration or codebook, so it is only ever searched exactly.
          *
-         * @param searcher      the searcher that will run the query, and whose view is used
+         * @param segment       the segment to search
+         * @param searcher      the segment's searcher that will run the query, and whose view is used
          * @param query         the query vector
          * @param vsf           the similarity function
-         * @param exactFallback the provider to use when the graph offers nothing better, and the
-         *                      source of the exact score function when reranking must not be lossy
-         * @param incremental   whether this result will be merged with an in-memory one by raw score
+         * @param exactFallback the exact provider over this segment's local ordinals, to use when the
+         *                      graph offers nothing better, and the source of the exact score function
          * @return the score provider to search with
          */
         private SearchScoreProvider diskScoreProvider(
+            final DiskSegment                                               segment      ,
             final GraphSearcher                                             searcher     ,
             final VectorFloat<?>                                            query        ,
             final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf          ,
-            final SearchScoreProvider                                       exactFallback,
-            final boolean                                                   incremental
+            final SearchScoreProvider                                       exactFallback
         )
         {
-            final OnDiskGraphIndex diskIndex = this.diskManager != null
-                ? this.diskManager.getDiskIndex()
-                : null
-            ;
-            if(diskIndex == null || !(searcher.getView() instanceof OnDiskGraphIndex.View view))
+            if(segment.flaggedForMerge() || !(searcher.getView() instanceof final OnDiskGraphIndex.View view))
             {
                 return exactFallback;
             }
 
-            final Set<FeatureId> features = diskIndex.getFeatureSet();
-            final boolean        hasNvq   = features.contains(FeatureId.NVQ_VECTORS);
+            final OnDiskGraphIndex diskIndex = segment.graph();
+            final Set<FeatureId>   features  = diskIndex.getFeatureSet();
+            final boolean          hasNvq    = features.contains(FeatureId.NVQ_VECTORS);
 
             // PQ_IN_MEMORY first, because it is the one mode whose approximate function comes from
             // neither the graph nor the view. The codes are a heap-resident array loaded from the
-            // sidecar, so scoring a candidate touches no disk at all - which also means the
-            // view-scratch rule that governs the fused path does not apply here.
+            // segment's .pqv, by local ordinal like the graph, so scoring a candidate touches no disk
+            // at all - which also means the view-scratch rule that governs the fused path does not
+            // apply here.
             //
-            // Reranking is exact from the GigaMap in both modes, not only the incremental one. There
-            // is nothing else it could be: this graph carries no fused codes to rerank against, and
-            // when it is combined with NVQ storage it carries no full-precision vectors either.
+            // Reranking is exact from the vector file. There is nothing else it could be: this graph
+            // carries no fused codes to rerank against, and when it is combined with NVQ storage it
+            // carries no full-precision vectors either.
             final PQVectors pqVectors = this.configuration.approximateScoring() == ApproximateScoring.PQ_IN_MEMORY
-                ? this.diskManager.loadedPqVectors()
+                ? segment.pqVectors()
                 : null
             ;
             if(pqVectors != null)
@@ -3401,19 +4940,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(!useFusedPq && !hasNvq)
             {
                 // A full-precision graph with no fused codes. Scoring it through the view would be
-                // a behaviour change for the default on-disk configuration, so it keeps reading the
-                // GigaMap exactly as it always has.
+                // a behaviour change for the default on-disk configuration, so it keeps scoring
+                // exactly from the vector file.
                 return exactFallback;
             }
 
             if(useFusedPq)
             {
                 // Traversal reads the fused codes; the rerank then reads the graph's own vector
-                // block, which for an NVQ graph means the view's reranker dequantizes. That is
-                // acceptable for a plain top-k - it cost about 0.002 recall@10 in measurement - but
-                // not when the score has to be comparable with an exactly scored in-memory half, so
-                // incremental mode takes the exact function instead.
-                final ScoreFunction.ExactScoreFunction reranker = hasNvq && incremental
+                // block. For an INLINE graph those are the full-precision vectors, and the accept bits
+                // admit only nodes whose entity this segment still owns, so they are the live ones.
+                // For an NVQ graph the view's reranker dequantizes, which cost about 0.002
+                // recall@10 in measurement but puts the score on another scale than the exactly
+                // scored halves it is merged with, so the exact function is taken instead.
+                final ScoreFunction.ExactScoreFunction reranker = hasNvq
                     ? exactFallback.exactScoreFunction()
                     : view.rerankerFor(query, vsf)
                 ;
@@ -3424,11 +4964,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             // NVQ without fused codes: traverse on the quantized vectors in the mapping, which is
-            // the point of storing them, and rerank exactly from the GigaMap. The view's reranker is
+            // the point of storing them, and rerank exactly from the vector file. The view's reranker is
             // an ExactScoreFunction by type only - against an NVQ graph it dequantizes - so it is
             // adapted to the approximate slot rather than being handed over as if it were exact.
-            // The rerank is exact here whether or not this is incremental mode, which is what makes
-            // NVQ storage lossless for the final ordering as long as no fused codes are present.
+            // The rerank is exact, which is what makes NVQ storage lossless for the final ordering as
+            // long as no fused codes are present.
             final ScoreFunction.ExactScoreFunction quantizedScorer = view.rerankerFor(query, vsf);
             return new DefaultSearchScoreProvider(
                 (ScoreFunction.ApproximateScoreFunction)quantizedScorer::similarityTo,
@@ -3437,81 +4977,158 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Searches in incremental mode: queries both the disk graph (for existing data)
-         * and the in-memory builder graph (for new mutations), then merges results.
+         * Searches an on-disk index: every segment, every in-memory graph frozen for a flush, and the
+         * live in-memory graph, then merges the results.
+         * <p>
+         * Each source accepts only the nodes whose entity it owns, so each entity is answered by
+         * exactly one source. The set of sources is acquired for the whole search, so a flush that
+         * publishes its segment meanwhile closes nothing this search still traverses. Every source
+         * over-fetches {@code rerankK} candidates to give the merge a richer pool.
          */
-        private SearchResult searchIncremental(final VectorFloat<?> query, final int k, final int rerankK)
+        private SearchResult searchSources(final VectorFloat<?> query, final int k, final int rerankK)
         {
             final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf = this.jvectorSimilarityFunction();
 
-            final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(
-                query,
-                vsf,
-                this.createCachingVectorValues(rerankK)
-            );
+            // One per-query cache of live vectors by global ordinal, shared by every source: the same
+            // entity can be reached from several sources' traversals, and each segment reads it
+            // through its own local-to-global view below.
+            final RandomAccessVectorValues liveVectors = this.createCachingVectorValues(rerankK);
 
-            // 1. Search disk graph (excluding deleted/updated ordinals)
-            // Use rerankK as topK to give the merge a richer candidate pool
-            SearchResult diskResult = null;
-            if(this.diskSearcherPool != null)
-            {
-                final GraphSearcher diskSearcher = this.diskSearcherPool.get();
-                final Bits acceptBits = this.createDiskAcceptBits();
-
-                // When the graph carries FusedPQ, traverse on the compressed codes and rerank
-                // against the inline vectors in the same memory-mapped file. Reranking from the
-                // graph rather than from createCachingVectorValues() also avoids a parentMap.get()
-                // - and, in embedded mode, a vectorizer.vectorize() - per reranked candidate. The
-                // accept bits already exclude every ordinal deleted or updated since the graph was
-                // written, so for every surviving candidate the on-disk vector IS the live vector.
-                final SearchScoreProvider diskProvider =
-                    this.diskScoreProvider(diskSearcher, query, vsf, scoreProvider, true);
-
-                diskResult = diskSearcher.search(diskProvider, rerankK, rerankK, 0f, 0f, acceptBits);
-            }
-
-            // 2. Search in-memory graph (new mutations only)
-            SearchResult memResult = null;
-            if(this.inMemorySearcherPool != null && this.index != null && this.index.size(0) > 0)
-            {
-                final GraphSearcher memSearcher = this.inMemorySearcherPool.get();
-                // Capture the view once so setView(...) and liveNodes() agree on the same
-                // snapshot (ConcurrentGraphIndexView uses snapshot isolation — two separate
-                // getView() calls could return different snapshots).
-                final var view = this.index.getView();
-                memSearcher.setView(view);
-                memResult = memSearcher.search(scoreProvider, rerankK, rerankK, 0f, 0f, view.liveNodes());
-            }
-
-            // 3. Merge results — truncate single-source results to k since sub-graphs
-            // over-fetch to provide the merge with a richer candidate pool
-            if(diskResult == null && memResult == null)
+            final List<SearchResult> results = new ArrayList<>();
+            final SourceSet          set     = this.acquireSources();
+            if(set == null)
             {
                 return new SearchResult(new SearchResult.NodeScore[0], 0, 0, 0, 0, 0f);
             }
-            if(diskResult == null)
+            try
             {
-                return this.truncateResult(memResult, k);
+                final Runnable hook = this.sourcesAcquiredTestHook;
+                if(hook != null)
+                {
+                    hook.run();
+                }
+                final SegmentOwners owners = set.owners().owners();
+
+                // 1. Each segment, excluding the nodes whose entity it does not own any more
+                for(final DiskSegment segment : set.segments())
+                {
+                    results.add(this.searchSegment(segment, owners, query, vsf, liveVectors, rerankK));
+                }
+
+                // 2. Each frozen in-memory graph a flush has not published yet
+                for(final HeapGeneration frozen : set.frozen())
+                {
+                    if(frozen.nodeCount() > 0)
+                    {
+                        results.add(this.searchHeapGraph(
+                            frozen.searcher(), frozen.graph(), owners, frozen.slot(), query, vsf, liveVectors, rerankK
+                        ));
+                    }
+                }
+
+                // 3. The live in-memory graph, which holds the mutations since the last freeze. Its
+                // slot changes only with a freeze, which the read lock this search holds excludes.
+                final OnHeapGraphIndex live = this.index;
+                if(this.inMemorySearcherPool != null && live != null && live.size(0) > 0)
+                {
+                    results.add(this.searchHeapGraph(
+                        this.inMemorySearcherPool.get(), live, owners, set.owners().liveSlot(),
+                        query, vsf, liveVectors, rerankK
+                    ));
+                }
             }
-            if(memResult == null)
+            finally
             {
-                return this.truncateResult(diskResult, k);
+                set.release();
             }
 
-            return this.mergeSearchResults(diskResult, memResult, k);
+            // 4. Merge results - truncate a single source's result to k since sources over-fetch to
+            // provide the merge with a richer candidate pool
+            if(results.isEmpty())
+            {
+                return new SearchResult(new SearchResult.NodeScore[0], 0, 0, 0, 0, 0f);
+            }
+            if(results.size() == 1)
+            {
+                return this.truncateResult(results.get(0), k);
+            }
+            return this.mergeSearchResults(results, k);
         }
 
         /**
-         * Returns accept bits for disk graph search that exclude deleted/updated ordinals.
-         * Allocates nothing: the mask is maintained as deletions arrive.
+         * Acquires the published set of sources for a search, or returns {@code null} if the index has
+         * none (an in-memory index, or one closed meanwhile). A set released for good between reading
+         * and acquiring it has been replaced first, so reading again finds its successor.
+         *
+         * @return the acquired set, to be released by the caller, or {@code null}
          */
-        private Bits createDiskAcceptBits()
+        private SourceSet acquireSources()
         {
-            final DiskSupersededOrdinals deleted = this.diskDeletedOrdinals;
-            return deleted == null
-                ? Bits.ALL
-                : deleted.acceptBits()
-            ;
+            while(true)
+            {
+                final SourceSet set = this.sources;
+                if(set == null || set.tryAcquire())
+                {
+                    return set;
+                }
+                Thread.onSpinWait();
+            }
+        }
+
+        /**
+         * Searches one in-memory graph of an on-disk index exactly, accepting a node only while its
+         * entity is owned by the graph's slot.
+         */
+        private SearchResult searchHeapGraph(
+            final GraphSearcher                                             searcher   ,
+            final OnHeapGraphIndex                                          graph      ,
+            final SegmentOwners                                             owners     ,
+            final int                                                       slot       ,
+            final VectorFloat<?>                                            query      ,
+            final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf        ,
+            final RandomAccessVectorValues                                  liveVectors,
+            final int                                                       rerankK
+        )
+        {
+            final SearchScoreProvider scoreProvider = DefaultSearchScoreProvider.exact(query, vsf, liveVectors);
+            // Capture the view once so setView(...) and liveNodes() agree on the same snapshot
+            // (ConcurrentGraphIndexView uses snapshot isolation - two separate getView() calls could
+            // return different snapshots).
+            final var  view      = graph.getView();
+            final Bits liveNodes = view.liveNodes();
+            searcher.setView(view);
+            return searcher.search(
+                scoreProvider, rerankK, rerankK, 0f, 0f,
+                ordinal -> liveNodes.get(ordinal) && owners.owner(ordinal) == slot
+            );
+        }
+
+        /**
+         * Searches one disk segment and returns the result with global ordinals.
+         * <p>
+         * When the segment carries FusedPQ, traversal runs on the compressed codes and the rerank
+         * against the inline vectors in the same memory-mapped file. Otherwise the exact score function
+         * reads the vector file through the segment's local-to-global view.
+         */
+        private SearchResult searchSegment(
+            final DiskSegment                                               segment    ,
+            final SegmentOwners                                             owners     ,
+            final VectorFloat<?>                                            query      ,
+            final io.github.jbellis.jvector.vector.VectorSimilarityFunction vsf        ,
+            final RandomAccessVectorValues                                  liveVectors,
+            final int                                                       rerankK
+        )
+        {
+            final GraphSearcher       searcher      = segment.searcher();
+            final SearchScoreProvider exactFallback = DefaultSearchScoreProvider.exact(
+                query,
+                vsf,
+                new SegmentVectorValues(liveVectors, segment.localToGlobal())
+            );
+            final SearchScoreProvider provider = this.diskScoreProvider(segment, searcher, query, vsf, exactFallback);
+            return segment.toGlobal(
+                searcher.search(provider, rerankK, rerankK, 0f, 0f, segment.acceptBits(owners))
+            );
         }
 
         /**
@@ -3532,22 +5149,28 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Merges two SearchResults: combines nodes, deduplicates by ordinal
-         * (keeping higher score), sorts by score descending, and takes top-k.
+         * Merges SearchResults: combines nodes, deduplicates by ordinal (keeping the higher score),
+         * sorts by score descending, and takes top-k. The ordinals must all be global.
+         * <p>
+         * The owners make every entity live in one source only, so duplicates are not expected; the
+         * deduplication is the safety net that keeps a result from naming an entity twice should two
+         * sources ever both answer for it.
          */
         private SearchResult mergeSearchResults(
-            final SearchResult diskResult,
-            final SearchResult memResult,
-            final int k
+            final List<SearchResult> results,
+            final int                k
         )
         {
-            final SearchResult.NodeScore[] diskNodes = diskResult.getNodes();
-            final SearchResult.NodeScore[] memNodes  = memResult.getNodes();
-            final int totalCandidates = diskNodes.length + memNodes.length;
+            int totalCandidates = 0;
+            int visitedCount    = 0;
+            for(final SearchResult result : results)
+            {
+                totalCandidates += result.getNodes().length;
+                visitedCount    += result.getVisitedCount();
+            }
 
             if(totalCandidates == 0)
             {
-                final int visitedCount = diskResult.getVisitedCount() + memResult.getVisitedCount();
                 return new SearchResult(new SearchResult.NodeScore[0], visitedCount, 0, 0, 0, 0f);
             }
 
@@ -3561,9 +5184,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             Arrays.fill(keys, -1);
 
             int uniqueCount = 0;
-            for (final SearchResult.NodeScore[] nodes : new SearchResult.NodeScore[][]{diskNodes, memNodes})
+            for (final SearchResult result : results)
             {
-                for (final SearchResult.NodeScore node : nodes)
+                for (final SearchResult.NodeScore node : result.getNodes())
                 {
                     int idx =
                         (node.node & 0x7fffffff) // strip the sign bit, ensuring a non-negative hash value
@@ -3612,7 +5235,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 ? all
                 : Arrays.copyOf(all, resultSize);
 
-            final int visitedCount = diskResult.getVisitedCount() + memResult.getVisitedCount();
             return new SearchResult(merged, visitedCount, 0, 0, 0, 0f);
         }
 
@@ -3631,28 +5253,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private RandomAccessVectorValues createCachingVectorValues(final int expectedSize)
         {
-            final RandomAccessVectorValues vectorValues = this.isEmbedded()
-                ? new EntityBackedVectorValues.Caching<>(
-                    this.parentMap(),
-                    this.vectorizer,
-                    this.configuration.dimension(),
-                    this.vectorTypeSupport,
-                    expectedSize
-                )
-                : new GigaMapBackedVectorValues.Caching(
-                    this::lookupComputedVector,
-                    // RAVV size() is the dense ordinal upper bound (getVector must be valid for
-                    // [0, size())), NOT the vector count. Graph ordinals are source entity ids, so with
-                    // null embeddings / deletion holes the highest ordinal exceeds vectorStore.size().
-                    // PQ encodeAll() builds a dense PQVectors of this length and FusedPQ / PQ search then
-                    // index it by graph ordinal — an under-reported count skips/overflows high ordinals
-                    // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
-                    () -> Math.toIntExact(this.parentMap().highestUsedId() + 1),
-                    this.configuration.dimension(),
-                    this.vectorTypeSupport,
-                    expectedSize
-                );
-            return new NullSafeVectorValues(vectorValues, this.configuration.dimension(), this.vectorTypeSupport);
+            return new NullSafeVectorValues(
+                new MappedVectorValues.Caching(this.vectorFile, this.vectorTypeSupport, expectedSize),
+                this.configuration.dimension(),
+                this.vectorTypeSupport
+            );
         }
 
         /**
@@ -3688,77 +5293,128 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * Core optimization logic without queue drain.
-         * Called directly from the background task manager's executor thread
-         * (where inline drain is already done) and from the public optimize() method.
+         * Called directly from the background task manager's executor thread (which applies one turn
+         * of queued indexing operations first, not the whole queue) and from the public optimize()
+         * method (which drains the queue first).
+         * <p>
+         * An on-disk index leaves its graphs alone: the live in-memory graph is bounded by the flush
+         * threshold, and every flush purges the deleted nodes of the graph it writes and trims its
+         * neighbor lists with {@code cleanup()}, so there is nothing a separate pass would add. It does
+         * not even take the parent monitor, which a sustained ingest can keep for long stretches: the
+         * background task thread would wait there, with every persist queued behind it.
+         * <p>
+         * An in-memory index first switches to compressed scoring if that is due (under the monitor
+         * only, see {@link #performPqSwitch()}), then maintains its graph under the parent monitor and
+         * {@code builderLock.writeLock()}: the monitor first, the write lock only tried (see
+         * {@link #lockBuilderUnderMonitor(boolean, boolean)}). Holding both keeps
+         * every search and every mutation out for the duration, since neither the purge nor the degree
+         * enforcement is safe against concurrent inserts. Their ForkJoin workers must then never need
+         * the monitor, which they do not: the builder scores from the vector file.
          */
         @Override
         public void doOptimize()
         {
-            final GraphIndexBuilder capturedBuilder;
+            if(this.configuration.onDisk())
+            {
+                return;
+            }
+            // optimize() refuses a monitor holder, but a shutdown optimization can run on a closing thread that
+            // holds it (index removal, storage shutdown).
+            final boolean monitorHeld = Thread.holdsLock(this.parentMap());
+            synchronized(this.parentMap())
+            {
+                this.ensureIndexInitialized();
 
-            // Signal sync-mode mutations to defer builder ops during cleanup.
-            this.cleanupInProgress = true;
+                // The whole PQ switch, under this monitor and nothing else. It reads the vector file
+                // and counters that mutations write under the monitor, which is what the monitor is
+                // for here, and it takes no builderLock - the
+                // posture ensureGraphRebuilt() documents as unable to sit in a monitor/builderLock
+                // cycle.
+                this.performPqSwitch();
+            }
+
+            // Monitor first, the write lock only tried (see lockBuilderUnderMonitor): a writer blocked on the lock
+            // before the monitor deadlocks with a search issued under the monitor (inside GigaMap.iterate, apply
+            // logic or synchronized(map)), which waits for the read lock behind it while holding the monitor.
+            synchronized(this.parentMap())
+            {
+                if(!this.lockBuilderUnderMonitor(monitorHeld, true))
+                {
+                    return;
+                }
+                try
+                {
+                    // A closed index has no builder left to maintain; waiting for the lock released the monitor.
+                    if(!this.closed && this.builder != null && graphOf(this.builder).size(0) > 0)
+                    {
+                        this.maintainLiveGraph(this.builder);
+                    }
+                }
+                finally
+                {
+                    this.builderLock.writeLock().unlock();
+                }
+            }
+
+            this.markStateChangeChildren();
+        }
+
+        /**
+         * Purges deleted nodes from a graph that stays live and trims neighbor lists that overflowed
+         * during construction back to the configured maximum degree.
+         * <p>
+         * Deliberately not {@code GraphIndexBuilder.cleanup()}. That is a finishing step for a graph
+         * about to be written: it ends with {@code OnHeapGraphIndex.setAllMutationsCompleted()}, a
+         * one-way flag that nothing resets, after which {@code getView()} hands out a
+         * {@code FrozenView} instead of a {@code ConcurrentGraphIndexView}. The builder an
+         * optimization maintains keeps receiving every later insert - an in-memory index never
+         * replaces it at all - so searches, and each insert's own neighbor search, would lose the
+         * snapshot isolation that keeps nodes still being inserted off the search path, for the rest
+         * of the session. Only a flush, whose graph is frozen and takes no further insert, calls
+         * {@code cleanup()}.
+         * <p>
+         * This performs the two parts of {@code cleanup()} that do not freeze the graph: the purge
+         * and the degree enforcement. It leaves out the connection refinement of the upper-layer
+         * nodes, which {@code GraphIndexBuilder} keeps private. Both parts prune neighbor lists, so it
+         * ends with a {@link GraphReachability#repair} of every node.
+         * <p>
+         * Must be called with every insert excluded, see {@link #doOptimize()}, and holds the structure lock
+         * exclusive besides, as every purge does.
+         *
+         * @param builder the live builder to maintain, not closed
+         */
+        private void maintainLiveGraph(final GraphIndexBuilder builder)
+        {
+            final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
+            lock.lock();
             try
             {
-                // Barrier: any in-flight GigaMap mutation (which holds the GigaMap monitor)
-                // will complete before we proceed. New mutations see the flag and defer.
-                synchronized(this.parentMap())
+                builder.removeDeletedNodes();
+
+                final OnHeapGraphIndex graph = graphOf(builder);
+                if(graph.size(0) == 0)
                 {
-                    this.ensureIndexInitialized();
-
-                    // The whole PQ switch, under this monitor and nothing else. It reads the
-                    // GigaMap throughout, which is what the monitor is for, and it takes no
-                    // builderLock - the posture ensureGraphRebuilt() documents as unable to sit in
-                    // a monitor/builderLock cycle.
-                    this.performPqSwitch();
-
-                    // After the switch, so that a replacement becomes the builder this optimization
-                    // goes on to clean. Capturing before it would leave the freshly built graph
-                    // uncleaned and send this pass at the graph just abandoned.
-                    capturedBuilder = this.builder;
+                    return;
                 }
-
-                // cleanup() uses ForkJoinPool internally - must be outside synchronized(parentMap)
-                // to avoid deadlock with embedded vectorizers whose worker threads call
-                // parentMap.get(). A replacement builder scores from the codes instead, so its
-                // workers reach no further than the heap.
-                if(capturedBuilder != null)
+                // enforceDegree covers every layer of the node and skips layers the node is not in. Only the nodes
+                // actually in the graph are visited: ordinals are entity ids, so the id range of a graph that holds
+                // few of them can be far larger than its node count. Every node of an upper layer is also in
+                // layer 0. Snapshotted first; no insert runs meanwhile anyway.
+                final int[] nodes = graph.nodeStream(0).toArray();
+                Arrays.stream(nodes).parallel().forEach(graph::enforceDegree);
+                // Last, over every node: the purge and the trim both prune neighbour lists, and either can take
+                // the last edge into a node (see GraphReachability).
+                if(builder == this.builder)
                 {
-                    // Write lock blocks background worker mutations (readLock) and searches.
-                    this.builderLock.writeLock().lock();
-                    try
-                    {
-                        // Checked before anything touches the captured builder. The monitor was
-                        // released before this lock was taken, so internalRemoveAll can run in
-                        // between - it takes the monitor and then this lock - and would have closed
-                        // this builder and put a different one in its place. Cleaning the old one
-                        // would then operate on a closed object.
-                        if(this.builder != capturedBuilder)
-                        {
-                            LOG.info("Skipping optimization of '{}': the index was rebuilt after the"
-                                + " builder was captured", this.name);
-                        }
-                        else
-                        {
-                            capturedBuilder.cleanup();
-                        }
-                    }
-                    finally
-                    {
-                        this.builderLock.writeLock().unlock();
-                    }
+                    this.repairLiveGraph(() ->
+                        GraphReachability.repair(builder, nodes, nodes.length, this::vectorOf, this.name)
+                    );
                 }
             }
             finally
             {
-                this.cleanupInProgress = false;
-
-                // Apply any deferred sync-mode mutations now that cleanup is done. Inside the finally
-                // so no exit path can strand the queue; builderLock is already released above.
-                this.drainDeferredBuilderOps();
+                lock.unlock();
             }
-
-            this.markStateChangeChildren();
         }
 
         @Override
@@ -3770,339 +5426,2649 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
             this.ensureNotHoldingParentMonitor("persistToDisk()");
 
-            // Drain pending indexing operations to ensure graph is complete
-            if(this.isEventualIndexing())
+            // No drain of the eventual-indexing queue first: the freeze takes the queued operations
+            // into the graph it freezes, and the flush applies them there.
+            this.persist(PersistKind.EXPLICIT);
+            // A segment that no longer matches the format or the codebook, such as one this persist has
+            // just trained the codebook for, is rewritten here rather than left to a background merge that
+            // a close right after would stop, and the rewrite is committed at once. The flush above may
+            // have scheduled a background merge that got to the rewrite first; it publishes without a
+            // commit, and finding nothing left to rewrite here must not leave it uncommitted.
+            if(this.rewriteSegmentsInline() || this.mergeUncommitted)
             {
-                this.backgroundTaskManager.drainQueue();
+                this.persist(PersistKind.EXPLICIT);
             }
-
-            this.doPersistToDisk(false);
         }
 
         /**
-         * Core persistence logic without queue drain.
-         * Called directly from the background task manager's executor thread
-         * (where inline drain is already done) and from the public persistToDisk() method.
+         * Runs the merges that rewrite segments no longer matching the index on the calling thread,
+         * holding the merge permit, so after a background merge in flight. Tier merges stay in the
+         * background.
          *
-         * @param onShutdown {@code true} when invoked on the shutdown path. In incremental mode a
-         *                   shutdown persist skips the O(n) full-graph consolidation entirely and
-         *                   relies on the load-time self-heal, so shutdown is never blocked by a
-         *                   rebuild that would be discarded anyway. Because that return happens
-         *                   before the empty-graph handling below, a shutdown persist in incremental
-         *                   mode also leaves an earlier, now stale on-disk index in place instead of
-         *                   removing it - harmless, since the same self-heal rejects it on load and
-         *                   the next non-shutdown persist replaces or removes it. A shutdown persist
-         *                   also never (re-)creates the transient index state, which would restart
-         *                   the background task manager mid-{@code close()}. {@code false} for
-         *                   background/explicit persistence, which consolidates and initializes as
-         *                   before.
+         * @return whether a merge published something the caller has to commit
+         */
+        private boolean rewriteSegmentsInline()
+        {
+            final Semaphore permit = this.mergePermit;
+            if(permit == null || !this.isRewriteDue())
+            {
+                // Not waiting for a tier merge in flight when there is nothing to rewrite.
+                return false;
+            }
+            permit.acquireUninterruptibly();
+            try
+            {
+                boolean merged = false;
+                while(this.mergeOnce(true) == MergeOutcome.MERGED)
+                {
+                    merged = true;
+                }
+                return merged;
+            }
+            finally
+            {
+                permit.release();
+                // A tier merge the persist made due is left to the background.
+                this.scheduleMergeIfDue();
+            }
+        }
+
+        /**
+         * Core persistence logic, called by the background task manager: on its schedule or ahead of
+         * it with {@code onShutdown == false}, and on close with {@code onShutdown == true}.
+         *
+         * @param onShutdown whether this is the persist of a closing index, which writes whatever
+         *                   changed but never consolidates; otherwise the persist writes only once the
+         *                   in-memory graph has reached the flush threshold
+         * @return whether the persist took the changes made so far, see
+         *         {@link BackgroundTaskManager.Callback#doPersistToDisk(boolean)}
          */
         @Override
-        public void doPersistToDisk(final boolean onShutdown)
+        public boolean doPersistToDisk(final boolean onShutdown)
+        {
+            return this.persist(onShutdown ? PersistKind.SHUTDOWN : PersistKind.BACKGROUND);
+        }
+
+        /**
+         * Persists an on-disk index: freezes the live in-memory graph and writes it as one more
+         * segment, together with the deletions of the existing segments since the last commit.
+         * <p>
+         * The work is split so that no lock is held for anything expensive:
+         * <ol>
+         *   <li>Take the flush permit, so at most one flush is in flight. A background persist does not
+         *       wait for it; every other persist does.</li>
+         *   <li>Train the compressors if that is due, with no lock held, since k-means takes seconds.</li>
+         *   <li>Freeze under the indexing lock, the parent monitor and {@code builderLock.writeLock()}
+         *       (see {@link #freeze} for the order): sample the witnesses, move the queued
+         *       eventual-indexing operations into the graph being frozen, capture the leave logs, install
+         *       a fresh live graph and publish the new set of sources. This swaps references and copies
+         *       small arrays, so it holds the locks for microseconds - except for a consolidation, which
+         *       rebuilds. A background persist lets go of the permit while it waits for these locks and
+         *       tries it again once it holds them: a mutation that reaches the flush threshold freezes on
+         *       its own thread (see {@link #tryFreezeForBackgroundFlush()}) and needs the permit then,
+         *       while the monitor it holds may keep this thread waiting for a long time.</li>
+         *   <li>Write outside every lock (see {@link #runFlush}), on the flush writer for a background
+         *       persist and on the calling thread otherwise. Searches and mutations go on meanwhile.</li>
+         * </ol>
+         *
+         * @param kind which persist this is
+         * @return whether the changes counted so far were taken, see
+         *         {@link BackgroundTaskManager.Callback#doPersistToDisk(boolean)}
+         */
+        private boolean persist(final PersistKind kind)
         {
             if(!this.configuration.onDisk())
             {
-                return; // No-op for in-memory indices
+                return true;
             }
-
-            final boolean trainedForThisPersist = this.trainCompressorsBeforeLocking(onShutdown);
-
-            // Signal sync-mode mutations to defer builder ops during cleanup + disk write.
-            this.cleanupInProgress = true;
-            try
+            // A first look without any lock, so an idle tick costs nothing. Decided again under the
+            // locks, where it is exact.
+            if(kind == PersistKind.BACKGROUND && !this.isBackgroundFlushDue() && !this.isManifestCommitDue())
             {
-                // Acquire write lock for exclusive access during persistence.
-                // This blocks searches, background worker mutations, removeAll, and close.
-                this.builderLock.writeLock().lock();
+                return false;
+            }
+            final Semaphore permit = this.flushPermit;
+            if(permit == null)
+            {
+                // Never initialized: nothing to persist.
+                return true;
+            }
+            if(kind == PersistKind.BACKGROUND)
+            {
+                return this.persistInBackground(permit);
+            }
+            else
+            {
                 try
                 {
-                    // First, because everything below either reads state this index no longer has
-                    // or recreates it. Training above runs before any lock is taken and can take
-                    // tens of seconds, so a close that began after this persist did can have
-                    // completed in the meantime: it shut the background task manager down, tore
-                    // the transient state down under this same lock, and returned. Carrying on
-                    // would call ensureIndexInitialized() and rebuild all of it, leaving a closed
-                    // index with a live builder and a fresh executor thread that nothing will ever
-                    // shut down again - the caller does not re-check the field.
-                    //
-                    // Reading it here rather than before the lock is the whole point: close writes
-                    // it under this lock, so the two cannot interleave.
-                    if(this.closed)
+                    permit.acquire();
+                }
+                catch(final InterruptedException e)
+                {
+                    // The shutdown persist is interrupted when it overruns its timeout.
+                    Thread.currentThread().interrupt();
+                    LOG.warn("Persist of '{}' interrupted while waiting for a flush in flight", this.name);
+                    return false;
+                }
+            }
+
+            boolean completed = false;
+            try
+            {
+                final boolean   trained = kind != PersistKind.SHUTDOWN && this.trainCompressorsBeforeLocking();
+                final FlushPlan plan    = this.freeze(kind, trained, null);
+                if(plan == null)
+                {
+                    return true;
+                }
+                if(plan == FlushPlan.DECLINED)
+                {
+                    return false;
+                }
+                this.runFlushReportingFailure(plan);
+                completed = true;
+                return true;
+            }
+            finally
+            {
+                permit.release();
+                if(completed && kind != PersistKind.SHUTDOWN)
+                {
+                    // Requests made while this flush held the permit were skipped, see requestFlushIfDue,
+                    // also those for the graph a removeAll() installed while it was abandoned.
+                    this.requestFlushIfStillDue();
+                }
+            }
+        }
+
+        /**
+         * The background persist of {@link #persist}: holds the permit to train, lets go of it while it
+         * waits for the locks of the freeze, which tries it again, and hands the write to the flush
+         * thread.
+         * <p>
+         * A write handed to the flush thread has not taken the changes yet: they are committed only once
+         * it completes, and a close that comes first stops it. So they stay counted, which makes the
+         * shutdown persist run - it waits for the write in flight and writes what is left - until the
+         * flush retires them on its commit (see {@link #changesPersisted}).
+         */
+        private boolean persistInBackground(final Semaphore permit)
+        {
+            if(!permit.tryAcquire())
+            {
+                // A flush is in flight; the next tick looks again.
+                return false;
+            }
+            final boolean trained;
+            try
+            {
+                trained = this.trainCompressorsBeforeLocking();
+            }
+            finally
+            {
+                permit.release();
+            }
+
+            final FlushPlan plan = this.freeze(PersistKind.BACKGROUND, trained, permit);
+            if(plan == null)
+            {
+                return true;
+            }
+            if(plan == FlushPlan.DECLINED)
+            {
+                return false;
+            }
+            // The freeze took the permit for this plan.
+            return !this.handOffFlush(plan, permit, true);
+        }
+
+        /**
+         * The changes the background task manager has counted towards persistence so far. Read under the
+         * locks of a freeze, where every change counted is in what the freeze captures: a mutation counts
+         * under the parent monitor, an eventual-indexing operation once applied, under the indexing lock.
+         */
+        private int countedChanges()
+        {
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            return manager != null ? manager.getPersistenceChangeCount() : 0;
+        }
+
+        /**
+         * Retires the changes a freeze counted once what it captured is committed, so that only the
+         * changes made since stay counted towards the next persist.
+         */
+        private void changesPersisted(final int counted)
+        {
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            if(manager != null && counted > 0)
+            {
+                manager.changesPersisted(counted);
+            }
+        }
+
+        /**
+         * Runs a flush on the calling thread, reporting a failure: it leaves the frozen graphs sources for the next
+         * persist to write, and makes that persist due: the changes they hold may never have been
+         * counted - operations a freeze moved out of the queue were not applied yet - so without this
+         * neither a scheduled nor the shutdown persist would retry them.
+         *
+         * Returns normally once the flush committed, or once it was abandoned because the index was
+         * cleared or closed meanwhile, which leaves nothing to write.
+         *
+         * @param plan the plan
+         * @throws RuntimeException if the flush failed
+         * @throws Error if the flush failed
+         */
+        private void runFlushReportingFailure(final FlushPlan plan)
+        {
+            try
+            {
+                this.runFlush(plan);
+            }
+            catch(final FlushAbandonedException e)
+            {
+                LOG.debug("Flush of '{}' abandoned: {}", this.name, e.getMessage());
+            }
+            catch(final RuntimeException | Error e)
+            {
+                final BackgroundTaskManager manager = this.backgroundTaskManager;
+                if(manager != null)
+                {
+                    manager.markPersistRequired();
+                }
+                throw e;
+            }
+        }
+
+        /**
+         * Hands a frozen plan, whose permit the caller holds, to the flush writer, which then owns the
+         * permit. If the writer is shut down, the background task thread writes the plan itself, while a
+         * mutating thread, which a write must not hold up, leaves the frozen graph a source for the next
+         * persist. Unless the writer took it, the permit is released here.
+         *
+         * @param plan           the plan
+         * @param permit         the flush permit, held by the caller
+         * @param inlineFallback whether to write the plan on this thread if the writer is shut down
+         * @return whether the writer took the plan
+         */
+        private boolean handOffFlush(
+            final FlushPlan plan          ,
+            final Semaphore permit        ,
+            final boolean   inlineFallback
+        )
+        {
+            boolean handedOff = false;
+            try
+            {
+                handedOff = this.submitFlush(plan, permit);
+                if(!handedOff)
+                {
+                    if(inlineFallback)
                     {
-                        LOG.debug("Index '{}' was closed while this persist was preparing, skipping"
-                            + " it rather than resurrecting the index", this.name);
-                        return;
+                        this.runFlushReportingFailure(plan);
                     }
-
-                    // If incremental mode with no changes, skip persist entirely.
-                    //
-                    // Exception: an index that wants PQ but has no codebook yet still has work to
-                    // do, even with no data changes. That happens when the first persist ran below
-                    // MIN_VECTORS_FOR_PQ_TRAINING, or when training threw and the graph was written
-                    // uncompressed. Without this carve-out the shortcut would make that state
-                    // permanent for an idle index, because nothing else ever re-enters this method.
-                    // The carve-out deliberately does not apply on the shutdown path. Training needs
-                    // the consolidated graph, so it can only run after exitIncrementalMode(), and the
-                    // shutdown branch below returns before that on purpose - shutdown must not be
-                    // blocked by an O(n) rebuild. Letting a pending training through here would only
-                    // reach that return anyway, so this states the outcome instead of discovering it
-                    // two steps later. The consequence is that an index whose only persist is the
-                    // shutdown persist stays uncompressed; it trains on the first explicit
-                    // persistToDisk() or the first background persist after a change.
-                    // The pending checks read GigaMap state (the structural mod count and, in
-                    // embedded mode, the entity count), so it needs the parentMap monitor to see a
-                    // consistent snapshot - otherwise a persist racing a mutation could observe the
-                    // pre-mutation count, take the shortcut, and defer a training that was due.
-                    // Taking the monitor while holding builderLock.writeLock() is safe only because no
-                    // thread ever waits for builderLock while holding the monitor: GigaMap.removeAll() and
-                    // reindex() only try it and wait on the monitor instead (see internalTryLockExclusive).
-                    final boolean skipPersist;
-                    synchronized(this.parentMap())
+                    else
                     {
-                        skipPersist = this.incrementalMode
-                            && this.isIncrementalClean()
-                            && !this.graphIncomplete
-                            && !trainedForThisPersist
-                            && !this.compressionTrainedOutsidePersist
-                            && (onShutdown || !(this.isPqTrainingPending() || this.isNvqTrainingPending()))
-                        ;
+                        plan.release();
                     }
+                }
+                return handedOff;
+            }
+            finally
+            {
+                if(!handedOff)
+                {
+                    permit.release();
+                }
+            }
+        }
 
-                    if(skipPersist)
+        /**
+         * Hands a background flush to the flush writer, which releases the permit when it is done.
+         *
+         * @return {@code false} if the writer is shut down
+         */
+        private boolean submitFlush(
+            final FlushPlan plan  ,
+            final Semaphore permit
+        )
+        {
+            try
+            {
+                this.flushExecutor().execute(() ->
+                {
+                    boolean completed = false;
+                    try
                     {
-                        LOG.debug("No incremental changes for '{}', skipping persist", this.name);
-                        return;
+                        this.runFlushReportingFailure(plan);
+                        completed = true;
                     }
-
-                    // Captured references for Phase 2 (disk write outside synchronized block)
-                    final OnHeapGraphIndex         capturedIndex  ;
-                    final RandomAccessVectorValues capturedRavv   ;
-                    final PQCompressionManager     capturedPqMgr  ;
-                    final NVQCompressionManager    capturedNvqMgr ;
-                    final DiskIndexManager         capturedDiskMgr;
-                    final DiskIndexManager.MetaState capturedMeta ;
-
-                    final GraphIndexBuilder        capturedBuilder;
-
-                    // Phase 1: Barrier + reference capture inside synchronized(parentMap).
-                    // The barrier ensures any in-flight GigaMap mutation completes.
-                    // New mutations see cleanupInProgress=true and defer.
-                    synchronized(this.parentMap())
+                    catch(final RuntimeException e)
                     {
-                        if(onShutdown && !this.isIndexPresent())
+                        LOG.error("Background flush of '{}' failed, the next persist writes it again", this.name, e);
+                    }
+                    catch(final Error e)
+                    {
+                        LOG.error("Background flush of '{}' failed, the next persist writes it again", this.name, e);
+                        throw e;
+                    }
+                    finally
+                    {
+                        permit.release();
+                    }
+                    if(completed)
+                    {
+                        this.requestFlushIfStillDue();
+                    }
+                });
+                return true;
+            }
+            catch(final RejectedExecutionException e)
+            {
+                return false;
+            }
+        }
+
+        /**
+         * Requests another background flush once one is done, if one is due already: a request made
+         * while it held the flush permit was skipped, and with no further mutation nothing would ask
+         * again before the scheduled persist. Only after a flush that committed or was abandoned, not
+         * after one that failed, so that one that keeps failing is retried on the schedule rather than
+         * over and over.
+         */
+        private void requestFlushIfStillDue()
+        {
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            if(manager != null && this.configuration.backgroundPersistence() && this.isBackgroundFlushDue())
+            {
+                manager.requestFlush();
+            }
+        }
+
+        /**
+         * Returns the flush writer, creating it on first use. One thread at most, named like the
+         * background task thread so the same leak checks cover it, and none while idle: an abandoned
+         * index must not be kept alive by a thread waiting for work.
+         */
+        private ExecutorService flushExecutor()
+        {
+            ExecutorService executor = this.flushExecutor;
+            if(executor == null)
+            {
+                synchronized(this.flushPermit)
+                {
+                    executor = this.flushExecutor;
+                    if(executor == null)
+                    {
+                        this.flushExecutor = executor = newBackgroundWriter(this.name, "flush");
+                    }
+                }
+            }
+            return executor;
+        }
+
+        // Static, so the thread factory does not capture the index.
+        private static ExecutorService newBackgroundWriter(
+            final String name ,
+            final String suffix
+        )
+        {
+            return new ThreadPoolExecutor(
+                0,
+                1,
+                1L,
+                TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(),
+                runnable ->
+                {
+                    final Thread thread = new Thread(runnable, "VectorIndex-Background-" + name + "-" + suffix);
+                    thread.setDaemon(true);
+                    return thread;
+                }
+            );
+        }
+
+        /**
+         * Whether a background persist has anything to do, read without any lock: the live graph has
+         * reached the flush threshold, an earlier flush failed and left a frozen graph behind, the files
+         * must be replaced (a rejected load), or a consolidation is due.
+         */
+        private boolean isBackgroundFlushDue()
+        {
+            final SourceSet         set     = this.sources;
+            final GraphIndexBuilder current = this.builder;
+            if(set == null || current == null)
+            {
+                return false;
+            }
+            return this.forceFlush
+                || this.consolidationRequired
+                || !set.frozen().isEmpty()
+                || graphOf(current).size(0) + this.pendingIndexingCount() >= this.configuration.flushThreshold()
+                || this.isConsolidationDue(set, graphOf(current).size(0) > 0)
+            ;
+        }
+
+        /**
+         * Whether a background persist has a manifest to commit although it has no segment to write,
+         * read without any lock: nothing is live, but changes were counted - deletions, entities added
+         * without a vector - which change what the manifest records, or a merge published a segment the
+         * manifest does not list yet. The background task manager asks
+         * for such a persist only once enough changes are counted.
+         */
+        private boolean isManifestCommitDue()
+        {
+            final GraphIndexBuilder current = this.builder;
+            return this.sources != null
+                && current != null
+                && graphOf(current).size(0) == 0
+                && this.pendingIndexingCount() == 0
+                && (this.countedChanges() > 0 || this.mergeUncommitted)
+            ;
+        }
+
+        private int pendingIndexingCount()
+        {
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            return manager != null && this.configuration.eventualIndexing()
+                ? manager.getPendingIndexingCount()
+                : 0
+            ;
+        }
+
+        /**
+         * Whether a persist that may consolidate has to: a graph operation failed, which leaves the
+         * graph without a change the store has, or the segments would exceed
+         * {@link VectorIndexConfiguration#maxSegments()} because the background merges fell behind. A
+         * segment written for another format or codebook is not a reason: a background merge rewrites
+         * it (see {@link #scheduleMergeIfDue()}).
+         *
+         * @param set    the current sources
+         * @param adding whether the persist is about to add a segment, from the live graph
+         * @return whether a consolidation is due
+         */
+        private boolean isConsolidationDue(
+            final SourceSet set   ,
+            final boolean   adding
+        )
+        {
+            if(this.consolidationRequired)
+            {
+                return true;
+            }
+            return set.segments().size() + set.frozen().size() + (adding ? 1 : 0) > this.configuration.maxSegments();
+        }
+
+        /**
+         * Freezes the live graph for a flush, or consolidates, under the indexing lock, the parent
+         * monitor and {@code builderLock.writeLock()}.
+         * <p>
+         * The indexing lock keeps the eventual-indexing worker from holding an operation it has polled
+         * but not applied: every operation counted in the witnesses sampled here is then either applied
+         * to the live graph already or still in the queue, from where it moves into the frozen graph.
+         * The write lock keeps searches out for the swap, and the monitor keeps mutations out, so the
+         * witnesses, the leave logs and the graph describe the same instant.
+         * <p>
+         * The monitor is taken before the write lock, which is only tried (see
+         * {@link #lockBuilderUnderMonitor(boolean, boolean)}): a freeze that held the write lock while it waited for the
+         * monitor would hold up every search for as long as a mutation keeps the monitor, since a
+         * waiting writer keeps new readers out.
+         *
+         * @param kind    which persist this is
+         * @param trained whether this persist trained a compressor that is not on disk yet
+         * @param permit  the flush permit to try once the locks are held, kept for the returned plan;
+         *                {@code null} if the caller holds it already
+         * @return the plan of the flush to run, {@code null} if there is nothing to write, or
+         *         {@link FlushPlan#DECLINED} if a background persist found too little to flush or another
+         *         flush holds the permit
+         */
+        private FlushPlan freeze(
+            final PersistKind kind   ,
+            final boolean     trained,
+            final Semaphore   permit
+        )
+        {
+            // Read once: close() nulls the field after shutting the manager down.
+            final BackgroundTaskManager manager = this.configuration.eventualIndexing()
+                ? this.backgroundTaskManager
+                : null
+            ;
+            if(manager != null)
+            {
+                manager.lockIndexing();
+            }
+            try
+            {
+                final boolean monitorHeld = Thread.holdsLock(this.parentMap());
+                synchronized(this.parentMap())
+                {
+                    if(!this.lockBuilderUnderMonitor(monitorHeld, true))
+                    {
+                        return null;
+                    }
+                    if(permit != null && !permit.tryAcquire())
+                    {
+                        this.builderLock.writeLock().unlock();
+                        return FlushPlan.DECLINED;
+                    }
+                    FlushPlan plan = null;
+                    try
+                    {
+                        // Under the write lock, which close() sets it under: a close that completed while
+                        // this persist trained must not be undone by the ensureIndexInitialized() below.
+                        if(this.closed)
                         {
-                            // Nothing to persist, and nothing to (re-)create here. On the shutdown
-                            // path ensureIndexInitialized() must not run initializeIndex(): that
-                            // ends in startBackgroundManagersIfEnabled(), so an index already torn
-                            // down by closeInternalResources() would get a fresh background task
-                            // manager after its predecessor was shut down, and the caller does
-                            // not re-check the field, so that executor thread would outlive
-                            // close(). An index without builder and without a loaded disk index
-                            // holds nothing the store does not already have.
-                            LOG.debug("No index present for '{}' on shutdown, skipping persist", this.name);
-                            return;
+                            LOG.debug("Index '{}' was closed while this persist was preparing, skipping it",
+                                this.name);
+                            return null;
                         }
-
+                        if(kind == PersistKind.SHUTDOWN && !this.isIndexPresent())
+                        {
+                            // Nothing to persist, and nothing to (re-)create: initializing here would
+                            // start a background task manager in the middle of close().
+                            return null;
+                        }
                         this.ensureIndexInitialized();
-
-                        // If in incremental mode, exit it first by rebuilding the full graph.
-                        // Must happen inside synchronized(parentMap) so that
-                        // rebuildGraphFromStore() does not race with in-flight mutations.
-                        boolean rebuilt = false;
-                        if(this.incrementalMode)
+                        final SourceSet set = this.sources;
+                        if(set == null)
                         {
-                            if(onShutdown)
-                            {
-                                // The on-disk index is a derived cache. Skip the O(n) full-graph
-                                // consolidation on shutdown and let the load-time self-heal
-                                // (DiskIndexManager.verifyMetadata) rebuild from the store — the
-                                // source of truth — on the next boot. No vectors are lost, and
-                                // shutdown is not blocked by a rebuild that would be discarded
-                                // anyway. Full consolidation stays a background/explicit operation.
-                                //
-                                // This returns before the empty-graph handling below, so an index
-                                // emptied while in incremental mode keeps its now stale files until
-                                // the next non-shutdown persist. That is the same trade as skipping
-                                // the consolidation: the self-heal rejects them on load.
-                                LOG.info("Skipping full-graph consolidation for '{}' on shutdown; "
-                                    + "on-disk index self-heals from store on next load", this.name);
-                                return;
-                            }
-                            this.exitIncrementalMode();
-                            rebuilt = true;
+                            return null;
                         }
-
-                        // Ops deferred since cleanupInProgress was set (before the write lock was free) are
-                        // already counted in structuralModCount, which is captured below as the .meta witness.
-                        // Leaving them out of the captured graph would write files that claim to be current but
-                        // miss those nodes, and a restart would accept them. Safe to apply here: cleanup has not
-                        // started, and this thread holds the write lock and the monitor.
-                        if(rebuilt)
-                        {
-                            // A rebuild reads the source of truth, which every deferred op's mutation changed
-                            // before the op was deferred, so the ops are in the rebuilt graph already. Replaying
-                            // them would be idempotent but not free: a computed-mode update repairs the whole
-                            // graph, under the monitor and the write lock.
-                            this.deferredBuilderOps.clear();
-                        }
-                        else
-                        {
-                            this.runDeferredBuilderOps();
-                        }
-
-                        // A failed deferred op (here or in an earlier drain) left a counted change out of the
-                        // graph, so capturing it would write files that claim more than they contain. Rebuild
-                        // from the source of truth first; if that fails too, the persist fails and writes nothing.
-                        // The drain above has consumed the queue, and nothing can be deferred while the monitor
-                        // is held, so the rebuilt graph lacks nothing.
-                        if(this.graphIncomplete)
-                        {
-                            if(onShutdown)
-                            {
-                                // Not worth an O(n) rebuild that would block shutdown: writing nothing is just as
-                                // safe. The files on disk predate the lost change, so the restart rejects them and
-                                // rebuilds from the store.
-                                LOG.warn("Graph of '{}' is incomplete after a failed deferred operation; skipping"
-                                    + " the persist on shutdown, the index is rebuilt on next load", this.name);
-                                return;
-                            }
-                            this.rebuildInMemoryGraph();
-                        }
-
-                        // If we have an in-memory builder, prepare for disk write
-                        if(this.builder == null || this.index == null)
-                        {
-                            return;
-                        }
-
-                        // Initialize disk manager if needed
-                        if(this.diskManager == null)
-                        {
-                            this.diskManager = new DiskIndexManager.Default(
-                                this,
-                                this.name,
-                                this.indexDirectoryForDisk(),
-                                this.configuration.dimension(),
-                                GraphFormat.of(this.configuration),
-                                this.configuration.parallelOnDiskWrite()
-                            );
-                        }
-
-                        // An empty graph cannot be written: jvector's header writer dereferences
-                        // view.entryNode(), which is null while the graph holds no node, so the
-                        // write would fail with a NullPointerException.
-                        //
-                        // Reaching this point means the store itself holds no vectors: either none
-                        // were ever added, or the incremental exit above consolidated a graph
-                        // that is now empty: exitIncrementalMode() rebuilds from the store, the
-                        // source of truth. Any files written earlier therefore describe content
-                        // that no longer exists and are removed rather than left behind.
-                        if(this.index.size(0) == 0)
-                        {
-                            LOG.debug("Index '{}' holds no vectors, removing any on-disk index "
-                                + "instead of persisting", this.name);
-                            this.diskManager.deleteIndexFiles();
-                            return;
-                        }
-
-
-                        // Capture references for use outside the synchronized block.
-                        // The parentMap monitor is released before cleanup and disk write
-                        // so that worker threads (ForkJoinPool in cleanup, disk writer)
-                        // can freely call parentMap.get() without deadlocking.
-                        capturedBuilder = this.builder;
-                        capturedIndex   = this.index;
-                        capturedRavv    = new NullSafeVectorValues(
-                            this.createVectorValues(), this.configuration.dimension(), this.vectorTypeSupport
-                        );
-                        capturedPqMgr   = this.pqManager ;
-                        capturedNvqMgr  = this.nvqManager;
-                        capturedDiskMgr = this.diskManager;
-
-                        // Sample the .meta witnesses at the same instant the graph is captured, under
-                        // the monitor, so a Phase-2 vec↔null mutation cannot advance them past the
-                        // written graph (see DiskIndexManager.MetaState).
-                        capturedMeta    = this.currentMetaState();
+                        plan = this.freezeUnderLocks(kind, trained, set, manager, true);
+                        return plan;
                     }
-
-                    // Phase 2: Cleanup and disk write outside synchronized(parentMap).
-                    // builderLock.writeLock() is still held, blocking searches,
-                    // background worker mutations, removeAll, and close.
-                    // parentMap monitor is released, so ForkJoinPool workers and
-                    // disk writer threads can call parentMap.get() for embedded vectors.
-
-                    // Test-only injection point: exercises the window where a sync mutation defers a
-                    // builder op that is drained only after the builder is swapped below. No-op in prod.
-                    final Runnable hook = this.persistPhase2TestHook;
-                    if(hook != null)
+                    finally
                     {
-                        hook.run();
+                        this.builderLock.writeLock().unlock();
+                        if(permit != null && (plan == null || plan == FlushPlan.DECLINED))
+                        {
+                            permit.release();
+                        }
                     }
-
-                    capturedBuilder.cleanup();
-                    capturedDiskMgr.writeIndex(
-                        capturedIndex, capturedRavv, capturedPqMgr, capturedNvqMgr, capturedMeta);
-
-                    // Whatever was trained ahead of this persist is on disk now. Cleared here
-                    // rather than at the skip check, so that a persist which fails on the way
-                    // leaves the flag standing and the next one still knows there is a codebook
-                    // waiting to be written.
-                    this.compressionTrainedOutsidePersist = false;
-
-                    // After writing, re-enter incremental mode for fast subsequent operation
-                    this.reenterIncrementalMode(capturedMeta);
-                }
-                catch(final IOException ioe)
-                {
-                    throw new IORuntimeException(ioe);
-                }
-                finally
-                {
-                    this.builderLock.writeLock().unlock();
                 }
             }
             finally
             {
-                this.cleanupInProgress = false;
-
-                // Apply any deferred sync-mode mutations now that cleanup + persistence is done.
-                // Inside the finally so the early returns above (incremental-clean, shutdown skip,
-                // no builder) cannot strand the queue; builderLock is already released above.
-                this.drainDeferredBuilderOps();
+                if(manager != null)
+                {
+                    manager.unlockIndexing();
+                }
             }
         }
 
         /**
-         * Returns whether this index is configured for PQ, holds no codebook yet, and now has enough
-         * vectors to train one - i.e. a persist would produce a compressed graph where the last one
-         * did not.
+         * Takes {@code builderLock.writeLock()} while this thread holds the parent monitor, by trying it
+         * and waiting on the monitor in between, which releases it. Blocking on the lock instead would keep
+         * every mutation waiting for the monitor as long as the searches in flight run, and a search that
+         * reaches the rebuild gate needs the monitor before it can finish. New searches hold back meanwhile
+         * (see {@link #exclusiveWaiters}), so the ones in flight drain. The only way the write lock and the
+         * monitor are taken together, by a freeze, an optimization and a close alike: a writer blocked on the
+         * lock before it takes the monitor deadlocks with a search issued under the monitor, which waits for the
+         * read lock behind it.
          * <p>
-         * Used to keep the incremental-clean shortcut in {@code doPersistToDisk} from making a
-         * missed training permanent on an otherwise idle index. It has no effect on the shutdown
-         * path, which returns before the consolidation that training depends on.
+         * A caller that held the monitor already, in the middle of an operation on the parent map, is
+         * never made to release it - waiting on the monitor would release every hold of it - so then the
+         * lock is tried with short pauses instead.
+         *
+         * @param monitorHeld   whether this thread held the monitor before it took it for this
+         * @param interruptible whether an interrupt gives up the wait (a freeze, as a shutdown persist that overruns
+         *                      its timeout is interrupted; an optimization); a close waits on and keeps the
+         *                      interrupt for its caller, as the blocking lock it replaces did, or a shutdown that
+         *                      interrupted the closing thread would leave the index open
+         * @return whether the lock was taken; {@code false} only if {@code interruptible} and the thread was
+         *         interrupted
          */
+        private boolean lockBuilderUnderMonitor(final boolean monitorHeld, final boolean interruptible)
+        {
+            final ReentrantReadWriteLock.WriteLock lock = this.builderLock.writeLock();
+            if(lock.tryLock())
+            {
+                return true;
+            }
+            boolean interrupted = false;
+            EXCLUSIVE_WAITERS.incrementAndGet(this);
+            try
+            {
+                while(!lock.tryLock())
+                {
+                    try
+                    {
+                        if(monitorHeld)
+                        {
+                            LockSupport.parkNanos(100_000L);
+                            if(Thread.interrupted())
+                            {
+                                throw new InterruptedException();
+                            }
+                        }
+                        else
+                        {
+                            this.parentMap().wait(1L);
+                        }
+                    }
+                    catch(final InterruptedException e)
+                    {
+                        interrupted = true;
+                        if(interruptible)
+                        {
+                            LOG.warn("Vector index '{}' interrupted while waiting for the searches in flight", this.name);
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
+            finally
+            {
+                EXCLUSIVE_WAITERS.decrementAndGet(this);
+                if(interrupted)
+                {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+
         /**
-         * Trains the PQ codebook, if one is due, before {@code doPersistToDisk} takes any lock.
+         * Decides what a persist does and freezes for it, under the locks of {@link #freeze}.
+         *
+         * @param kind           which persist this is
+         * @param trained        whether this persist trained a compressor
+         * @param set            the current sources
+         * @param manager        the background task manager whose queued operations move into the
+         *                       frozen graph, or {@code null}
+         * @param mayConsolidate whether this thread may rebuild everything if a consolidation is due;
+         *                       {@code false} on a mutating thread, which must not be held up for that
+         *                       long, so the freeze is declined and left to the background persist
+         * @return the plan to write, {@link FlushPlan#DECLINED}, or {@code null} if there is nothing to
+         *         persist
+         */
+        private FlushPlan freezeUnderLocks(
+            final PersistKind           kind          ,
+            final boolean               trained       ,
+            final SourceSet             set           ,
+            final BackgroundTaskManager manager       ,
+            final boolean               mayConsolidate
+        )
+        {
+            final OwnerTable                 owners    = set.owners();
+            final DiskIndexManager.MetaState witness   = this.currentMetaState();
+            final DiskIndexManager.MetaState committed = this.committedWitness;
+            final int                        pending   = manager != null ? manager.getPendingIndexingCount() : 0;
+            final int                        liveNodes = this.index.size(0);
+            final boolean                    leaves    = set.segments().stream()
+                .anyMatch(segment -> owners.capture(segment.slot()).length() > segment.committedLogLength());
+            final boolean                    consolidationDue = kind != PersistKind.SHUTDOWN
+                && this.isConsolidationDue(set, liveNodes > 0 || pending > 0);
+
+            final boolean clean = liveNodes == 0
+                && pending == 0
+                && !leaves
+                && set.frozen().isEmpty()
+                && committed != null
+                && committed.matches(witness)
+                && !trained
+                && !this.compressionTrainedOutsidePersist
+                && !consolidationDue
+                && !this.forceFlush
+                && !this.mergeUncommitted
+            ;
+            if(clean)
+            {
+                LOG.debug("No changes for '{}' since the last commit, skipping persist", this.name);
+                this.changesPersisted(this.countedChanges());
+                return null;
+            }
+            // A background persist writes the live graph only once it has reached the flush threshold,
+            // so segments do not come out small. With nothing live it has no segment to write, only the
+            // manifest - the deletions and the witnesses - which it commits whatever the threshold.
+            if(kind == PersistKind.BACKGROUND
+                && !consolidationDue
+                && !this.forceFlush
+                && set.frozen().isEmpty()
+                && liveNodes + pending > 0
+                && liveNodes + pending < this.configuration.flushThreshold())
+            {
+                return FlushPlan.DECLINED;
+            }
+            if(consolidationDue && !mayConsolidate)
+            {
+                return FlushPlan.DECLINED;
+            }
+            if(consolidationDue)
+            {
+                return this.consolidate(kind, set, witness, manager);
+            }
+            if(kind == PersistKind.SHUTDOWN && this.consolidationRequired)
+            {
+                // The graph lacks a change the store has. Writing it would make the next start accept
+                // it, so nothing is committed: the next start finds the manifest stale and rebuilds.
+                LOG.warn("Not persisting '{}' on shutdown: a graph operation failed, the next start rebuilds"
+                    + " the index from the store", this.name);
+                return null;
+            }
+
+            final List<HeapGeneration> frozen = new ArrayList<>(set.frozen());
+            // Every persist freezes the live graph too, a background one retrying a failed flush
+            // included: the witnesses it commits count the mutations the live graph holds, so a segment
+            // must hold them as well.
+            final boolean freezeLive = liveNodes > 0 || pending > 0;
+            if(freezeLive)
+            {
+                final OwnerTable.Lease newLease = owners.allocate();
+                if(newLease == null)
+                {
+                    if(kind == PersistKind.SHUTDOWN)
+                    {
+                        LOG.warn("Not persisting '{}' on shutdown: no source slot is free", this.name);
+                        return null;
+                    }
+                    if(!mayConsolidate)
+                    {
+                        return FlushPlan.DECLINED;
+                    }
+                    return this.consolidate(kind, set, witness, manager);
+                }
+                frozen.add(this.freezeLiveGraph(newLease, manager));
+            }
+
+            final SourceSet next = set.with(set.segments(), frozen);
+            this.sources = next;
+            set.release();
+            this.forceFlush = false;
+            return this.newFlushPlan(kind, next, witness, false);
+        }
+
+        /**
+         * Freezes the live graph and installs a fresh one under {@code newLease}. Under the locks of
+         * {@link #freeze}.
+         */
+        private HeapGeneration freezeLiveGraph(
+            final OwnerTable.Lease      newLease,
+            final BackgroundTaskManager manager
+        )
+        {
+            final List<IndexingOperation> moved = manager != null
+                ? manager.takePendingOps()
+                : List.of()
+            ;
+            final GenerationVectorValues vectors = this.liveVectorValues;
+            vectors.freeze(this.movedVectorsOf(moved));
+            final HeapGeneration frozen = HeapGeneration.Freeze(
+                this.liveLease, this.builder, vectors, null, moved, this.name
+            );
+            // The live pool creates its searchers over whatever graph is live when a thread first asks,
+            // so it cannot serve the frozen graph; no search runs under the write lock to be using it.
+            this.closeSearcherPools();
+            this.initializeInMemoryBuilder();
+            this.initializeSearcherPool();
+            this.liveLease = newLease;
+            this.sources.owners().liveSlot(newLease.slot());
+            LOG.info("Froze the in-memory graph of '{}' with {} nodes and {} queued operations for a flush",
+                this.name, frozen.nodeCount(), moved.size());
+            return frozen;
+        }
+
+        /**
+         * Copies the vectors of the ordinals the moved operations name from the vector file, under the
+         * locks of the freeze: a remove or an update after the freeze changes the file, but must not change
+         * what the segment holds of an entity the witnesses sampled here count. O(pending).
+         */
+        private Map<Integer, float[]> movedVectorsOf(final List<IndexingOperation> moved)
+        {
+            final Map<Integer, float[]> vectors = new HashMap<>();
+            final VectorFile            file    = this.vectorFile;
+            for(final IndexingOperation op : moved)
+            {
+                switch(op)
+                {
+                    case IndexingOperation.Add      add    -> vectors.put(add.ordinal(), file.read(add.ordinal()));
+                    case IndexingOperation.Update   update ->
+                        vectors.put(update.ordinal(), file.read(update.ordinal()));
+                    case IndexingOperation.Remove   remove -> vectors.put(remove.ordinal(), null);
+                    case IndexingOperation.BatchAdd batch  ->
+                    {
+                        for(final int ordinal : batch.ordinals())
+                        {
+                            vectors.put(ordinal, file.read(ordinal));
+                        }
+                    }
+                }
+            }
+            return vectors;
+        }
+
+        /**
+         * Rebuilds the whole index from the store into one new generation that replaces every source,
+         * under the locks of {@link #freeze}. The rare fallback for what flushing alone cannot fix (see
+         * {@link #isConsolidationDue}); it holds the locks for the rebuild, in parallel from the vector
+         * file like the load-path rebuild, but writes outside them like any flush.
          * <p>
-         * Only the collection needs the {@code parentMap} monitor, because it iterates the map. The
+         * The queued eventual-indexing operations are dropped: they are enqueued after the vector file was
+         * written, so the rebuild holds their effect already. A rebuild that fails publishes nothing
+         * and leaves every source as it was.
+         */
+        private FlushPlan consolidate(
+            final PersistKind                kind   ,
+            final SourceSet                  set    ,
+            final DiskIndexManager.MetaState witness,
+            final BackgroundTaskManager      manager
+        )
+        {
+            LOG.info("Consolidating the on-disk index of '{}' ({} segments, {} frozen graphs) into one segment",
+                this.name, set.segments().size(), set.frozen().size());
+            final long startNanos = System.nanoTime();
+
+            final RebuildNodes      nodes  = this.collectRebuildNodes(false);
+            final OwnerTable        owners = OwnerTable.New();
+            final OwnerTable.Lease  lease  = owners.allocate();
+            // Scores from the vector file for the inserts, the cleanup and the write, so no worker needs
+            // the monitor this thread holds. Frozen from the start: it is written like a frozen graph.
+            final GenerationVectorValues vectors = new GenerationVectorValues(this.vectorFile, this.vectorTypeSupport);
+            vectors.freeze(Map.of());
+            final GraphIndexBuilder target = this.newGraphIndexBuilder(
+                BuildScoreProvider.randomAccessScoreProvider(this.nullSafe(vectors), this.jvectorSimilarityFunction())
+            );
+
+            boolean published = false;
+            try
+            {
+                final Runnable workerHook = this.rebuildWorkerTestHook;
+                final int      seeded     = seedIfEmpty(target, nodes.count(), index -> this.insertFromFile(target, nodes.ordinals()[index]));
+                ParallelGraphInsertion.forEach(
+                    nodes.count() - seeded,
+                    index ->
+                    {
+                        if(workerHook != null)
+                        {
+                            workerHook.run();
+                        }
+                        this.insertFromFile(target, nodes.ordinals()[index + seeded]);
+                    },
+                    this.rebuildThreadNamePrefix()
+                );
+                // A builder of this flush only, so no other thread touches it.
+                GraphReachability.repair(target, nodes.ordinals(), nodes.count(), this::vectorOf, this.name);
+                for(final int ordinal : nodes.ordinals())
+                {
+                    owners.owners().set(ordinal, lease.slot());
+                }
+
+                if(manager != null)
+                {
+                    manager.takePendingOps();
+                }
+                final HeapGeneration consolidated = HeapGeneration.Freeze(
+                    lease, target, vectors, null, List.of(), this.name
+                );
+
+                // The old live graph is in no set, so nothing else can reach it: the write lock keeps
+                // searches out, the monitor mutations.
+                this.closeSearcherPools();
+                this.closeLiveBuilder();
+                this.initializeInMemoryBuilder();
+                this.initializeSearcherPool();
+                final OwnerTable.Lease previousLive = this.liveLease;
+                this.liveLease = owners.allocate();
+                owners.liveSlot(this.liveLease.slot());
+
+                final SourceSet next = new SourceSet(List.of(), List.of(consolidated), owners);
+                this.sources = next;
+                published = true;
+                set.release();
+                if(previousLive != null)
+                {
+                    previousLive.release();
+                }
+
+                this.consolidationRequired = false;
+                this.forceFlush            = false;
+                this.consolidationCount++;
+                LOG.info("Rebuilt the graph of '{}' from {} vectors for a consolidation in {} ms",
+                    this.name, nodes.count(), (System.nanoTime() - startNanos) / 1_000_000L);
+                return this.newFlushPlan(kind, next, witness, true);
+            }
+            finally
+            {
+                if(!published)
+                {
+                    this.closeUnpublishedBuilder(target, null);
+                    lease.release();
+                }
+            }
+        }
+
+        private void closeLiveBuilder()
+        {
+            final GraphIndexBuilder current = this.builder;
+            if(current != null)
+            {
+                try
+                {
+                    current.close();
+                }
+                catch(final IOException e)
+                {
+                    LOG.warn("Error closing the replaced in-memory graph builder of '{}': {}",
+                        this.name, e.getMessage());
+                }
+            }
+            final OnHeapGraphIndex graph = this.index;
+            if(graph != null)
+            {
+                graph.close();
+            }
+        }
+
+        /**
+         * Builds the plan of a flush over every source of {@code set}, holding each of them for the
+         * flush, with the leave logs as they are now. Under the parent monitor.
+         */
+        private FlushPlan newFlushPlan(
+            final PersistKind                kind        ,
+            final SourceSet                  set         ,
+            final DiskIndexManager.MetaState witness     ,
+            final boolean                    consolidated
+        )
+        {
+            final Map<Integer, OwnerTable.LeaveLog> logs = new HashMap<>();
+            for(final IndexSource source : set.sources())
+            {
+                logs.put(source.slot(), set.owners().capture(source.slot()));
+            }
+            final PQCompressionManager  pq  = this.pqManager ;
+            final NVQCompressionManager nvq = this.nvqManager;
+            final FlushPlan plan = new FlushPlan(
+                kind,
+                set.segments(),
+                set.frozen(),
+                logs,
+                witness,
+                pq  != null && pq.isTrained()  ? pq.getPQ()   : null,
+                nvq != null && nvq.isTrained() ? nvq.getNVQ() : null,
+                this.sourceEpoch,
+                consolidated,
+                this.countedChanges()
+            );
+            plan.retain();
+            return plan;
+        }
+
+        /**
+         * Runs a flush planned by {@link #freeze}, with no lock held except, briefly,
+         * {@link #commitLock} around the commit and the publication.
+         * <ol>
+         *   <li>Applies the eventual-indexing operations moved into each frozen graph: they are counted
+         *       in the witnesses, so the segment must hold them.</li>
+         *   <li>Runs {@code cleanup()} on each frozen graph, scoring from the generation's vectors
+         *       ({@link GenerationVectorValues}).</li>
+         *   <li>Writes each as a new segment and opens it, so a segment that cannot be read back is
+         *       never committed.</li>
+         *   <li>Commits a manifest listing the existing segments with their deletions as captured at the
+         *       freeze, plus the new ones, and publishes the new segments in place of the frozen
+         *       graphs.</li>
+         * </ol>
+         * A failure commits nothing and leaves the frozen graphs searchable; the next persist writes
+         * them again. A flush whose index was cleared or closed meanwhile commits nothing either, and
+         * deletes what it wrote.
+         *
+         * @param plan the plan, whose sources it releases when done
+         * @throws IORuntimeException if writing or committing fails
+         * @throws FlushAbandonedException if the index was cleared or closed meanwhile
+         */
+        private void runFlush(final FlushPlan plan)
+        {
+            final long             startNanos = System.nanoTime();
+            final List<Written>    written    = new ArrayList<>();
+            // Read once: removeAll() replaces the manager without waiting for a flush in flight, which
+            // then commits nothing (see checkFlushStillWanted) but must still clean up after itself
+            // with the manager it wrote through.
+            final DiskIndexManager disk       = this.diskManager;
+            boolean                published  = false;
+            boolean                released   = false;
+            try
+            {
+                if(disk == null)
+                {
+                    throw new FlushAbandonedException("the index was cleared or closed");
+                }
+                this.reachedFlushStage(FlushStage.FROZEN);
+                for(final HeapGeneration frozen : plan.frozen())
+                {
+                    this.checkFlushStillWanted(plan);
+                    this.applyMovedOps(frozen);
+                }
+                this.reachedFlushStage(FlushStage.OPS_APPLIED);
+                for(final HeapGeneration frozen : plan.frozen())
+                {
+                    this.checkFlushStillWanted(plan);
+                    this.prepareForWrite(frozen, plan.kind());
+                }
+                this.reachedFlushStage(FlushStage.CLEANED);
+
+                for(final HeapGeneration frozen : plan.frozen())
+                {
+                    if(frozen.nodeCount() == 0)
+                    {
+                        // Everything in it was removed before the cleanup purged it; nothing to write.
+                        continue;
+                    }
+                    this.checkFlushStillWanted(plan);
+                    final Written entry = new Written(frozen, this.segmentSequences.reserve(
+                        this.indexDirectoryForDisk(), this.name
+                    ));
+                    written.add(entry);
+                    final SegmentManifest.Segment segment = disk.writeSegment(
+                        frozen.graph(), this.flushVectors(frozen), plan.pq(), plan.nvq(), entry.sequence
+                    );
+                    entry.segment = disk.openSegment(segment, frozen.lease(), false, 0);
+                    this.reachedFlushStage(FlushStage.SEGMENT_WRITTEN);
+                }
+
+                final Commit commit = this.planCommit(plan, written);
+                synchronized(this.commitLock)
+                {
+                    this.checkFlushStillWanted(plan);
+                    try
+                    {
+                        if(commit.listed().isEmpty())
+                        {
+                            // Nothing live in any source: there is nothing to write, and the files of an
+                            // earlier, non-empty state describe content that no longer exists.
+                            disk.deleteIndexFiles();
+                        }
+                        else
+                        {
+                            disk.commit(plan.witness(), commit.listed());
+                        }
+                    }
+                    catch(final DiskIndexManager.CommitIncompleteException e)
+                    {
+                        // The new manifest is in place, only its durability is not proven. It names the
+                        // new segments, so they are published like a completed commit's, and the
+                        // failure is reported all the same.
+                        this.publishFlush(plan, commit);
+                        published = true;
+                        throw e;
+                    }
+                    this.publishFlush(plan, commit);
+                    published = true;
+                }
+                // A new segment with nothing live is not listed; closed first, so its files are not
+                // protected as those of an open segment from the cleanup that follows.
+                for(final Written entry : written)
+                {
+                    if(!entry.listed && entry.segment != null)
+                    {
+                        entry.segment.close();
+                        entry.segment = null;
+                    }
+                }
+                this.changesPersisted(plan.counted());
+                // The plan's holds go before the cleanup too: a segment this flush dropped is open until
+                // its last holder lets go, and the files of an open segment are protected.
+                plan.release();
+                released = true;
+                disk.reapUnlistedFiles(commit.listedSequences());
+                this.reachedFlushStage(FlushStage.PUBLISHED);
+                this.scheduleMergeIfDue();
+                // The pre-flush: forcing the vector file here, outside every lock, keeps the work of a
+                // checkpoint off the mutating threads.
+                this.checkpointVectorsIfDue();
+                LOG.info("Flushed '{}': {} new segments, {} segments listed, in {} ms",
+                    this.name, commit.newSegments().size(), commit.listed().size(),
+                    (System.nanoTime() - startNanos) / 1_000_000L);
+            }
+            catch(final IOException e)
+            {
+                throw new IORuntimeException(e);
+            }
+            finally
+            {
+                try
+                {
+                    for(final Written entry : written)
+                    {
+                        this.cleanUpWritten(disk, entry, published);
+                    }
+                }
+                finally
+                {
+                    if(!released)
+                    {
+                        plan.release();
+                    }
+                }
+            }
+        }
+
+        /**
+         * Lets go of a segment a flush wrote: closes and deletes it if no manifest names it -
+         * unpublished, or published with nothing live in it - and ends the protection of its sequence
+         * as one being written. Each step is independent, so a failure of one cannot keep the sequence
+         * protected for the rest of the session, nor skip the entries after it.
+         */
+        private void cleanUpWritten(
+            final DiskIndexManager disk     ,
+            final Written          entry    ,
+            final boolean          published
+        )
+        {
+            try
+            {
+                if(!published || !entry.listed)
+                {
+                    if(entry.segment != null)
+                    {
+                        entry.segment.close();
+                    }
+                    // The cleanup after the commit kept its files, as those of a sequence still being
+                    // written, so nothing else would delete them before the next flush or start.
+                    disk.deleteSegmentFiles(entry.sequence);
+                }
+            }
+            catch(final RuntimeException e)
+            {
+                LOG.warn("Could not delete the files of segment {} of '{}', the next start removes them",
+                    entry.sequence, this.name, e);
+            }
+            finally
+            {
+                this.segmentSequences.written(entry.sequence);
+            }
+        }
+
+        /**
+         * Runs a checkpoint of the vector file if one is due, with no lock held, logging a failure: it only
+         * leaves more to look at after a crash, and the next checkpoint tries again.
+         */
+        private void checkpointVectorsIfDue()
+        {
+            final VectorFile file = this.vectorFile;
+            if(file == null || !file.isCheckpointDue())
+            {
+                return;
+            }
+            try
+            {
+                file.checkpoint();
+            }
+            catch(final RuntimeException e)
+            {
+                LOG.warn("Checkpoint of the vectors of '{}' failed: {}", this.name, e.getMessage(), e);
+            }
+        }
+
+        /**
+         * A segment a flush has written for one frozen graph, and what became of it.
+         */
+        private static final class Written
+        {
+            final HeapGeneration frozen  ;
+            final long           sequence;
+            DiskSegment          segment ;
+            boolean              listed  ;
+
+            Written(
+                final HeapGeneration frozen  ,
+                final long           sequence
+            )
+            {
+                this.frozen   = frozen  ;
+                this.sequence = sequence;
+            }
+        }
+
+        /**
+         * What a flush commits: the manifest entries, the new deletions of the existing segments, and
+         * which segments it drops because nothing in them is live any more.
+         */
+        private record Commit(
+            List<SegmentManifest.Segment> listed           ,
+            Set<Long>                     listedSequences  ,
+            List<DiskSegment>             keptSegments     ,
+            List<int[]>                   keptDeletions    ,
+            List<DiskSegment>             newSegments      ,
+            List<int[]>                   newDeletions     ,
+            List<Integer>                 newLogLengths
+        )
+        {
+        }
+
+        /**
+         * Works out the manifest of a flush. Each segment's deletions are those last committed plus the
+         * entities its slot's leave log recorded up to the freeze: exactly the deletions at the instant
+         * the witnesses were sampled, as a restart that accepts the witnesses requires.
+         */
+        private Commit planCommit(
+            final FlushPlan     plan   ,
+            final List<Written> written
+        )
+        {
+            final List<SegmentManifest.Segment> listed          = new ArrayList<>();
+            final Set<Long>                     listedSequences = new HashSet<>();
+            final List<DiskSegment>             keptSegments    = new ArrayList<>();
+            final List<int[]>                   keptDeletions   = new ArrayList<>();
+            final List<DiskSegment>             newSegments     = new ArrayList<>();
+            final List<int[]>                   newDeletions    = new ArrayList<>();
+            final List<Integer>                 newLogLengths   = new ArrayList<>();
+
+            for(final DiskSegment segment : plan.segments())
+            {
+                final OwnerTable.LeaveLog log     = plan.logs().get(segment.slot());
+                final int[]               deleted = union(
+                    segment.committedDeletedLocals(),
+                    segment.toLocal(log.sortedFrom(segment.committedLogLength()))
+                );
+                if(deleted.length == segment.nodeCount())
+                {
+                    // Nothing in it is live any more. Listed, it would still be traversed by every
+                    // search, only to be rejected node by node, and count towards the segment cap.
+                    continue;
+                }
+                listed.add(new SegmentManifest.Segment(
+                    segment.sequence(), segment.nodeCount(), segment.format(), segment.pqVectors() != null, deleted
+                ));
+                listedSequences.add(segment.sequence());
+                keptSegments.add(segment);
+                keptDeletions.add(deleted);
+            }
+            for(final Written entry : written)
+            {
+                final DiskSegment         segment = entry.segment;
+                final OwnerTable.LeaveLog log     = plan.logs().get(segment.slot());
+                final int[]               deleted = segment.toLocal(log.sortedFrom(0));
+                if(deleted.length == segment.nodeCount())
+                {
+                    continue;
+                }
+                listed.add(new SegmentManifest.Segment(
+                    segment.sequence(), segment.nodeCount(), segment.format(), segment.pqVectors() != null, deleted
+                ));
+                listedSequences.add(segment.sequence());
+                entry.listed = true;
+                newSegments.add(segment);
+                newDeletions.add(deleted);
+                newLogLengths.add(log.length());
+            }
+            return new Commit(
+                listed, listedSequences, keptSegments, keptDeletions, newSegments, newDeletions, newLogLengths
+            );
+        }
+
+        /**
+         * Publishes what a flush committed: the kept segments get their new deletions, the new segments
+         * replace the frozen graphs they were written from, and the dropped segments leave the set.
+         * Under {@link #commitLock}, which also excludes the retirement of the sources by removeAll and
+         * close.
+         */
+        private void publishFlush(
+            final FlushPlan plan  ,
+            final Commit    commit
+        )
+        {
+            for(int i = 0; i < commit.keptSegments().size(); i++)
+            {
+                final DiskSegment segment = commit.keptSegments().get(i);
+                segment.committed(commit.keptDeletions().get(i), plan.logs().get(segment.slot()).length());
+            }
+            for(int i = 0; i < commit.newSegments().size(); i++)
+            {
+                commit.newSegments().get(i).committed(commit.newDeletions().get(i), commit.newLogLengths().get(i));
+            }
+
+            final SourceSet current = this.sources;
+            if(current != null)
+            {
+                final Set<DiskSegment> flushedSegments = new HashSet<>(plan.segments());
+                final List<DiskSegment> segments = new ArrayList<>();
+                for(final DiskSegment segment : current.segments())
+                {
+                    // A segment of this flush stays only if it is listed; one that arrived since cannot
+                    // exist, the flush permit excludes it, but it would be kept as it is.
+                    if(!flushedSegments.contains(segment) || commit.keptSegments().contains(segment))
+                    {
+                        segments.add(segment);
+                    }
+                }
+                segments.addAll(commit.newSegments());
+                final List<HeapGeneration> frozen = new ArrayList<>(current.frozen());
+                frozen.removeAll(plan.frozen());
+
+                this.sources = current.with(segments, frozen);
+                current.release();
+            }
+            this.committedWitness                 = plan.witness();
+            this.compressionTrainedOutsidePersist = false;
+            // Every merge published so far is in the set the plan was taken from: merges publish under the
+            // flush permit, which this flush has held since its freeze.
+            this.mergeUncommitted                 = false;
+            this.flushCount++;
+        }
+
+        /**
+         * Returns the union of two strictly ascending arrays, strictly ascending.
+         */
+        private static int[] union(
+            final int[] left ,
+            final int[] right
+        )
+        {
+            if(right.length == 0)
+            {
+                return left;
+            }
+            final int[] merged = new int[left.length + right.length];
+            int i = 0;
+            int j = 0;
+            int n = 0;
+            while(i < left.length || j < right.length)
+            {
+                final int next;
+                if(j >= right.length || i < left.length && left[i] < right[j])
+                {
+                    next = left[i++];
+                }
+                else if(i >= left.length || right[j] < left[i])
+                {
+                    next = right[j++];
+                }
+                else
+                {
+                    next = left[i++];
+                    j++;
+                }
+                merged[n++] = next;
+            }
+            return Arrays.copyOf(merged, n);
+        }
+
+        ///////////////////////////////////////////////////////////////////////////
+        // background segment merge //
+        /////////////////////////////
+
+        /**
+         * Schedules a background merge on the merge thread if the policy finds one due (see
+         * {@link SegmentMergePolicy}). Cheap enough to call after every flush: it looks at the published
+         * segments only, takes no lock and does no I/O.
+         * <p>
+         * Called once a flush or a merge has published, and once the vectors of an index that loaded its
+         * segments are recovered, which a merge reads from.
+         */
+        private void scheduleMergeIfDue()
+        {
+            final AtomicBoolean scheduled = this.mergeScheduled;
+            if(scheduled == null || !this.isMergeDue())
+            {
+                return;
+            }
+            // Set before the compare-and-set: one that fails then came before the running run cleared its
+            // flag, which it does before it reads this one, so the request cannot fall between the two.
+            this.mergeRequested = true;
+            if(!scheduled.compareAndSet(false, true))
+            {
+                return;
+            }
+            try
+            {
+                this.mergeExecutor().execute(this::runMerges);
+            }
+            catch(final RejectedExecutionException e)
+            {
+                // Shut down by a close meanwhile.
+                scheduled.set(false);
+            }
+        }
+
+        private boolean isMergeDue()
+        {
+            return this.isMergeDue(false);
+        }
+
+        private boolean isRewriteDue()
+        {
+            return this.isMergeDue(true);
+        }
+
+        private boolean isMergeDue(final boolean rewritesOnly)
+        {
+            if(!this.mayMerge())
+            {
+                return false;
+            }
+            final SourceSet set = this.acquireSources();
+            if(set == null)
+            {
+                return false;
+            }
+            try
+            {
+                return !this.selectMerge(set, rewritesOnly).isEmpty();
+            }
+            finally
+            {
+                set.release();
+            }
+        }
+
+        private boolean mayMerge()
+        {
+            return this.configuration.onDisk()
+                && !this.mergesSuspended
+                && !this.mergeAbortRequested
+                && !this.closeRequested
+                && !this.closed
+                && this.vectorsRecovered
+            ;
+        }
+
+        /**
+         * Runs merges on the merge thread for as long as the policy finds one due, holding the merge
+         * permit, which a close waits for and an explicit persist rewriting segments holds. A merge that
+         * fails or is abandoned ends the run; the next flush asks again.
+         */
+        private void runMerges()
+        {
+            boolean idle = false;
+            try
+            {
+                final Semaphore permit = this.mergePermit;
+                // Waited for: an explicit persist rewriting segments holds it for a while, and the merge it
+                // made due would be lost otherwise. A close sets the flag before it takes the permit, and
+                // this run finds it set once it gets the permit after the close.
+                if(this.mergeAbortRequested)
+                {
+                    return;
+                }
+                permit.acquireUninterruptibly();
+                try
+                {
+                    // Every request until now is served by the selection this run makes.
+                    this.mergeRequested = false;
+                    MergeOutcome outcome;
+                    do
+                    {
+                        outcome = this.mergeOnce(false);
+                    }
+                    while(outcome == MergeOutcome.MERGED);
+                    idle = outcome == MergeOutcome.NOTHING_DUE;
+                }
+                finally
+                {
+                    permit.release();
+                }
+            }
+            catch(final RuntimeException e)
+            {
+                LOG.error("Background merge of '{}' failed, the next flush tries again", this.name, e);
+            }
+            catch(final Error e)
+            {
+                LOG.error("Background merge of '{}' failed", this.name, e);
+                throw e;
+            }
+            finally
+            {
+                this.mergeScheduled.set(false);
+            }
+            if(idle || this.mergeRequested)
+            {
+                // A flush that published after the last selection found this run scheduled and asked no
+                // one: look once more. Also after a run that was abandoned or failed, but only when such a
+                // flush asked, so a condition that keeps abandoning a merge does not keep rescheduling it.
+                this.mergeRequested = false;
+                this.scheduleMergeIfDue();
+            }
+        }
+
+        /**
+         * Selects, builds, writes and publishes one merge, under the merge permit.
+         *
+         * @param rewritesOnly whether to merge only segments that no longer match the index
+         */
+        private MergeOutcome mergeOnce(final boolean rewritesOnly)
+        {
+            if(!this.mayMerge())
+            {
+                return MergeOutcome.ABANDONED;
+            }
+            this.trainCompressorsForMerge();
+
+            final MergeInput input = this.prepareMerge(rewritesOnly);
+            if(input == null)
+            {
+                return MergeOutcome.NOTHING_DUE;
+            }
+            try
+            {
+                return this.runMerge(input);
+            }
+            catch(final MergeAbandonedException e)
+            {
+                LOG.debug("Merge of '{}' abandoned: {}", this.name, e.getMessage());
+                return MergeOutcome.ABANDONED;
+            }
+            finally
+            {
+                input.release();
+            }
+        }
+
+        /**
+         * Trains a compressor that is due before a merge writes with it, under the flush permit like the
+         * training of a persist, so no flush writes while the codebook changes. A loaded index whose
+         * segments were all flagged has no quantizer yet, and its rewritten segments would otherwise be
+         * written without one. The next persist writes the codebook to the segments it flushes.
+         */
+        private void trainCompressorsForMerge()
+        {
+            if(!this.isCompressionTrainingPending())
+            {
+                return;
+            }
+            final Semaphore permit = this.flushPermit;
+            permit.acquireUninterruptibly();
+            try
+            {
+                if(this.mayMerge() && this.trainCompressorsBeforeLocking())
+                {
+                    this.compressionTrainedOutsidePersist = true;
+                }
+            }
+            finally
+            {
+                permit.release();
+            }
+        }
+
+        /**
+         * Picks the segments to merge from the published set and collects the entities they own, which is
+         * what the merged segment holds. Returns {@code null} if no merge is due.
+         * <p>
+         * The owners are read without the monitor: an entity only ever leaves a segment's slot, so one
+         * that leaves while they are read is merged needlessly and simply not moved later, and every entity
+         * the segments still own when the owners are moved is in the merged segment.
+         */
+        private MergeInput prepareMerge(final boolean rewritesOnly)
+        {
+            // Before the set: a removeAll in between then shows as a changed epoch at the publication.
+            final long      epoch = this.sourceEpoch;
+            final SourceSet set   = this.acquireSources();
+            if(set == null)
+            {
+                return null;
+            }
+            try
+            {
+                final List<DiskSegment> selected = this.selectMerge(set, rewritesOnly);
+                final DiskIndexManager  disk     = this.diskManager;
+                final VectorFile        file     = this.vectorFile;
+                if(selected.isEmpty() || disk == null || file == null)
+                {
+                    return null;
+                }
+                final PQCompressionManager  pq  = this.pqManager ;
+                final NVQCompressionManager nvq = this.nvqManager;
+                selected.forEach(DiskSegment::retain);
+                return new MergeInput(
+                    selected,
+                    set.owners(),
+                    epoch,
+                    disk,
+                    file,
+                    pq  != null && pq.isTrained()  ? pq.getPQ()   : null,
+                    nvq != null && nvq.isTrained() ? nvq.getNVQ() : null,
+                    ownedEntities(selected, set.owners().owners())
+                );
+            }
+            finally
+            {
+                set.release();
+            }
+        }
+
+        /**
+         * Asks the merge policy which segments of {@code set} to merge next. The caller holds the set.
+         *
+         * @param rewritesOnly whether to consider only segments that no longer match the index
+         */
+        private List<DiskSegment> selectMerge(
+            final SourceSet set         ,
+            final boolean   rewritesOnly
+        )
+        {
+            final ProductQuantization                codebook   = this.currentCodebook();
+            final List<SegmentMergePolicy.Candidate> candidates = new ArrayList<>(set.segments().size());
+            for(final DiskSegment segment : set.segments())
+            {
+                final boolean rewrite = needsRewrite(segment, codebook);
+                if(rewrite || !rewritesOnly)
+                {
+                    // The live nodes as last committed: an estimate, which leaves out the deletions since.
+                    // Exact would take the leave logs, which only the parent monitor guards, and a flush
+                    // must not wait for the monitor to ask, since an ingest can hold it for seconds.
+                    candidates.add(new SegmentMergePolicy.Candidate(
+                        segment.sequence(),
+                        (long)segment.nodeCount() - segment.committedDeletedLocals().length,
+                        rewrite
+                    ));
+                }
+            }
+            final List<Long> sequences = SegmentMergePolicy.New(
+                this.configuration.flushThreshold(),
+                this.configuration.segmentMergeFactor(),
+                this.configuration.maxSegments()
+            ).select(candidates, set.frozen().size() + 1);
+            return set.segments().stream()
+                .filter(segment -> sequences.contains(segment.sequence()))
+                .toList();
+        }
+
+        /**
+         * The codebook every segment's codes have to be encoded with, or {@code null} if the index has
+         * none or its format uses none.
+         */
+        private ProductQuantization currentCodebook()
+        {
+            final PQCompressionManager pq = this.pqManager;
+            return pq != null && pq.isTrained() && GraphFormat.of(this.configuration).usesPq()
+                ? pq.getPQ()
+                : null
+            ;
+        }
+
+        /**
+         * Whether a segment has to be rewritten: it was written for another format, or its codes were
+         * encoded with another codebook than the index's, or with none, as before the codebook was
+         * trained. Such a segment is searched exactly and contributes nothing to quantized scoring.
+         */
+        private static boolean needsRewrite(
+            final DiskSegment         segment ,
+            final ProductQuantization codebook
+        )
+        {
+            return segment.flaggedForMerge()
+                || codebook != null && !codebook.equals(DiskIndexManager.codebookOf(segment));
+        }
+
+        /**
+         * The entities the given segments own, ascending. Sized by an exact count first, so a mostly
+         * deleted segment does not cost its node count.
+         */
+        private static int[] ownedEntities(
+            final List<DiskSegment> segments,
+            final SegmentOwners     owners
+        )
+        {
+            int count = 0;
+            for(final DiskSegment segment : segments)
+            {
+                for(final int global : segment.localToGlobal())
+                {
+                    if(owners.owner(global) == segment.slot())
+                    {
+                        count++;
+                    }
+                }
+            }
+            final int[] owned = new int[count];
+            int         next  = 0;
+            for(final DiskSegment segment : segments)
+            {
+                for(final int global : segment.localToGlobal())
+                {
+                    // Bounded: an entity that left since the count is skipped, none can arrive.
+                    if(next < owned.length && owners.owner(global) == segment.slot())
+                    {
+                        owned[next++] = global;
+                    }
+                }
+            }
+            final int[] collected = next == owned.length ? owned : Arrays.copyOf(owned, next);
+            // Each segment's array ascends, and no entity is owned by two segments.
+            Arrays.sort(collected);
+            return collected;
+        }
+
+        /**
+         * Builds the merged graph from the vector file, in parallel and with no lock held, writes it as a
+         * new segment and publishes it. A merge abandoned or failed before its publication deletes what it
+         * wrote and leaves every source as it was.
+         */
+        private MergeOutcome runMerge(final MergeInput input)
+        {
+            final long startNanos = System.nanoTime();
+            LOG.info("Merging {} segments of '{}' with {} live nodes into one",
+                input.segments().size(), this.name, input.entities().length);
+            this.reachedMergeStage(MergeStage.SELECTED);
+
+            final VectorFile               file    = input.file();
+            final VectorTypeSupport        types   = this.vectorTypeSupport;
+            // Read straight from the file: an entity mutated during the merge is no longer owned by the
+            // segments merged, so the owner move below skips it, whatever vector it was merged with.
+            final RandomAccessVectorValues vectors = this.nullSafe(new MappedVectorValues(file, types));
+            final GraphIndexBuilder        target  = this.newGraphIndexBuilder(
+                BuildScoreProvider.randomAccessScoreProvider(vectors, this.jvectorSimilarityFunction())
+            );
+            long        sequence  = -1L;
+            DiskSegment merged    = null;
+            boolean     published = false;
+            try
+            {
+                final int[] entities = input.entities();
+                final int   seeded   = seedIfEmpty(target, entities.length, index ->
+                {
+                    final float[] vector = file.read(entities[index]);
+                    if(vector != null)
+                    {
+                        target.addGraphNode(entities[index], types.createFloatVector(vector));
+                    }
+                });
+                ParallelGraphInsertion.forEach(
+                    entities.length - seeded,
+                    offset ->
+                    {
+                        if(this.mergeAbortRequested)
+                        {
+                            return;
+                        }
+                        final int     index  = offset + seeded;
+                        final float[] vector = file.read(entities[index]);
+                        if(vector != null)
+                        {
+                            target.addGraphNode(entities[index], types.createFloatVector(vector));
+                        }
+                    },
+                    "vector-merge-" + this.name,
+                    // Half the cores: a merge runs alongside the ingest it merges for, and must not starve it.
+                    Math.max(1, ParallelGraphInsertion.parallelism() / 2)
+                );
+                this.checkMergeStillWanted(input);
+                // A builder of this merge only, so no other thread touches it. Every node is a candidate, the
+                // ones the seed copied included, so an orphan of a source segment does not carry over. Before
+                // the cleanup, which refines the upper layers only and would leave an unreachable node of layer 0
+                // as it is; a re-insert after it could overflow the degree the segment writer enforces.
+                final int[] nodes = graphOf(target).nodeStream(0).toArray();
+                GraphReachability.repair(target, nodes, nodes.length, ordinal ->
+                {
+                    final float[] vector = file.read(ordinal);
+                    return vector == null ? null : types.createFloatVector(vector);
+                }, this.name);
+                final OnHeapGraphIndex graph = graphOf(target);
+                if(graph.size(0) == 0)
+                {
+                    // Everything was removed while the graph was built.
+                    return MergeOutcome.ABANDONED;
+                }
+                target.cleanup();
+                this.reachedMergeStage(MergeStage.BUILT);
+
+                this.checkMergeStillWanted(input);
+                sequence = this.segmentSequences.reserve(this.indexDirectoryForDisk(), this.name);
+                final SegmentManifest.Segment entry = input.disk().writeSegment(
+                    graph, vectors, input.pq(), input.nvq(), sequence
+                );
+                merged = this.openMergedSegment(input, entry);
+                if(merged == null)
+                {
+                    return MergeOutcome.ABANDONED;
+                }
+                this.reachedMergeStage(MergeStage.WRITTEN);
+
+                final DiskSegment joining = merged;
+                // From here on the publication owns the segment.
+                merged = null;
+                published = this.publishMerge(input, joining);
+                if(!published)
+                {
+                    return MergeOutcome.ABANDONED;
+                }
+                LOG.info("Merged {} segments of '{}' into segment {} with {} nodes in {} ms",
+                    input.segments().size(), this.name, joining.sequence(), joining.nodeCount(),
+                    (System.nanoTime() - startNanos) / 1_000_000L);
+                this.reachedMergeStage(MergeStage.PUBLISHED);
+                return MergeOutcome.MERGED;
+            }
+            catch(final IOException e)
+            {
+                throw new IORuntimeException(e);
+            }
+            finally
+            {
+                // Never published itself: the merged segment is read back from its files.
+                this.closeUnpublishedBuilder(target, null);
+                if(merged != null)
+                {
+                    merged.close();
+                }
+                if(sequence >= 0L)
+                {
+                    if(!published)
+                    {
+                        // No manifest lists it, and none will. A set of a cleared index that still holds the
+                        // segment keeps reading the open files; their names go now.
+                        input.disk().deleteSegmentFiles(sequence);
+                    }
+                    this.segmentSequences.written(sequence);
+                }
+            }
+        }
+
+        /**
+         * Opens the merged segment in a fresh slot of the merge's owner table. Returns {@code null} if
+         * the index was cleared meanwhile or every slot is taken.
+         */
+        private DiskSegment openMergedSegment(
+            final MergeInput              input,
+            final SegmentManifest.Segment entry
+        ) throws IOException
+        {
+            final OwnerTable.Lease lease;
+            synchronized(this.parentMap())
+            {
+                // Slots are taken under the monitor, see OwnerTable.
+                if(input.epoch() != this.sourceEpoch)
+                {
+                    return null;
+                }
+                lease = input.owners().allocate();
+            }
+            if(lease == null)
+            {
+                LOG.warn("Merge of '{}' found no free source slot, the segments stay as they are", this.name);
+                return null;
+            }
+            try
+            {
+                return input.disk().openSegment(entry, lease, false, 0);
+            }
+            finally
+            {
+                // The segment holds the lease now, or nothing does.
+                lease.release();
+            }
+        }
+
+        /**
+         * Publishes a merged segment, under the flush permit, so no flush captures the sources halfway:
+         * <ol>
+         *   <li>The merged segment joins the published set, owning nothing yet, so invisible.</li>
+         *   <li>Takes and releases the builder write lock, which waits for every search in flight. A
+         *       search holds the set it started with for its whole run, and an older set lacks the merged
+         *       segment, so it would miss the entities moved to it.</li>
+         *   <li>Moves the owners from the merged segments to the new one, entity by entity by
+         *       compare-and-set, without the parent monitor, which a sync ingest can hold for seconds
+         *       while this holds the flush permit. An entity the merged segments no longer own was
+         *       mutated during the merge and keeps its newer owner; its node in the merged segment is
+         *       deleted from the start.</li>
+         *   <li>The merged segments, which own nothing any more, leave the set, and close once the last
+         *       search holding them is done.</li>
+         * </ol>
+         * The manifest on disk still lists the merged segments and not the new one, which is consistent
+         * with its witnesses; the next flush commits the new state, and the cleanup after that commit
+         * deletes their files. A crash before loses only the merge.
+         *
+         * @return whether the merged segment was published; if not, it is closed, or left to the retired set
+         *         of a cleared index, and its files are left to the caller
+         */
+        private boolean publishMerge(
+            final MergeInput  input ,
+            final DiskSegment merged
+        )
+        {
+            // Held for the publication, so a removeAll that retires the set cannot close it under this.
+            merged.retain();
+            final Semaphore permit    = this.flushPermit;
+            boolean         joined    = false;
+            boolean         published = false;
+            permit.acquireUninterruptibly();
+            try
+            {
+                if(this.mergeAbortRequested || input.epoch() != this.sourceEpoch)
+                {
+                    return false;
+                }
+                if(!this.replaceSegments(input, List.of(), merged))
+                {
+                    return false;
+                }
+                joined = true;
+                this.reachedMergeStage(MergeStage.JOINED);
+
+                this.builderLock.writeLock().lock();
+                this.builderLock.writeLock().unlock();
+
+                final boolean[] moved = new boolean[merged.nodeCount()];
+                final List<DiskSegment> emptied = this.moveOwners(input, merged, moved);
+                if(emptied == null)
+                {
+                    // Cleared meanwhile: the retired set closes the merged segment with the rest.
+                    return false;
+                }
+                this.reachedMergeStage(MergeStage.MOVED);
+                final int[] notMoved = IntStream.range(0, moved.length)
+                    .filter(local -> !moved[local])
+                    .toArray();
+                merged.committed(notMoved, 0);
+
+                final List<DiskSegment> leaving = new ArrayList<>(emptied);
+                if(notMoved.length == merged.nodeCount())
+                {
+                    // Everything in it was mutated during the merge.
+                    leaving.add(merged);
+                }
+                // Raised before the publication, not after: an explicit persist that finds nothing left to
+                // rewrite in the new set must also find the flag, or it skips the commit (see persistToDisk).
+                // Both run under the flush permit here, and so does the commit that clears the flag, so the
+                // value can be put back as it was should the publication fail.
+                final boolean uncommittedBefore = this.mergeUncommitted;
+                this.mergeUncommitted = true;
+                if(!this.replaceSegments(input, leaving, null))
+                {
+                    this.mergeUncommitted = uncommittedBefore;
+                    return false;
+                }
+                published = true;
+                this.mergeCount++;
+            }
+            finally
+            {
+                if(joined && !published)
+                {
+                    // Before the permit goes, and before the caller deletes the merged segment's files.
+                    this.withdrawMerge(input, merged);
+                }
+                permit.release();
+                // Closes it unless a set holds it.
+                merged.release();
+            }
+
+            final BackgroundTaskManager manager = this.backgroundTaskManager;
+            if(manager != null)
+            {
+                // The scheduled and the shutdown persist only run for counted changes.
+                manager.markPersistRequired();
+                if(this.configuration.backgroundPersistence() && this.isManifestCommitDue())
+                {
+                    manager.requestFlush();
+                }
+            }
+            return true;
+        }
+
+        /**
+         * Undoes a publication that failed after the merged segment joined the set, whatever stage it failed at,
+         * because the caller deletes the merged segment's files: moves back every owner the merged segment took
+         * that no mutation has taken since, takes the merged segment out of the set, and waits for every search
+         * that may still read it. Under the flush permit. Nothing to undo for a cleared index, whose retired set
+         * closes the merged segment with the rest. A failure here is logged, never thrown over the one that
+         * failed the publication.
+         */
+        private void withdrawMerge(
+            final MergeInput  input ,
+            final DiskSegment merged
+        )
+        {
+            try
+            {
+                if(input.epoch() != this.sourceEpoch)
+                {
+                    return;
+                }
+                final OwnerTable owners = input.owners();
+                for(final DiskSegment source : input.segments())
+                {
+                    for(final int global : source.localToGlobal())
+                    {
+                        // Back only from the merged segment: an entity a mutation took meanwhile keeps its owner.
+                        owners.move(global, merged.slot(), source.slot());
+                    }
+                }
+                if(this.replaceSegments(input, List.of(merged), null))
+                {
+                    this.builderLock.writeLock().lock();
+                    this.builderLock.writeLock().unlock();
+                }
+            }
+            catch(final RuntimeException e)
+            {
+                LOG.error("Could not withdraw the merged segment {} of '{}' after its publication failed",
+                    merged.sequence(), this.name, e);
+            }
+        }
+
+        /**
+         * Replaces segments in the published set: removes {@code leaving} and adds {@code joining}, under
+         * {@link #commitLock} like a flush's publication. Returns {@code false} if the index was cleared
+         * meanwhile, which publishes nothing.
+         */
+        private boolean replaceSegments(
+            final MergeInput        input  ,
+            final List<DiskSegment> leaving,
+            final DiskSegment       joining
+        )
+        {
+            synchronized(this.commitLock)
+            {
+                final SourceSet current = this.sources;
+                if(current == null || input.epoch() != this.sourceEpoch || current.owners() != input.owners())
+                {
+                    return false;
+                }
+                final List<DiskSegment> segments = new ArrayList<>(current.segments());
+                segments.removeAll(leaving);
+                if(joining != null)
+                {
+                    segments.add(joining);
+                }
+                // The manifest lists segments by ascending sequence, and a flush lists them in set order.
+                segments.sort(Comparator.comparingLong(DiskSegment::sequence));
+                this.sources = current.with(segments, current.frozen());
+                current.release();
+                return true;
+            }
+        }
+
+        /**
+         * Moves the owners of the entities the merged segments still own to the merged segment, by
+         * compare-and-set on each owner and without the parent monitor (see
+         * {@link OwnerTable#move(int, int, int)}): an entity a mutation takes first keeps its new owner, and
+         * one moved first is logged as leaving the merged segment by the mutation that comes after. Marks
+         * the moved nodes of the merged segment in {@code moved}.
+         * <p>
+         * A merged segment that still owns an entity the merged segment lacks - which cannot happen while
+         * every entity that still has its slot is merged - is not moved at all and stays in the set, since
+         * its moved entities would have to be logged as leaving it, which takes the monitor.
+         *
+         * @return the merged segments that own nothing any more, or {@code null} if the index was cleared
+         *         meanwhile
+         */
+        private List<DiskSegment> moveOwners(
+            final MergeInput  input ,
+            final DiskSegment merged,
+            final boolean[]   moved
+        )
+        {
+            final OwnerTable        owners  = input.owners();
+            final int[]             targets = merged.localToGlobal();
+            final List<DiskSegment> emptied = new ArrayList<>(input.segments().size());
+            for(final DiskSegment source : input.segments())
+            {
+                if(input.epoch() != this.sourceEpoch)
+                {
+                    return null;
+                }
+                final int[] globals = source.localToGlobal();
+                final int   slot    = source.slot();
+                if(!this.mergedEverythingOwnedBy(source, owners.owners(), targets))
+                {
+                    LOG.warn("Segment {} of '{}' still owns entities the merge did not take, it stays",
+                        source.sequence(), this.name);
+                    continue;
+                }
+                // Both arrays ascend, so one cursor walks the merged segment once per source.
+                int cursor = 0;
+                for(final int global : globals)
+                {
+                    while(cursor < targets.length && targets[cursor] < global)
+                    {
+                        cursor++;
+                    }
+                    if(cursor < targets.length
+                        && targets[cursor] == global
+                        && owners.move(global, slot, merged.slot()))
+                    {
+                        moved[cursor] = true;
+                    }
+                }
+                emptied.add(source);
+            }
+            return emptied;
+        }
+
+        /**
+         * Whether the merged segment holds every entity {@code source} still owns. Once true it stays
+         * true: an entity never returns to a slot it has left.
+         */
+        private boolean mergedEverythingOwnedBy(
+            final DiskSegment   source ,
+            final SegmentOwners owners ,
+            final int[]         targets
+        )
+        {
+            final int slot   = source.slot();
+            int       cursor = 0;
+            for(final int global : source.localToGlobal())
+            {
+                while(cursor < targets.length && targets[cursor] < global)
+                {
+                    cursor++;
+                }
+                if(owners.owner(global) == slot && (cursor == targets.length || targets[cursor] != global))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void checkMergeStillWanted(final MergeInput input)
+        {
+            if(this.mergeAbortRequested)
+            {
+                throw new MergeAbandonedException("the index is closing");
+            }
+            if(input.epoch() != this.sourceEpoch)
+            {
+                throw new MergeAbandonedException("the index was cleared");
+            }
+        }
+
+        private void reachedMergeStage(final MergeStage stage)
+        {
+            final Consumer<MergeStage> hook = this.mergeStageTestHook;
+            if(hook != null)
+            {
+                hook.accept(stage);
+            }
+        }
+
+        /**
+         * Returns the merge thread, creating it on first use, like the flush writer.
+         */
+        private ExecutorService mergeExecutor()
+        {
+            ExecutorService executor = this.mergeExecutor;
+            if(executor == null)
+            {
+                synchronized(this.mergeScheduled)
+                {
+                    executor = this.mergeExecutor;
+                    if(executor == null)
+                    {
+                        this.mergeExecutor = executor = newBackgroundWriter(this.name, "merge");
+                    }
+                }
+            }
+            return executor;
+        }
+
+        /**
+         * The points of a background merge, in order, at which {@link #mergeStageTestHook} is called.
+         */
+        enum MergeStage
+        {
+            /** The segments to merge are selected and held; nothing is built yet. */
+            SELECTED,
+
+            /** The merged graph is built and cleaned up, not written. */
+            BUILT,
+
+            /** The merged segment is written and opened, not published. */
+            WRITTEN,
+
+            /** The merged segment is in the published set, owning nothing yet; the flush permit is held. */
+            JOINED,
+
+            /** The owners moved to the merged segment; the merged segments are still in the set. */
+            MOVED,
+
+            /** The owners moved and the merged segments left the set; nothing is committed yet. */
+            PUBLISHED
+        }
+
+        private enum MergeOutcome
+        {
+            /** A merged segment was published. */
+            MERGED,
+
+            /** The policy found nothing to merge. */
+            NOTHING_DUE,
+
+            /** The merge stopped: the index is closing or was cleared, or nothing was left to publish. */
+            ABANDONED
+        }
+
+        /**
+         * Thrown inside a merge whose index is closing or was cleared meanwhile; it publishes nothing.
+         */
+        static final class MergeAbandonedException extends IllegalStateException
+        {
+            private static final long serialVersionUID = 1L;
+
+            MergeAbandonedException(final String reason)
+            {
+                super(reason);
+            }
+        }
+
+        /**
+         * What one merge works on, captured when it is selected.
+         *
+         * @param segments the segments to merge, held by the merge until it ends
+         * @param owners   the owner table of their set; a merge into another one publishes nothing
+         * @param epoch    the source epoch at the selection
+         * @param disk     the disk manager to write through
+         * @param file     the vector file to read the vectors from
+         * @param pq       the PQ codebook to encode the merged segment with, or {@code null}
+         * @param nvq      the NVQ quantizer, or {@code null}
+         * @param entities the entities the segments owned at the selection, ascending
+         */
+        private record MergeInput(
+            List<DiskSegment>     segments,
+            OwnerTable            owners  ,
+            long                  epoch   ,
+            DiskIndexManager      disk    ,
+            VectorFile            file    ,
+            ProductQuantization   pq      ,
+            NVQuantization        nvq     ,
+            int[]                 entities
+        )
+        {
+            void release()
+            {
+                this.segments.forEach(DiskSegment::release);
+            }
+        }
+
+        /**
+         * Applies the eventual-indexing operations a freeze moved into a frozen graph, once: a retried
+         * flush finds them applied. A failure leaves the graph without a change the store has, so the
+         * next persist that may consolidate does.
+         */
+        private void applyMovedOps(final HeapGeneration frozen)
+        {
+            if(frozen.movedOpsApplied())
+            {
+                // A generation without moved operations starts out applied, but can still carry the marks of
+                // removes with sync indexing. Purged and repaired here, not by the cleanup's purge, which
+                // repairs nothing; a retried flush finds no mark left.
+                if(frozen.movedOps().isEmpty())
+                {
+                    try
+                    {
+                        this.purgeAndRepairFrozen(frozen, Set.of());
+                    }
+                    catch(final RuntimeException e)
+                    {
+                        this.consolidationRequired = true;
+                        throw e;
+                    }
+                }
+                return;
+            }
+            final GraphIndexBuilder      target   = frozen.builder();
+            final GenerationVectorValues vectors  = frozen.vectorValues();
+            // The nodes a moved update replaces: marked deleted now, re-inserted after one purge of all of them.
+            // Every operation of an entity reads the same freeze-time vector, so only its last one decides.
+            final Set<Integer>           replaced = new LinkedHashSet<>();
+            try
+            {
+                for(final IndexingOperation op : frozen.movedOps())
+                {
+                    final Runnable hook = this.movedOpTestHook;
+                    if(hook != null)
+                    {
+                        hook.run();
+                    }
+                    switch(op)
+                    {
+                        case IndexingOperation.Add      add    ->
+                            this.applyMovedAdd(target, add.ordinal(), vectors, replaced);
+                        case IndexingOperation.BatchAdd batch  ->
+                        {
+                            for(final int ordinal : batch.ordinals())
+                            {
+                                this.applyMovedAdd(target, ordinal, vectors, replaced);
+                            }
+                        }
+                        case IndexingOperation.Update   update ->
+                            this.applyMovedUpdate(target, update.ordinal(), vectors, replaced);
+                        case IndexingOperation.Remove   remove ->
+                        {
+                            replaced.remove(remove.ordinal());
+                            this.applyRemove(target, remove.ordinal());
+                        }
+                    }
+                }
+                this.purgeAndRepairFrozen(frozen, replaced);
+            }
+            catch(final RuntimeException e)
+            {
+                this.consolidationRequired = true;
+                throw e;
+            }
+            frozen.markMovedOpsApplied();
+        }
+
+        /**
+         * A moved add, on a frozen graph. An entity whose node a moved update replaces gets its node back from
+         * the re-insert after the purge: through the idempotent add it would clear the deleted bit and keep the
+         * links of its old vector.
+         */
+        private void applyMovedAdd(
+            final GraphIndexBuilder      target  ,
+            final int                    ordinal ,
+            final GenerationVectorValues vectors ,
+            final Set<Integer>           replaced
+        )
+        {
+            if(replaced.contains(ordinal))
+            {
+                return;
+            }
+            final float[]          vector = vectors.read(ordinal);
+            final OnHeapGraphIndex graph  = graphOf(target);
+            if(vector != null && graph.containsNode(ordinal) && graph.getDeletedNodes().get(ordinal))
+            {
+                // A node marked deleted, by a moved update or remove before this add: back through the re-insert
+                // with this vector, not through the idempotent add, which would keep the links of the node's old one.
+                replaced.add(ordinal);
+                return;
+            }
+            this.applyAdd(target, ordinal, vector);
+        }
+
+        /**
+         * A moved update, on a frozen graph: like {@link #applyUpdate}, except that a replaced node is only marked
+         * deleted here and re-inserted by {@link #purgeAndRepairFrozen}, after one purge for all of them.
+         */
+        private void applyMovedUpdate(
+            final GraphIndexBuilder      target  ,
+            final int                    ordinal ,
+            final GenerationVectorValues vectors ,
+            final Set<Integer>           replaced
+        )
+        {
+            final float[] vector = vectors.read(ordinal);
+            if(vector == null || !graphOf(target).containsNode(ordinal))
+            {
+                // vec→null removes the node, null→vec adds it: neither purges.
+                replaced.remove(ordinal);
+                this.applyUpdate(target, ordinal, vector);
+                return;
+            }
+            if(replaced.add(ordinal))
+            {
+                target.markNodeDeleted(ordinal);
+            }
+        }
+
+        /**
+         * Purges the nodes the moved operations deleted from a frozen graph, re-inserts the nodes moved updates
+         * replace, and reconnects every node left unreachable, each once, after all operations: the purge and
+         * the inserts prune neighbor lists. Once rather than per operation, which would purge and walk the whole
+         * graph for each of a backlog of thousands. Here rather than in the {@code cleanup()} before the write,
+         * whose own purge then finds nothing left to strand a node with. Inserts with the generation's own
+         * vectors, the freeze-time ones of nodes a mutation has rewritten in the file since (see
+         * {@link GenerationVectorValues}), which are the vectors the frozen graph's nodes were inserted with.
+         * <p>
+         * Also without moved operations, as long as the graph holds nodes marked deleted: a remove with sync
+         * indexing only marks its node, and the live graph is frozen with those marks, which the purge of the
+         * {@code cleanup()} would otherwise take out without a repair.
+         *
+         * @param frozen   the frozen generation about to be written, its moved operations applied
+         * @param replaced the ordinals whose nodes moved updates marked deleted for a re-insert
+         */
+        private void purgeAndRepairFrozen(
+            final HeapGeneration frozen  ,
+            final Set<Integer>   replaced
+        )
+        {
+            if(frozen.movedOps().isEmpty() && frozen.graph().getDeletedNodes().cardinality() == 0)
+            {
+                return;
+            }
+            // Without the structure lock: it guards the live graph, and only this flush thread writes to a frozen
+            // one (moved operations, this purge, the cleanup() that follows, which takes no lock either). The moved
+            // operations go through the same insert helpers as the live graph and so take it, briefly per
+            // operation; taking it here would stall every sync insert, and with it the parent monitor, for the
+            // whole purge and walk.
+            final GraphIndexBuilder      target  = frozen.builder();
+            final GenerationVectorValues vectors = frozen.vectorValues();
+            this.purgeFrozen(target);
+            for(final int ordinal : replaced)
+            {
+                this.insertSingle(target, ordinal, this.vectorTypeSupport.createFloatVector(vectors.read(ordinal)));
+            }
+            final int[] nodes = graphOf(target).nodeStream(0).toArray();
+            GraphReachability.repair(target, nodes, nodes.length, vectors::getVector, this.name);
+        }
+
+        private void purgeFrozen(final GraphIndexBuilder target)
+        {
+            final Runnable hook = this.frozenPurgeTestHook;
+            if(hook != null)
+            {
+                hook.run();
+            }
+            target.removeDeletedNodes();
+        }
+
+        /**
+         * Runs {@code cleanup()} on a frozen graph, unless an earlier attempt of the flush did. Its ForkJoin
+         * workers score from the generation's vectors ({@link GenerationVectorValues}: the vector file, with
+         * the freeze-time copies of rewritten nodes), so a thread that holds the parent monitor and joins the
+         * same pool cannot starve them.
+         * <p>
+         * The persist of a closing index cleans up without jVector's refinement, a second search for every node
+         * of the graph's upper layer. For a large unflushed graph that search took most of the close, 4.5 of
+         * 7.8 seconds for 95,000 nodes of dimension 384, and leaving it out changed recall by no more than two
+         * builds of the same vectors differ. jVector's cleanup itself notes the refinement as empirically
+         * unnecessary for high-dimensional vectors. Every other flush still refines, and a merge or a
+         * consolidation that rebuilds the written segment refines it then.
+         *
+         * @param frozen the frozen generation about to be written
+         * @param kind   which persist writes it
+         */
+        private void prepareForWrite(
+            final HeapGeneration frozen,
+            final PersistKind    kind
+        )
+        {
+            final OnHeapGraphIndex graph = frozen.graph();
+            if(graph.size(0) == 0 || graph.allMutationsCompleted())
+            {
+                return;
+            }
+            final boolean           refine = kind != PersistKind.SHUTDOWN;
+            final Consumer<Boolean> hook   = this.cleanupTestHook;
+            if(hook != null)
+            {
+                hook.accept(refine);
+            }
+            if(refine)
+            {
+                frozen.builder().cleanup();
+                return;
+            }
+            try(GraphIndexBuilder cleanup = this.newUnrefinedCleanupBuilder(frozen))
+            {
+                cleanup.cleanup();
+            }
+            catch(final IOException e)
+            {
+                // closing the builder only releases its searchers, once the cleanup has completed.
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        /**
+         * Creates a builder over the graph of a frozen generation whose {@code cleanup()} does not refine it. jVector
+         * fixes the refinement per builder, so the generation's own builder, which refines, cannot be used. Scores
+         * from the vectors the generation is written with, for the repair of removed nodes; the trimming of the
+         * neighbour lists scores with the graph's own diversity provider, the one the generation was built with.
+         *
+         * @param frozen the frozen generation
+         * @return a new builder, to be closed once the cleanup completed
+         */
+        @SuppressWarnings("deprecation")
+        private GraphIndexBuilder newUnrefinedCleanupBuilder(final HeapGeneration frozen)
+        {
+            return new GraphIndexBuilder(
+                BuildScoreProvider.randomAccessScoreProvider(
+                    this.flushVectors(frozen), this.jvectorSimilarityFunction()
+                ),
+                this.configuration.dimension(),
+                frozen.graph(),
+                this.configuration.beamWidth(),
+                this.configuration.neighborOverflow(),
+                this.configuration.alpha(),
+                false, // no refinement
+                PhysicalCoreExecutor.pool(),
+                ForkJoinPool.commonPool()
+            );
+        }
+
+        /**
+         * The vectors to write a frozen graph with: those it was built from, as they were at the freeze.
+         */
+        private RandomAccessVectorValues flushVectors(final HeapGeneration frozen)
+        {
+            return this.nullSafe(frozen.vectorValues());
+        }
+
+        private void checkFlushStillWanted(final FlushPlan plan)
+        {
+            if(plan.epoch() != this.sourceEpoch)
+            {
+                throw new FlushAbandonedException("the index was cleared or closed");
+            }
+            if(this.flushAbortRequested)
+            {
+                throw new FlushAbandonedException("the index is closing");
+            }
+        }
+
+        private void reachedFlushStage(final FlushStage stage)
+        {
+            final Consumer<FlushStage> hook = this.flushStageTestHook;
+            if(hook != null)
+            {
+                hook.accept(stage);
+            }
+        }
+
+        /**
+         * The points of a flush, in order, at which {@link #flushStageTestHook} is called.
+         */
+        enum FlushStage
+        {
+            /** The live graph is frozen and the new set published; nothing is written yet. */
+            FROZEN,
+
+            /** The moved eventual-indexing operations are applied to the frozen graphs. */
+            OPS_APPLIED,
+
+            /** The frozen graphs are cleaned up and ready to be written. */
+            CLEANED,
+
+            /** One segment is written and opened, not committed. */
+            SEGMENT_WRITTEN,
+
+            /** The manifest is committed and the new segments are published. */
+            PUBLISHED
+        }
+
+        /**
+         * Which persist is running.
+         */
+        private enum PersistKind
+        {
+            /** Scheduled, or requested at the flush threshold: writes only once enough accumulated. */
+            BACKGROUND,
+
+            /** {@code persistToDisk()}: writes whatever changed, and may consolidate. */
+            EXPLICIT,
+
+            /** The persist of a closing index: writes whatever changed, never consolidates. */
+            SHUTDOWN
+        }
+
+        /**
+         * Thrown inside a flush whose index was cleared or closed meanwhile; it commits nothing.
+         */
+        static final class FlushAbandonedException extends IllegalStateException
+        {
+            private static final long serialVersionUID = 1L;
+
+            FlushAbandonedException(final String reason)
+            {
+                super(reason);
+            }
+        }
+
+        /**
+         * What one flush writes and commits: the sources it holds while it runs, the leave log of each
+         * source's slot as captured at the freeze, the witnesses sampled there, and the quantizers to
+         * encode the new segments with, captured once so every segment of the flush uses the same.
+         *
+         * @param kind         which persist planned it
+         * @param segments     the segments of the set published at the freeze
+         * @param frozen       the frozen graphs to write, oldest first
+         * @param logs         the leave log of each source's slot, by slot
+         * @param witness      the witnesses sampled at the freeze
+         * @param pq           the PQ codebook, or {@code null}
+         * @param nvq          the NVQ quantizer, or {@code null}
+         * @param epoch        the source epoch at the freeze
+         * @param consolidated whether a consolidation planned it
+         */
+        private record FlushPlan(
+            PersistKind                       kind        ,
+            List<DiskSegment>                 segments    ,
+            List<HeapGeneration>              frozen      ,
+            Map<Integer, OwnerTable.LeaveLog> logs        ,
+            DiskIndexManager.MetaState        witness     ,
+            ProductQuantization               pq          ,
+            NVQuantization                    nvq         ,
+            long                              epoch       ,
+            boolean                           consolidated,
+            int                               counted
+        )
+        {
+            /**
+             * Returned instead of a plan when the freeze is declined: a background persist found too little
+             * to flush, another flush holds the permit, or a consolidation is due (or no source slot is free)
+             * on a thread that may not consolidate.
+             */
+            static final FlushPlan DECLINED = new FlushPlan(
+                PersistKind.BACKGROUND, List.of(), List.of(), Map.of(), null, null, null, -1L, false, 0
+            );
+
+            void retain()
+            {
+                this.segments.forEach(DiskSegment::retain);
+                this.frozen.forEach(HeapGeneration::retain);
+            }
+
+            void release()
+            {
+                this.segments.forEach(DiskSegment::release);
+                this.frozen.forEach(HeapGeneration::release);
+            }
+        }
+
+        /**
+         * Trains the PQ codebook, if one is due, before the persist takes any lock, and after it has
+         * taken the flush permit, so no flush writes segments while the codebook changes.
+         * <p>
+         * Only the collection needs the {@code parentMap} monitor, because it reads the vector file,
+         * which every mutation writes under that monitor. The
          * clustering that follows is by far the longer half - seconds to tens of seconds at the
          * 128k-vector cap - and touches nothing but the collected sample, so it runs with no locks
          * held. Doing it inside the persist would stall every GigaMap operation and every search for
          * that whole time, on the first persist of a large index that has just enabled PQ.
          * <p>
-         * Skipped on the shutdown path: the persist itself returns before the consolidation training
-         * depends on, and shutdown must not wait for k-means either.
+         * Not called on the shutdown path: shutdown must not wait for k-means, and the shutdown persist
+         * writes with whatever quantizers exist.
          * <p>
          * A failure here must not fail the persist. The graph is perfectly writable uncompressed, so
          * the exception is logged and the attempt recorded, and the write proceeds.
          *
-         * @param onShutdown whether this persist is the shutdown persist
          * @return whether this call trained something that is not on disk yet, which the caller
          *         needs in order not to skip the persist that has to write it
          */
-        private boolean trainCompressorsBeforeLocking(final boolean onShutdown)
+        private boolean trainCompressorsBeforeLocking()
         {
-            if(onShutdown || (this.pqManager == null && this.nvqManager == null))
+            if(this.pqManager == null && this.nvqManager == null)
             {
                 return false;
             }
@@ -4118,9 +8084,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
                 // The managers are re-created by ensureIndexInitialized, so re-read them rather than
                 // trusting the references tested above - and hold on to what is read, because the
-                // training below runs with the monitor released. internalRemoveAll and close take
-                // the write lock without this monitor and null both fields, so reading them again
-                // down there is a NullPointerException in the middle of a persist.
+                // training below runs with the monitor released. internalRemoveAll and close null
+                // both fields, and either can run while the monitor is released, so reading them
+                // again down there is a NullPointerException in the middle of a persist.
                 pq      = this.pqManager ;
                 nvq     = this.nvqManager;
                 needPq  = pq  != null && this.isPqTrainingPending() ;
@@ -4130,20 +8096,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     return false;
                 }
 
-                // ONE collection feeds both managers. Collecting per manager would walk the whole
-                // GigaMap twice and, in embedded mode, call the user's Vectorizer once per entity
-                // twice, on the first persist of every index that has both dimensions configured on.
-                // The sample is dense and capped; see collectTrainingVectors.
+                // ONE collection feeds both managers. Collecting per manager would read the whole
+                // vector file twice, on the first persist of every index that has both dimensions
+                // configured on. The sample is dense and capped; see collectTrainingVectors.
                 trainingSample = this.collectTrainingVectors(PQCompressionManager.MAX_TRAINING_VECTORS);
 
                 if(needPq && trainingSample.size() < PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING)
                 {
                     // Record the decline here as well, not only after a failed compute below. The
-                    // collection declines whenever the sample turns out too small, which in embedded
-                    // mode happens with enough entities but too few embeddings - the gate counts
-                    // parentMap.size(). Without this the witness never advances, isPqTrainingPending()
-                    // stays true, and every idle persist leaves incremental mode to rebuild and
-                    // rewrite the whole graph.
+                    // collection declines whenever the sample turns out too small. Without this the
+                    // witness never advances, isPqTrainingPending() stays true, and every persist
+                    // collects a sample again.
                     this.pqTrainingDeclinedAtModCount = this.getStructuralModCount();
                 }
             }
@@ -4199,9 +8162,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             // Whatever was trained here exists only in heap. The caller decides whether to skip the
             // persist, and it decides on the same pending predicates this method has just turned
-            // false - so without this an idle, incremental-clean index would train a codebook and
-            // then skip the write that is the entire reason it trained, leaving the feature
-            // unpersisted for as long as nothing else changes.
+            // false - so without this an idle, clean index would train a codebook and then skip the
+            // persist that is the entire reason it trained, leaving the feature unpersisted for as
+            // long as nothing else changes.
             return (needPq && !pqStillUntrained) || (needNvq && !nvqStillUntrained);
         }
 
@@ -4214,11 +8177,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
 
             // Only worth another attempt once something graph-affecting has changed since the last
-            // one failed. Without this witness the carve-out never clears for a map that has enough
-            // ENTITIES but not enough EMBEDDINGS: getVectorCount() is parentMap.size() in embedded
-            // mode, so the count test stays true, trainPQ keeps declining on the collected list, and
-            // every idle background persist would exit incremental mode, rebuild the whole graph and
-            // rewrite it - an O(n) retry on a loop, forever.
+            // one failed. Without this witness an index whose training fails on its data would
+            // collect and cluster a sample again on every persist, forever.
             //
             // structuralModCount is the right witness because it also moves on vec<->null
             // transitions, which change the embedding population without changing the entity count.
@@ -4234,13 +8194,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * same reason. NVQ declines on far less data than PQ - its threshold is a sanity floor of
          * 16 rather than a mathematical requirement of 256, because a mean needs one vector where
          * k-means needs 256 clusters per subspace - yet it does decline, and
-         * {@code NVQCompressionManager.trainFrom} returns without training below that floor. An
-         * embedded index with enough entities and too few embeddings reaches it, since the count
-         * below is {@code parentMap.size()} in that mode.
+         * {@code NVQCompressionManager.trainFrom} returns without training below that floor.
          * <p>
          * So the witness is not only for exceptions: it stops either outcome from being retried on
-         * every idle persist, each of which would otherwise leave incremental mode and rewrite the
-         * whole graph.
+         * every persist.
          *
          * @return true if a quantizer is wanted and an attempt has not already failed at this state
          */
@@ -4257,25 +8214,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Returns true if incremental mode has no pending changes: no deletions from disk, the
-         * in-memory builder graph is empty, and the live {@code .meta} witnesses still equal those the
-         * loaded disk graph was accepted against. The last check catches changes that reach neither
-         * the graph nor the deletion mask, such as removing an entity that never had a vector, whose
-         * skipped persist would leave a stale {@code .meta} and force a full rebuild on restart.
-         * Must be called under the parentMap monitor, so the witnesses form a consistent snapshot.
-         */
-        private boolean isIncrementalClean()
-        {
-            final DiskSupersededOrdinals     deleted     = this.diskDeletedOrdinals;
-            final DiskIndexManager.MetaState diskMeta    = this.diskGraphMeta;
-            final boolean                    noDeletions = deleted == null || deleted.isEmpty();
-            final boolean                    noNewNodes  = this.index == null || this.index.size(0) == 0;
-            final boolean                    metaCurrent = diskMeta != null && diskMeta.matches(this.currentMetaState());
-            return noDeletions && noNewNodes && metaCurrent;
-        }
-
-        /**
-         * Samples the three {@code .meta} witnesses from the live store state.
+         * Samples the three manifest witnesses from the live store state.
          */
         private DiskIndexManager.MetaState currentMetaState()
         {
@@ -4287,201 +8226,140 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Exits incremental mode by rebuilding the full graph from the source of truth, then closing the disk
-         * resources and resetting the incremental state. Must be called under builderLock.writeLock() and the
-         * parentMap monitor.
-         * <p>
-         * The rebuild comes first, while the disk graph still serves searches: if it fails, the index stays in
-         * incremental mode exactly as it was, and the persist that called this fails without writing.
-         */
-        private void exitIncrementalMode()
-        {
-            LOG.info("Exiting incremental on-disk mode for '{}' — rebuilding full graph for persist", this.name);
-
-            this.rebuildInMemoryGraph();
-
-            // Close disk manager (its searcher pool is closed by initializeSearcherPool below)
-            if(this.diskManager != null)
-            {
-                this.diskManager.close();
-                this.diskManager = null;
-            }
-
-            // Reset incremental state
-            this.incrementalMode = false;
-            this.diskDeletedOrdinals = null;
-            this.diskGraphMeta       = null;
-
-            // Again, now for the in-memory-only layout: the rebuild created the pools for the incremental one.
-            this.initializeSearcherPool();
-        }
-
-        /**
-         * Replaces the in-memory builder and graph with a new one built from the stored vectors (computed mode) or
-         * the entities (embedded mode), the source of truth. Must be called under builderLock.writeLock() and the
-         * parentMap monitor.
-         * <p>
-         * Never leaves the index worse than before the call: the vectors are collected and the new graph is built
-         * beside the current one, which is replaced only once the new one is complete. On any failure the current
-         * builder and graph stay in place, {@link #graphIncomplete} keeps its previous value, and the failure
-         * propagates. Both graphs exist for the duration of the build; after a failed deferred op that is twice the
-         * graph's memory, from {@link #exitIncrementalMode()} the current builder holds only the changes since the
-         * disk graph.
-         */
-        private void rebuildInMemoryGraph()
-        {
-            // Changes nothing, so a failure here leaves everything as it was, the flag included.
-            final List<VectorEntry> entries = this.collectStoredVectors();
-
-            final boolean wasIncomplete = this.graphIncomplete;
-            // Set for the duration: a thread dying in here must not leave a graph a persist would capture.
-            this.graphIncomplete = true;
-
-            // The new builder is published in the fields while it is filled. Nothing can observe it: the write
-            // lock keeps searches and worker ops out, the monitor keeps mutations and drains out, and existing
-            // searchers hold the old graph object, not the field.
-            final GraphIndexBuilder oldBuilder = this.builder;
-            final OnHeapGraphIndex  oldIndex   = this.index  ;
-            try
-            {
-                this.initializeInMemoryBuilder();
-                this.addGraphNodesSequential(entries);
-            }
-            catch(final Throwable t)
-            {
-                // fields first, so that a second failure below still leaves the old graph published
-                final GraphIndexBuilder newBuilder = this.builder;
-                final OnHeapGraphIndex  newIndex   = this.index  ;
-                this.builder = oldBuilder;
-                this.index   = oldIndex  ;
-                if(newBuilder != oldBuilder)
-                {
-                    // the builder's constructor itself may have failed, leaving the fields as they were
-                    this.closeBuilderQuietly(newBuilder, newIndex, t);
-                }
-                this.graphIncomplete = wasIncomplete;
-                throw t;
-            }
-
-            this.closeBuilderQuietly(oldBuilder, oldIndex, null);
-            // existing searchers hold the old graph: re-create the pools before the lock is released
-            this.initializeSearcherPool();
-            this.graphIncomplete = false;
-
-            // The full in-memory graph now exists: mark the (deferred) rebuild done so a later
-            // first-access ensureGraphRebuilt() does not rebuild a second time on top of this one.
-            this.graphRebuilt = true;
-        }
-
-        /**
-         * Closes a builder and its graph, which are no longer referenced by the fields. A failure to close is
-         * attached to {@code cause} if there is one, otherwise logged: nothing depends on it any more.
-         */
-        private void closeBuilderQuietly(
-            final GraphIndexBuilder builder,
-            final OnHeapGraphIndex  index  ,
-            final Throwable         cause
-        )
-        {
-            try
-            {
-                if(builder != null)
-                {
-                    builder.close();
-                }
-                if(index != null)
-                {
-                    index.close();
-                }
-            }
-            catch(final Exception e)
-            {
-                if(cause != null)
-                {
-                    cause.addSuppressed(e);
-                }
-                else
-                {
-                    LOG.warn("Error closing the replaced builder of '{}': {}", this.name, e.getMessage());
-                }
-            }
-        }
-
-        /**
-         * Re-enters incremental mode after a disk write: reloads the disk index,
-         * resets the in-memory builder to empty, and sets incremental state.
-         * Must be called under builderLock.writeLock().
-         * <p>
-         * The reload is validated against {@code writtenMeta} - the witnesses that were just stamped
-         * into the {@code .meta} - and NOT against the live store state. Persist Phase 2 runs with the
-         * parentMap monitor released, so under sustained writes the live counters always advance past
-         * the written graph and a live comparison would reject the file we just produced ourselves,
-         * dropping the index into full in-memory mode for the rest of the session (internal #142).
-         * Those newer mutations are not lost: they are exactly the ops sitting in
-         * {@code deferredBuilderOps}, which the drain then applies on top of the reloaded graph -
-         * which is what incremental mode is for. Crash-restart safety is unaffected: the store
-         * counter now legitimately exceeds the {@code .meta} counter, so a restart before the next
-         * persist still rejects the disk graph and rebuilds from the store.
+         * Returns the disk manager, for tests and diagnostics. {@code null} for an in-memory index.
          *
-         * @param writtenMeta the witnesses stamped into the {@code .meta} by the preceding write
+         * @return the disk manager, or {@code null}
          */
-        private void reenterIncrementalMode(final DiskIndexManager.MetaState writtenMeta)
+        DiskIndexManager diskIndexManager()
         {
-            // Close existing disk manager if present
-            if(this.diskManager != null)
-            {
-                this.diskManager.close();
-                this.diskManager = null;
-            }
+            return this.diskManager;
+        }
 
-            // Recreate disk manager and load the just-written index
-            this.diskManager = new DiskIndexManager.Default(
+        /**
+         * Test seam: the published set of sources of an on-disk index, or {@code null}.
+         *
+         * @return the current sources, not acquired
+         */
+        SourceSet sourceSet()
+        {
+            return this.sources;
+        }
+
+        /**
+         * Test seam: the slot of the live in-memory graph of an on-disk index, or
+         * {@link SegmentOwners#NONE}.
+         *
+         * @return the live slot
+         */
+        int liveSlot()
+        {
+            final SourceSet set = this.sources;
+            return set == null ? SegmentOwners.NONE : set.owners().liveSlot();
+        }
+
+        /**
+         * Test seam: the number of flushes that committed.
+         *
+         * @return the flush count
+         */
+        long flushCount()
+        {
+            return this.flushCount;
+        }
+
+        /**
+         * Test seam: the number of background merges that published their segment.
+         *
+         * @return the merge count
+         */
+        long mergeCount()
+        {
+            return this.mergeCount;
+        }
+
+        /**
+         * Test seam: whether a close has asked the merges to stop.
+         *
+         * @return the current value of {@link #mergeAbortRequested}
+         */
+        boolean isMergeAbortRequested()
+        {
+            return this.mergeAbortRequested;
+        }
+
+        /**
+         * Test seam: waits until no background merge is scheduled or running.
+         *
+         * @param timeoutMillis how long to wait at most
+         * @return whether the merges went idle in time
+         * @throws InterruptedException if the thread is interrupted while waiting
+         */
+        boolean awaitMergesIdle(final long timeoutMillis) throws InterruptedException
+        {
+            final long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+            while(this.mergeScheduled != null && this.mergeScheduled.get())
+            {
+                if(System.nanoTime() > deadline)
+                {
+                    return false;
+                }
+                Thread.sleep(5L);
+            }
+            return true;
+        }
+
+        /**
+         * Test seam: the number of consolidations that published their rebuilt generation.
+         *
+         * @return the consolidation count
+         */
+        long consolidationCount()
+        {
+            return this.consolidationCount;
+        }
+
+        /**
+         * Names the files of the single-file layout before the segments ({@code <name>.graph/.meta/.pqv},
+         * graph file version 5) once, if the index directory holds any. They are neither read nor deleted:
+         * the index finds no manifest and rebuilds from the store, and the next persist writes the segment
+         * layout beside them; an operator can remove them.
+         */
+        private void logFilesOfTheLayoutBeforeSegments()
+        {
+            final Path          directory = this.indexDirectoryForDisk();
+            final StringBuilder found     = new StringBuilder();
+            for(final String extension : new String[]{".graph", ".meta", ".pqv"})
+            {
+                final Path file = directory.resolve(this.name + extension);
+                if(java.nio.file.Files.isRegularFile(file))
+                {
+                    found.append(found.length() == 0 ? "" : ", ").append(file.getFileName());
+                }
+            }
+            if(found.length() > 0)
+            {
+                LOG.info("Vector index '{}' finds files of the index layout before the segments in {}: {}. They are"
+                    + " ignored and can be removed; the index is rebuilt from the store and persisted as segments.",
+                    this.name, directory, found);
+            }
+        }
+
+        /**
+         * Creates a disk manager for this index's directory and format. It reads this index's state,
+         * and the commit-stage test hook, through the {@link DiskIndexManager.IndexStateProvider} view,
+         * and shares this instance's {@link SegmentSequences}.
+         */
+        private DiskIndexManager newDiskManager()
+        {
+            return new DiskIndexManager.Default(
                 this,
                 this.name,
                 this.indexDirectoryForDisk(),
                 this.configuration.dimension(),
                 GraphFormat.of(this.configuration),
-                this.configuration.parallelOnDiskWrite()
+                this.configuration.parallelOnDiskWrite(),
+                this.segmentSequences
             );
-
-            if(this.diskManager.tryLoad(writtenMeta))
-            {
-                this.adoptCompressorsFromLoadedGraph();
-
-                // Reset in-memory builder to empty (all data is now on disk)
-                if(this.builder != null)
-                {
-                    try
-                    {
-                        this.builder.close();
-                    }
-                    catch(final IOException e)
-                    {
-                        LOG.warn("Error closing builder during reenterIncrementalMode: {}", e.getMessage());
-                    }
-                }
-                if(this.index != null)
-                {
-                    this.index.close();
-                }
-
-                this.initializeInMemoryBuilder();
-
-                // Set incremental state: set state fields first, then flip incrementalMode last for safe publication.
-                this.diskDeletedOrdinals = this.newDiskDeletedOrdinals();
-                this.diskGraphMeta       = writtenMeta;
-                this.incrementalMode     = true;
-
-                // Reinitialize searcher pools (disk + in-memory)
-                this.closeSearcherPools();
-                this.initializeSearcherPool();
-
-                LOG.info("Re-entered incremental on-disk mode for '{}'", this.name);
-            }
-            else
-            {
-                LOG.warn("Failed to reload disk index for '{}' after persist, staying in full in-memory mode", this.name);
-            }
         }
 
         @Deprecated
@@ -4507,9 +8385,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.ensureIndexInitialized();
                 this.pqManager.trainIfNeeded();
 
-                // Remembered, because a persist cannot infer it. Training here satisfies the
-                // pending check that the clean-incremental shortcut consults, so without this the
-                // next persist would skip the write and leave the codebook in heap - see the field.
+                // Remembered, because a persist cannot infer it. Training here satisfies the pending
+                // check that the clean-index shortcut consults, so without this the next persist would
+                // skip the rewrite and leave the codebook in heap - see the field.
                 if(this.pqManager.isTrained())
                 {
                     this.compressionTrainedOutsidePersist = true;
@@ -4545,23 +8423,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Syncs the PQ manager with the codebook actually embedded in the freshly loaded disk graph.
+         * Syncs the PQ manager with the codebook actually embedded in the freshly loaded segments.
          * <p>
-         * Called after every successful {@code tryLoad}. Passing {@code null} through is the point:
-         * it resets the manager to untrained so the next persist trains and writes a compressed
-         * graph, instead of the manager reporting itself trained while holding no codebook - the
-         * state in which {@link DiskIndexManager#writeIndex} silently writes uncompressed forever.
+         * Called after every successful load. Passing {@code null} through is the point: it resets the
+         * manager to untrained so the next persist trains and writes a compressed graph, instead of the
+         * manager reporting itself trained while holding no codebook - the state in which every flush
+         * would silently write uncompressed forever.
          * <p>
-         * Not all call sites hold {@code builderLock.writeLock()} - the one in
          * {@code initializeIndex} runs under whatever the caller happened to hold, which for a search
          * is nothing at all. What actually makes this safe is that the managers publish their state
          * through volatile fields.
+         *
+         * @param loaded the loaded index
          */
-        private void adoptCompressorsFromLoadedGraph()
+        private void adoptCompressorsFromLoadedGraph(final DiskIndexManager.LoadedIndex loaded)
         {
             if(this.pqManager != null)
             {
-                final ProductQuantization loadedPq = this.diskManager.loadedProductQuantization();
+                final ProductQuantization loadedPq = loaded.codebook();
                 this.pqManager.adoptTrainedPQ(loadedPq);
 
                 if(loadedPq != null)
@@ -4578,10 +8457,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.nvqManager != null)
             {
                 // Unlike the codebook this is an optimisation rather than a requirement: search reads
-                // the quantizer out of the loaded graph's own NVQ feature, and every persist rewrites
-                // the graph with whatever quantizer it then holds. Adopting simply saves the next
+                // the quantizer out of each segment's own NVQ feature, and every segment is written
+                // with whatever quantizer the index then holds. Adopting simply saves the next
                 // persist a mean pass and lets isNvqCompressionActive() answer truthfully right away.
-                final NVQuantization loadedNvq = this.diskManager.loadedNVQuantization();
+                final NVQuantization loadedNvq = loaded.nvq();
                 this.nvqManager.adoptTrainedNVQ(loadedNvq);
 
                 if(loadedNvq != null)
@@ -4605,9 +8484,135 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         protected void storeChangedChildren(final Storer storer)
         {
-            if(!this.isEmbedded())
+            // No children: the vectors are in the vector file, which the store never writes.
+        }
+
+        /**
+         * Why this record must not be stored, or {@code null} if it may be: it still holds the vector store of its
+         * 4.x layout, which the current layout has no field for, so a store would drop those vectors. Reads
+         * {@link #DROP_LEGACY_VECTORS_PROPERTY} here as well as at the import, so setting it while the storage runs
+         * lets the next store drop them.
+         */
+        String legacyVectorStoreRefusal()
+        {
+            if(this.legacyVectorStore == null)
             {
-                storer.store(this.vectorStore);
+                return null;
+            }
+            if(!this.vectorsRecovered)
+            {
+                return "Vector index \"" + this.name + "\" still carries the vector store of its 4.x layout; it must"
+                    + " be searched or mutated once before it is stored.";
+            }
+            if(Boolean.getBoolean(DROP_LEGACY_VECTORS_PROPERTY))
+            {
+                LOG.warn("Vector index '{}': dropping the vectors of its 4.x vector store ({}=true); every later"
+                    + " start vectorizes every entity.", this.name, DROP_LEGACY_VECTORS_PROPERTY);
+                this.legacyVectorStore = null;
+                return null;
+            }
+            if(this.closed)
+            {
+                return "Vector index \"" + this.name + "\" is closed and holds the vectors of its 4.x vector store only"
+                    + " in a temporary file, which the current layout cannot keep, so this store would drop them for"
+                    + " good. Restart and give the index a location with VectorIndices.changeIndexLocation, remove it"
+                    + " with VectorIndices.removeIndex, or set the system property " + DROP_LEGACY_VECTORS_PROPERTY
+                    + "=true to drop them.";
+            }
+            return "Vector index \"" + this.name + "\" holds the vectors of its 4.x vector store only in a temporary"
+                + " file: it has no index directory or location, and the current layout keeps no vectors in the"
+                + " storage, so this store would drop them for good. Give the index a location with"
+                + " VectorIndices.changeIndexLocation, which keeps them without a vectorizer call, or set the system"
+                + " property " + DROP_LEGACY_VECTORS_PROPERTY + "=true to drop them and vectorize every entity at"
+                + " every start.";
+        }
+
+        /**
+         * The store hook, called by {@link BinaryHandlerVectorIndexDefault#store} before this record is
+         * written: has the store epoch this record carries recorded as committed once the store commits. The
+         * epoch itself is normally sealed earlier, by {@link #internalPrepareStore(Storer)} when the GigaMap's
+         * store begins, before its entity segments are written; only a store that writes this record without
+         * the GigaMap, e.g. of the index alone, seals it here.
+         * <p>
+         * Takes the parent monitor itself, because the handler's {@code store()} can run without it, and
+         * does no I/O, so a store never waits for the vector file to reach the disk: a slot written after
+         * the store epoch is repaired from its entity after a crash instead. A slot written between this hook
+         * and the commit of the same store, by a storer that commits outside the monitor, carries the next
+         * epoch and is repaired the same way.
+         * <p>
+         * Trusting a slot at or below the epoch a record carries would assume that the stores carrying this
+         * record commit in the order their hooks ran, which Eclipse Store's storers, committing independently,
+         * do not guarantee. The vector file therefore advances its committed epoch only over epochs whose
+         * stores all committed (see {@link VectorFile#committed(long)}): a store that failed, or commits after
+         * a later one, keeps the slots written at its epoch unproven until its retry commits it, so a crash
+         * meanwhile repairs them from their entities instead of trusting them.
+         *
+         * @param handler the store handler, for the commit listener
+         */
+        void internalSealVectorEpochOnStore(final PersistenceStoreHandler<?> handler)
+        {
+            if(this.parent == null)
+            {
+                return;
+            }
+            synchronized(this.parentMap())
+            {
+                final VectorFile file = this.vectorFile;
+                if(this.closed || file == null || file.isClosed() || !this.vectorsRecovered)
+                {
+                    return;
+                }
+                // Sealed already if the GigaMap's store began this store: sealing again now would take in the
+                // writes of mutations that ran since, after entity segments of this store may have been written.
+                final WeakReference<Object> prepared = this.sealedForStore;
+                this.sealedForStore = null;
+                if(prepared == null || prepared.get() != handler)
+                {
+                    this.sealEpoch(file);
+                }
+                // The epoch this store carries, also when nothing was written since the last seal: a store that
+                // failed after sealing leaves its epoch uncommitted, and the retry that stores it again must
+                // commit it, or the chunks written at it would stay hot until the next store with a write.
+                final long carried = this.vectorFileEpoch;
+                if(carried > 0L)
+                {
+                    handler.registerCommitListener(() -> file.committed(carried));
+                }
+            }
+        }
+
+        @Override
+        public void internalPrepareStore(final Storer storer)
+        {
+            if(this.parent == null)
+            {
+                return;
+            }
+            synchronized(this.parentMap())
+            {
+                final VectorFile file = this.vectorFile;
+                if(this.closed || file == null || file.isClosed() || !this.vectorsRecovered)
+                {
+                    return;
+                }
+                // The epoch the store carries is fixed here, while the GigaMap's monitor is held and before its
+                // entity segments are written: a mutation that runs while the storer writes them, which a store
+                // without that monitor allows, writes at a later epoch and is repaired after a crash, rather
+                // than trusted with a vector its committed entity does not have. The commit listener is
+                // registered with the record (internalSealVectorEpochOnStore), so an epoch whose record this
+                // store does not write is never committed.
+                this.sealEpoch(file);
+                this.sealedForStore = new WeakReference<>(storer);
+            }
+        }
+
+        private void sealEpoch(final VectorFile file)
+        {
+            final long sealed = file.seal();
+            if(sealed >= 0L)
+            {
+                this.vectorFileEpoch = sealed;
+                this.markStateChangeInstance();
             }
         }
 
@@ -4620,31 +8625,173 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void close()
         {
-            // Shutdown background task manager — drain indexing, optionally optimize and persist
-            this.shutdownBackgroundTaskManager(
-                true,
-                this.configuration.optimizeOnShutdown(),
-                this.configuration.persistOnShutdown()
-            );
+            // The merge permit, the shutdown persist and the flush permit below are waited for, and their holders
+            // may need the monitor: under it, the close would wait for itself.
+            this.ensureNotHoldingParentMonitor("close()");
+            // Not meant to be called concurrently with itself (VectorIndices closes an index once, or
+            // again only after a failed close): the reset of closeRequested below assumes one closer.
+            final boolean optimizeOnShutdown = this.configuration.optimizeOnShutdown();
+            final boolean persistOnShutdown  = this.configuration.persistOnShutdown();
+            // Only these shutdown tasks need the complete graph: an optimization, and the persist of
+            // an on-disk index (doPersistToDisk is a no-op for an in-memory one). The rest of the
+            // shutdown work - draining queued indexing ops - does not need the load-path rebuild
+            // either: nothing is queued before it has completed (see awaitGraphRebuiltBeforeCallback),
+            // and ops left from before a recovery that dropped the loaded segments only update a graph
+            // this close discards, with no persist on shutdown to write it.
+            final boolean shutdownNeedsGraph = optimizeOnShutdown
+                || persistOnShutdown && this.configuration.onDisk();
 
-            // Acquire write lock to ensure no concurrent search or persistToDisk() is running.
-            // closeInternalResources() destroys the graph and disk manager.
-            this.builderLock.writeLock().lock();
+            // First of all, before the shutdown persist: a merge in flight stops at its next stage, and the
+            // permit it holds until then keeps the vector file it reads from mapped. Held to the end, so no
+            // merge starts on the closing index; one the shutdown persist would commit has published already.
+            final Semaphore mergePermit = this.mergePermit;
+            this.mergeAbortRequested = true;
+            if(mergePermit != null)
+            {
+                mergePermit.acquireUninterruptibly();
+            }
+            boolean completed = false;
             try
             {
-                this.closeInternalResources();
+                if(!shutdownNeedsGraph)
+                {
+                    // Published before the shutdown below, so that a load-path rebuild in flight
+                    // gives up now (see closeRequested). Otherwise the shutdown would wait for it:
+                    // a background task that is running the rebuild itself (the first scheduled
+                    // optimization of a restored index) or is queued behind the monitor it holds,
+                    // with the drain submitted behind that task - up to shutdownPersistTimeoutMillis
+                    // plus the executor grace period, after which the rebuild is cut short anyway.
+                    // Nothing that rebuild produced would outlive the close: the in-memory graph is
+                    // transient, and without a persist on shutdown nothing is written to disk.
+                    this.closeRequested = true;
+                }
 
-                // Set under the write lock, which is what makes it mean anything. doPersistToDisk
-                // trains before taking any lock and only then locks and re-initialises, so a
-                // persist that started before this close can arrive afterwards and rebuild
-                // everything torn down above - background task manager included. Both sides touch
-                // this flag while holding this lock, so either the persist reads it and stops, or
-                // it holds the lock first and this close waits for it to finish.
-                this.closed = true;
+                // Shutdown background task manager - drain indexing, optionally optimize and persist
+                this.shutdownBackgroundTaskManager(true, optimizeOnShutdown, persistOnShutdown);
+
+                // From here on a load-path rebuild in progress gives up early in any case. Set only
+                // now when the shutdown work above needed the complete graph, which a rebuild cut
+                // short could not have provided.
+                this.closeRequested = true;
+                this.closeUnderFlushPermit();
+                completed = true;
             }
             finally
             {
-                this.builderLock.writeLock().unlock();
+                if(!completed)
+                {
+                    // A close that failed leaves the index open (VectorIndices keeps it registered and
+                    // re-closeable). Left set, the flag would make every later access fail on the graph
+                    // rebuild this close may have cut short, instead of simply redoing it.
+                    this.closeRequested      = false;
+                    this.mergeAbortRequested = false;
+                }
+                if(mergePermit != null)
+                {
+                    mergePermit.release();
+                }
+            }
+            final ExecutorService merges = this.mergeExecutor;
+            if(completed && merges != null)
+            {
+                merges.shutdown();
+            }
+        }
+
+        /**
+         * Tears the index down while holding the flush permit, so no flush is writing meanwhile.
+         * <p>
+         * A flush writes with no lock held, so the write lock alone would not keep one from finishing
+         * into an index already torn down. The shutdown persist has normally waited for any flush in
+         * flight and written the rest; a flush still running here is one that persist gave up on after
+         * its timeout, so it is told to stop at its next stage rather than waited for to the end. The
+         * flush writer is shut down afterwards, holding no thread by then.
+         */
+        private void closeUnderFlushPermit()
+        {
+            final Semaphore permit = this.flushPermit;
+            if(permit == null)
+            {
+                this.closeUnderLocks();
+                return;
+            }
+            this.flushAbortRequested = true;
+            permit.acquireUninterruptibly();
+            try
+            {
+                this.closeUnderLocks();
+            }
+            finally
+            {
+                if(!this.closed)
+                {
+                    // The close failed and the index stays open, so its flushes must work again.
+                    this.flushAbortRequested = false;
+                }
+                permit.release();
+            }
+            final ExecutorService executor = this.flushExecutor;
+            if(executor != null)
+            {
+                executor.shutdown();
+            }
+        }
+
+        /**
+         * The part of {@link #close()} that tears the transient state down, under the builder write
+         * lock and the parent monitor.
+         */
+        private void closeUnderLocks()
+        {
+            // The write lock keeps every search and persist out while closeInternalResources() destroys the graph
+            // and the disk manager; the parent monitor keeps out the deferred load-path rebuild
+            // (ensureGraphRebuilt), which holds only the monitor while it fills the builder. Monitor first, the
+            // write lock only tried (see lockBuilderUnderMonitor): blocking on the write lock before the monitor
+            // deadlocks with a search issued under the monitor (inside GigaMap.iterate, apply logic or
+            // synchronized(map)), which waits for the read lock behind the writer while holding the monitor.
+            // close() rejects a caller holding the monitor; an index removal and the storage shutdown close
+            // outside it.
+            final boolean monitorHeld = Thread.holdsLock(this.parentMap());
+            synchronized(this.parentMap())
+            {
+                // Not interruptible: a shutdown that interrupted this thread must still close the index.
+                this.lockBuilderUnderMonitor(monitorHeld, false);
+                try
+                {
+                    final Runnable hook = this.closeTeardownTestHook;
+                    if(hook != null)
+                    {
+                        hook.run();
+                    }
+                    this.closeInternalResources();
+                    // No batch is inserting: a sync batch holds this monitor, an eventual one the read lock
+                    // this holds the write lock of. A failed close re-creates the pool when it re-initializes.
+                    final Cleaner.Cleanable shutdown = this.insertPoolShutdown;
+                    if(shutdown != null)
+                    {
+                        shutdown.clean();
+                    }
+                    // After the graph and the sources, which read it; removeAll runs closeInternalResources
+                    // too and keeps the file. An in-memory index's file goes with its directory.
+                    final VectorFile file = this.vectorFile;
+                    this.vectorFile = null;
+                    if(file != null)
+                    {
+                        file.close();
+                    }
+
+                    // Set under the write lock, which is what makes it mean anything. doPersistToDisk
+                    // trains before taking any lock and only then locks and re-initialises, so a
+                    // persist that started before this close can arrive afterwards and rebuild
+                    // everything torn down above - background task manager included. Both sides touch
+                    // this flag while holding this lock, so either the persist reads it and stops, or
+                    // it holds the lock first and this close waits for it to finish.
+                    this.closed = true;
+                }
+                finally
+                {
+                    this.builderLock.writeLock().unlock();
+                }
             }
         }
 
@@ -4708,10 +8855,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Close searcher pools first (searchers reference the index)
             this.closeSearcherPools();
 
-            // Reset incremental mode state
-            this.incrementalMode = false;
-            this.diskDeletedOrdinals = null;
-            this.diskGraphMeta       = null;
+            // The segments and frozen graphs: closed once nothing holds them any more, which a flush
+            // still writing for this generation may for a while.
+            this.retireSources();
 
             // The in-memory codes go with the graph they describe. internalRemoveAll tears down and
             // then re-initialises, so leaving them would hand the new, empty index the old codebook
@@ -4746,12 +8892,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.index = null;
             }
 
-            // Close disk manager
-            if(this.diskManager != null)
-            {
-                this.diskManager.close();
-                this.diskManager = null;
-            }
+            // The graph went with the builder. A re-initialization that loads no segments, e.g. the next access
+            // after a failed close, must rebuild it from the vector file instead of serving the empty builder.
+            this.graphRebuilt = false;
+
+            // The disk manager holds no file open; the segments it opened went with the sources.
+            this.diskManager      = null;
+            this.committedWitness = null;
 
             // Reset the compression managers
             if(this.pqManager != null)
@@ -4767,31 +8914,45 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Creates appropriate vector values based on storage mode.
+         * Unpublishes the sources of an on-disk index and the live graph's slot, and advances the
+         * epoch, so a flush planned before commits nothing: the generation it describes is gone.
+         * Under {@link #commitLock}, which a flush holds while it commits and publishes, so the two
+         * cannot interleave. The sources close when their last holder releases them.
          */
-        private RandomAccessVectorValues createVectorValues()
+        private void retireSources()
         {
-            return this.isEmbedded()
-                ? new EntityBackedVectorValues<>(
-                    this.parentMap(),
-                    this.vectorizer,
-                    this.configuration.dimension(),
-                    this.vectorTypeSupport
-                )
-                : new GigaMapBackedVectorValues(
-                    this::lookupComputedVector,
-                    // RAVV size() is the dense ordinal upper bound (getVector must be valid for
-                    // [0, size())), NOT the vector count. Graph ordinals are source entity ids, so with
-                    // null embeddings / deletion holes the highest ordinal exceeds vectorStore.size().
-                    // PQ encodeAll() builds a dense PQVectors of this length and FusedPQ / PQ search then
-                    // index it by graph ordinal — an under-reported count skips/overflows high ordinals
-                    // (IndexOutOfBoundsException). Match the graph's ordinal space (see getHighestEntityId()).
-                    () -> Math.toIntExact(this.parentMap().highestUsedId() + 1),
-                    this.configuration.dimension(),
-                    this.vectorTypeSupport
-                );
+            final SourceSet retired;
+            if(this.commitLock == null)
+            {
+                // Never initialized, so nothing was ever published or flushed.
+                this.commitLock = new Object();
+            }
+            synchronized(this.commitLock)
+            {
+                this.sourceEpoch++;
+                retired               = this.sources;
+                this.sources          = null;
+                this.mergeUncommitted = false;
+            }
+            final OwnerTable.Lease lease = this.liveLease;
+            this.liveLease = null;
+            if(lease != null)
+            {
+                lease.release();
+            }
+            if(retired != null)
+            {
+                retired.release();
+            }
         }
 
+        /**
+         * Creates appropriate vector values based on storage mode.
+         */
+        private RandomAccessVectorValues nullSafe(final RandomAccessVectorValues vectors)
+        {
+            return new NullSafeVectorValues(vectors, this.configuration.dimension(), this.vectorTypeSupport);
+        }
 
         ///////////////////////////////////////////////////////////////////////////
         // callback interface implementations //
@@ -4811,13 +8972,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Reservoir sampling (Algorithm R): keeps a uniform sample of at most `limit` vectors
             // without knowing the population size up front.
             //
-            // A stride computed from getVectorCount() cannot do this job. That count is an upper
-            // bound, not the number of embeddings - in embedded mode it is parentMap.size(), which
-            // includes entities with no vector - so on a sparse map the stride is too coarse and the
-            // sample can fall below MIN_VECTORS_FOR_PQ_TRAINING, leaving PQ untrained forever. And
-            // integer division floors to a stride of 1 for any population between limit and 2*limit,
-            // which degenerates to taking the first `limit` vectors: exactly the insertion-ordered
-            // prefix that skews a codebook.
+            // A stride computed from getVectorCount() cannot do this job: integer division floors
+            // to a stride of 1 for any population between limit and 2*limit, which degenerates to taking the
+            // first `limit` vectors: exactly the insertion-ordered prefix that skews a codebook.
             //
             // The RNG is seeded per call so training is reproducible: the same data always yields
             // the same codebook.
@@ -4845,28 +9002,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
             };
 
-            if(this.isEmbedded())
+            // From the vector file, which holds exactly the graph's vectors: entities without an embedding have
+            // none there and do not feed the codebook, and no vectorizer is called.
+            final VectorFile file = this.vectorFile;
+            if(file != null)
             {
-                this.parentMap().iterate(entity ->
+                // A fresh array per vector, which the sample wraps rather than copies; only for slots that hold
+                // one, as forEachPresent checks before the read allocates.
+                file.forEachPresent(ordinal ->
                 {
-                    final float[] vector = this.vectorize(entity);
-                    // Skip entities without an embedding — they are not part of the graph and
-                    // must not feed PQ codebook training.
+                    final float[] vector = file.read(ordinal);
                     if(vector != null)
                     {
                         sample.accept(vector);
                     }
-                });
-            }
-            else if(this.vectorStore != null)
-            {
-                // Computed mode never stores null-vector entries; guard defensively anyway.
-                this.vectorStore.iterate(entry ->
-                {
-                    if(entry.vector != null)
-                    {
-                        sample.accept(entry.vector);
-                    }
+                    return true;
                 });
             }
 
@@ -4878,19 +9028,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public long getExpectedVectorCount()
         {
-            // Counts indexed entities, NOT graph nodes. In computed mode the two are equal
-            // (null-vector entities have no store entry). In embedded mode this can over-count
-            // when some entities have no embedding — that is fine for the disk metadata check,
-            // which compares this value against itself on write and read, and for the PQ
-            // training gate, which trains on the actually-collected (non-null) vectors.
-            if(this.isEmbedded())
-            {
-                return this.parentMap().size();
-            }
-            else
-            {
-                return this.vectorStore != null ? this.vectorStore.size() : 0;
-            }
+            // The entities with a vector, in both modes: the slots of the vector file that hold one, counted
+            // by every vector mutation and persisted with the index.
+            return this.vectorCount;
         }
 
         @Override
@@ -4899,54 +9039,78 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // Always use the parent GigaMap's id space — that is the ordinal
             // space the HNSW graph is keyed on (via toOrdinal(entityId)) in
             // both embedded and computed-vector modes. The computed-mode
-            // vectorStore has its own monotonic id allocator that diverges
-            // from the parent map's (e.g. when an index is registered against
-            // a parent with deletion holes, or when some entities have no
-            // embedding and so get no vectorStore entry at all), so it is
-            // unsafe as a stand-in. Note this is only about the highest-id
-            // bound: per-entity vector lookups no longer assume alignment —
-            // they resolve by VectorEntry.sourceEntityId (see lookupComputedVector).
+            // vector file's highest ordinal is only an upper bound of what was
+            // ever written, so it is unsafe as a stand-in.
             return this.parentMap().highestUsedId();
         }
 
         @Override
         public long getStructuralModCount()
         {
-            // The persisted witness stamped into the disk .meta at write time and compared on
+            // The persisted witness stamped into the disk manifest at write time and compared on
             // reload. Unlike count/highestId it changes on vec↔null transitions, closing the
             // crash-restart window where a stale on-disk graph would otherwise be accepted.
             return this.structuralModCount;
+        }
+
+        @Override
+        public Consumer<DiskIndexManager.CommitStage> commitStageTestHook()
+        {
+            return this.commitStageTestHook;
+        }
+
+        @Override
+        public Runnable reapListingTestHook()
+        {
+            return this.reapListingTestHook;
         }
 
         // ================================================================
         // BackgroundTaskManager.Callback implementation
         // ================================================================
 
+        /**
+         * Makes sure no deferred load-path rebuild is pending or running before a background
+         * indexing callback touches the builder.
+         * <p>
+         * The callbacks take {@code builderLock.readLock()}, not the parent monitor, so the rebuild
+         * in {@link #ensureGraphRebuilt()} (monitor only) does not exclude them by itself. A callback
+         * that ran during it could insert an ordinal the rebuild's pre-pass found absent and is about
+         * to insert concurrently, which jVector rejects with "Node already exists", or remove or
+         * replace a node while the rebuild links to it. Today no callback can be queued then: every
+         * enqueue happens inside a GigaMap mutation that has run {@code ensureIndexInitialized()}
+         * under the monitor first, and the queue is transient and so empty after a load. The one way
+         * {@code graphRebuilt} returns to {@code false} while the background manager runs is a recovery
+         * that drops the loaded segments (see {@link #dropLoadedSegments()}), and callbacks queued before
+         * it then find no rebuild in flight but one due. This guard covers both: a callback either finds
+         * the rebuild done (a volatile read) or
+         * waits for it, or runs it, under the monitor.
+         * <p>
+         * Lock order: called before the read lock is taken, exactly like the search path does, so
+         * this thread holds no {@code builderLock} while it takes the monitor; and the rebuild
+         * never waits for the background executor, so waiting for the rebuild here cannot deadlock.
+         */
+        private void awaitGraphRebuiltBeforeCallback()
+        {
+            this.ensureGraphRebuilt();
+        }
+
         @Override
-        public void applyGraphAdd(final VectorEntry entry)
+        public void applyGraphAdd(final int ordinal)
         {
             // Called from the background indexing worker thread (not from GigaMap's
             // synchronized methods), so we use builderLock.readLock() to coordinate
-            // with cleanup (writeLock).
-            if(entry.vector == null)
-            {
-                // Entity has no embedding — nothing to add to the graph. Callers already
-                // filter these out; this is a defensive guard on the worker thread.
-                return;
-            }
+            // with freezes and maintenance (writeLock).
+            this.awaitGraphRebuiltBeforeCallback();
             this.builderLock.readLock().lock();
             try
             {
-                final int ordinal = toOrdinal(entry.sourceEntityId);
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-
-                // Through the idempotent helper rather than addGraphNode directly. This callback is
-                // queued by a mutation and applied later, and in between the in-memory PQ switch can
-                // have replayed the same ordinal into a replacement graph from its own snapshot -
-                // the snapshot is taken after the mutation, so the change counter does not reject
-                // it. Adding an ordinal the graph already holds throws. The helper also reads the
-                // builder once, which matters here for the same reason it does on the sync path.
-                this.internalAddGraphNodeIdempotent(ordinal, vf);
+                if(BackgroundTaskManager.isApplyingDiscardedOperation())
+                {
+                    // Polled before the index was cleared, applied only now: stale.
+                    return;
+                }
+                this.applyAdd(this.builder, ordinal, this.vectorFile.read(ordinal));
             }
             finally
             {
@@ -4955,25 +9119,26 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public void applyGraphBatchAdd(final List<VectorEntry> entries)
+        public void applyGraphBatchAdd(final int[] ordinals)
         {
+            this.awaitGraphRebuiltBeforeCallback();
             // Acquires the lock once for the entire batch, avoiding per-entry lock overhead.
             this.builderLock.readLock().lock();
             try
             {
-                for(final var entry : entries)
+                if(BackgroundTaskManager.isApplyingDiscardedOperation())
                 {
-                    if(entry.vector == null)
-                    {
-                        // Entity has no embedding — excluded from the graph.
-                        continue;
-                    }
-                    final int ordinal = toOrdinal(entry.sourceEntityId);
-                    final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-
-                    // Idempotent, for the reason given on applyGraphAdd.
-                    this.internalAddGraphNodeIdempotent(ordinal, vf);
+                    return;
                 }
+                // One generation for the whole batch, read once, see applyGraphUpdate. In parallel, like the
+                // sync path: the vectors come from the file, without a lock. An entity that has lost its vector
+                // since is skipped; the operation that removed it follows in the queue.
+                final VectorFile file = this.vectorFile;
+                this.insertBatch(this.builder, ordinals, index ->
+                {
+                    final float[] vector = file.read(ordinals[index]);
+                    return vector == null ? null : this.vectorTypeSupport.createFloatVector(vector);
+                });
             }
             finally
             {
@@ -4982,52 +9147,20 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         @Override
-        public void applyGraphUpdate(final VectorEntry entry)
+        public void applyGraphUpdate(final int ordinal)
         {
+            this.awaitGraphRebuiltBeforeCallback();
             this.builderLock.readLock().lock();
             try
             {
+                if(BackgroundTaskManager.isApplyingDiscardedOperation())
+                {
+                    return;
+                }
                 // One generation, captured once. This callback holds only the read lock, and the
                 // in-memory PQ switch publishes a replacement while holding neither - so reading
-                // this.builder or this.index again further down could land on the other side of
-                // that publication. Split across the two, this method would delete the node from
-                // the graph being abandoned and then add an ordinal the replacement already carries,
-                // which throws. The graph comes from the captured builder for the same reason.
-                final GraphIndexBuilder currentBuilder = this.builder;
-                if(currentBuilder == null)
-                {
-                    return;
-                }
-                final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
-
-                final int ordinal = toOrdinal(entry.sourceEntityId);
-                final boolean inGraph = currentIndex != null && currentIndex.containsNode(ordinal);
-
-                if(entry.vector == null)
-                {
-                    // vec→null / null→null: remove the node if present, otherwise nothing to do.
-                    if(inGraph)
-                    {
-                        currentBuilder.markNodeDeleted(ordinal);
-                        // After the delete, so no in-flight scorer sees a zeroed code for a node
-                        // that is still live. The eventual-indexing paths need this as much as the
-                        // synchronous ones: without it a deleted node keeps a code traversal can
-                        // still score against and waste hops on.
-                        this.untrackPqCode(ordinal);
-                    }
-                    return;
-                }
-
-                // vec→vec: delete the stale node then re-add. null→vec: the node is absent,
-                // so add it directly without the (invalid) delete.
-                if(inGraph)
-                {
-                    currentBuilder.markNodeDeleted(ordinal);
-                    currentBuilder.removeDeletedNodes();
-                }
-                final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(entry.vector);
-                this.trackPqCode(ordinal, vf);
-                currentBuilder.addGraphNode(ordinal, vf);
+                // this.builder again further down could land on the other side of that publication.
+                this.applyUpdate(this.builder, ordinal, this.vectorFile.read(ordinal));
             }
             finally
             {
@@ -5038,20 +9171,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void applyGraphRemove(final int ordinal)
         {
+            this.awaitGraphRebuiltBeforeCallback();
             this.builderLock.readLock().lock();
             try
             {
-                // One generation, for the reason given on applyGraphUpdate: the containment test
-                // and the delete must be about the same graph.
-                final GraphIndexBuilder currentBuilder = this.builder;
-
-                // Guard against removing a never-indexed entity (e.g. one that never had an
-                // embedding): markNodeDeleted on an absent node would fail.
-                if(currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal))
+                if(BackgroundTaskManager.isApplyingDiscardedOperation())
                 {
-                    currentBuilder.markNodeDeleted(ordinal);
-                    this.untrackPqCode(ordinal);
+                    return;
                 }
+                this.applyRemove(this.builder, ordinal);
             }
             finally
             {
@@ -5059,142 +9187,270 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
+        @Override
+        public void graphOperationFailed(final RuntimeException failure)
+        {
+            // The graph now lacks a change the store has. An in-memory index has nothing to rebuild it
+            // at; an on-disk one rebuilds at the next persist that may consolidate, and does not let a
+            // shutdown persist commit the gap meanwhile.
+            if(this.configuration.onDisk())
+            {
+                this.consolidationRequired = true;
+            }
+        }
+
+        @Override
+        public void graphOperationApplied()
+        {
+            // An eventual-indexing mutation checks the threshold when it enqueues, before the worker
+            // has applied it, so the check has to be repeated here.
+            this.requestFlushIfDue();
+        }
+
 
         // ================================================================
-        // Builder operation deferral helpers
+        // Graph operations, on a given builder
         // ================================================================
+
+        // Each of these takes the builder it applies to, read once by the caller: the live builder for
+        // a mutation or a background callback, a frozen one for an operation a freeze moved. None of
+        // them touches the owners; the mutation set those when it ran, under the parent monitor.
 
         /**
-         * Marks a graph ordinal deleted, re-deriving the target from CURRENT state at execution time
-         * rather than from a captured builder reference. This matters when the op is deferred
-         * (via {@link #executeOrDeferBuilderOp}) during a persist and drained afterwards: {@code
-         * doPersistToDisk} swaps the in-memory builder (exit/reenter incremental mode) between deferral
-         * and drain, so a captured {@code builder.markNodeDeleted(ordinal)} would land on the new, empty
-         * builder and be lost — leaving the entity live on the reloaded disk graph until the next
-         * persist. Recording the deletion in {@link #diskDeletedOrdinals} (when incremental) makes it
-         * survive the swap; the in-builder {@code markNodeDeleted} is applied only when the node is
-         * actually present in the current builder.
+         * The add an eventual-indexing operation carries, on {@code target}, with the vector the file holds
+         * now, or the freeze copied. None means the entity lost it since; the operation that removed it
+         * follows in the queue.
          */
-        private void internalMarkOrdinalDeleted(final int ordinal)
+        private void applyAdd(
+            final GraphIndexBuilder target ,
+            final int               ordinal,
+            final float[]           vector
+        )
         {
-            this.recordDiskOrdinalSuperseded(ordinal);
-            final GraphIndexBuilder currentBuilder = this.builder;
-            if(currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal))
+            if(vector == null)
             {
-                currentBuilder.markNodeDeleted(ordinal);
+                return;
+            }
+            final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+
+            // Through the idempotent helper rather than addGraphNode directly. This operation is queued
+            // by a mutation and applied later, and in between the in-memory PQ switch can have replayed
+            // the same ordinal into a replacement graph from its own snapshot - the snapshot is taken
+            // after the mutation, so the change counter does not reject it. Adding an ordinal the graph
+            // already holds throws.
+            this.internalAddGraphNodeIdempotent(target, ordinal, vf);
+        }
+
+        /**
+         * The update an eventual-indexing operation carries, on {@code target}: a delete for an entity
+         * that lost its vector, a delete and re-add for a changed one, an add for one that gained one. The
+         * vector is what the file holds now, or the freeze copied, so a later update of the same entity
+         * finds the graph already current.
+         */
+        private void applyUpdate(
+            final GraphIndexBuilder target ,
+            final int               ordinal,
+            final float[]           vector
+        )
+        {
+            if(target == null)
+            {
+                return;
+            }
+            final OnHeapGraphIndex graph   = graphOf(target);
+            final boolean          inGraph = graph.containsNode(ordinal);
+
+            if(vector == null)
+            {
+                // vec→null / null→null: remove the node if present, otherwise nothing to do.
+                if(inGraph)
+                {
+                    target.markNodeDeleted(ordinal);
+                    // After the delete, so no in-flight scorer sees a zeroed code for a node that is
+                    // still live. The eventual-indexing paths need this as much as the synchronous
+                    // ones: without it a deleted node keeps a code traversal can still score against
+                    // and waste hops on.
+                    this.untrackPqCode(ordinal);
+                }
+                return;
+            }
+
+            // vec→vec: delete the stale node then re-add. null→vec: the node is absent, so add it
+            // directly without the (invalid) delete.
+            final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+            if(inGraph)
+            {
+                target.markNodeDeleted(ordinal);
+                this.replaceDeletedNode(target, ordinal, vf);
+                return;
+            }
+            this.insertSingle(target, ordinal, vf);
+        }
+
+        /**
+         * The remove an eventual-indexing operation carries, on {@code target}.
+         */
+        private void applyRemove(
+            final GraphIndexBuilder target ,
+            final int               ordinal
+        )
+        {
+            this.internalMarkOrdinalDeleted(target, ordinal);
+        }
+
+        /**
+         * Marks a graph ordinal deleted in {@code target} if the node is there. A copy elsewhere is
+         * hidden by its owner, which the mutation already set.
+         */
+        private void internalMarkOrdinalDeleted(
+            final GraphIndexBuilder target ,
+            final int               ordinal
+        )
+        {
+            if(target != null && graphOf(target).containsNode(ordinal))
+            {
+                target.markNodeDeleted(ordinal);
                 this.untrackPqCode(ordinal);
             }
         }
 
         /**
-         * Records that the disk-resident version of an ordinal is no longer authoritative, so
-         * {@link #createDiskAcceptBits()} excludes it from disk search.
-         * <p>
-         * Must be called by every op that removes or re-adds an ordinal in the in-memory builder while
-         * incremental mode is active, and it must be called when the op RUNS, not when it is created:
-         * a persist allocates a fresh, empty {@link #diskDeletedOrdinals} in
-         * {@code reenterIncrementalMode}, so an entry made before deferral is gone by the time the op
-         * is drained, and the stale disk node would keep answering searches next to the fresh
-         * in-memory one (internal #142).
-         * <p>
-         * Not called for a plain add: a newly allocated entity id was never written to disk, so there
-         * is no disk version to exclude.
-         */
-        private void recordDiskOrdinalSuperseded(final int ordinal)
-        {
-            // Flag first, mask second: incremental mode publishes the mask before setting the volatile
-            // flag, so only a mask read after seeing the flag is guaranteed to be the current one.
-            if(!this.incrementalMode)
-            {
-                return;
-            }
-            // Read the field once: a concurrent mode exit may null it between a check and the add.
-            final DiskSupersededOrdinals deleted = this.diskDeletedOrdinals;
-            if(deleted != null)
-            {
-                deleted.add(ordinal);
-            }
-        }
-
-        /**
-         * Creates an empty {@link #diskDeletedOrdinals} sized to the disk graph just loaded. The graph
-         * is written with an identity ordinal map, so every ordinal it holds is below its id upper
-         * bound. Must be called after a successful {@code tryLoad}.
-         */
-        private DiskSupersededOrdinals newDiskDeletedOrdinals()
-        {
-            return DiskSupersededOrdinals.New(this.diskManager.getDiskIndex().getIdUpperBound());
-        }
-
-        /**
-         * Replaces a graph node with a new vector, re-deriving every premise from CURRENT state at
-         * execution time. Used by the computed (non-embedded) update path, whose deferred op may be
-         * drained against a builder that was swapped since the op was created.
+         * Replaces a graph node with a new vector in {@code target}. Used by the synchronous update path.
          * <p>
          * The removal half must never be skipped while the add half runs unconditionally: jvector's
          * {@code OnHeapGraphIndex.addNode} is a non-atomic loop over layers {@code 0..level} that
          * throws {@code IllegalStateException: Node N already exists} on the first layer already
-         * holding the ordinal, and {@code containsNode} only inspects layer 0. So the final
-         * {@code removeNode} is not redundant with {@code removeDeletedNodes}: it purges the ordinal
+         * holding the ordinal, and {@code containsNode} only inspects layer 0. So the {@code removeNode}
+         * that {@link #insertSingle} runs before the add is not redundant with {@code removeDeletedNodes}:
+         * it purges the ordinal
          * from ALL layers and thereby also repairs a node left in an upper layer only by an earlier
          * interleaved add/remove (internal #142).
          * <p>
-         * Only safe for the computed vectorizer: {@code removeDeletedNodes()} scores through a
-         * ForkJoinPool, whose workers read the separate vector store rather than the parent GigaMap,
-         * so it cannot deadlock against the GigaMap monitor the drain holds.
+         * {@code removeDeletedNodes()} scores through a ForkJoinPool, whose workers read the vector file
+         * rather than the parent GigaMap, so it cannot deadlock against the GigaMap monitor the caller
+         * holds, whichever the vectorizer.
          */
-        private void internalReplaceGraphNode(final int ordinal, final VectorFloat<?> vf)
+        private void internalReplaceGraphNode(
+            final GraphIndexBuilder target ,
+            final int               ordinal,
+            final VectorFloat<?>    vf
+        )
         {
-            this.recordDiskOrdinalSuperseded(ordinal);
-            final GraphIndexBuilder currentBuilder = this.builder;
-            if(currentBuilder == null)
+            if(target == null)
             {
                 return;
             }
-            final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
-            if(currentIndex.containsNode(ordinal))
+            final OnHeapGraphIndex graph = graphOf(target);
+            if(graph.containsNode(ordinal))
             {
                 // Repairs the neighbor lists that referenced the node before dropping it.
-                currentBuilder.markNodeDeleted(ordinal);
+                target.markNodeDeleted(ordinal);
                 this.untrackPqCode(ordinal);
-                currentBuilder.removeDeletedNodes();
+                this.replaceDeletedNode(target, ordinal, vf);
+                return;
             }
-            currentIndex.removeNode(ordinal);
-            this.trackPqCode(ordinal, vf);
-            currentBuilder.addGraphNode(ordinal, vf);
+            this.insertSingle(target, ordinal, vf);
         }
 
         /**
-         * Adds a graph node, tolerating an ordinal that is already present. Monitor-safe: it never
-         * calls {@code removeDeletedNodes()}, whose ForkJoinPool workers resolve vectors through the
-         * parent GigaMap for an embedded vectorizer and would deadlock against the monitor the caller
-         * holds. The re-added node loses its neighbor links, which the next optimize/persist rebuilds
-         * - the same contract the embedded vec-vec path documents.
+         * Purges {@code ordinal}, marked deleted by the caller, from {@code target} and inserts it again with
+         * {@code vf}; for the live graph, then reconnects what that left unreachable.
          * <p>
-         * Re-deriving presence here rather than at deferral time is what makes the op idempotent
-         * against whatever builder it is eventually drained into (internal #142).
+         * The purge hands the node's in-neighbours its neighbours and prunes the merged lists for diversity, and
+         * the insert's backlinks prune the lists of its new neighbours. Either can take the last edge into some
+         * node, near-duplicates most of all, and replacing every vector of an index one after another reliably
+         * does. Which node is not known, so the whole of layer 0 is walked: one pass over the
+         * edges, of the same order as the purge's own pass over every node. Only for the live graph: a frozen
+         * graph is repaired once, after all the operations moved into it, see {@link #applyMovedOps}.
          */
-        private void internalAddGraphNodeIdempotent(final int ordinal, final VectorFloat<?> vf)
+        private void replaceDeletedNode(
+            final GraphIndexBuilder target ,
+            final int               ordinal,
+            final VectorFloat<?>    vf
+        )
         {
-            final GraphIndexBuilder currentBuilder = this.builder;
-            if(currentBuilder == null)
+            final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
+            lock.lock();
+            try
+            {
+                target.removeDeletedNodes();
+            }
+            finally
+            {
+                lock.unlock();
+            }
+            this.insertSingle(target, ordinal, vf);
+            if(target != this.builder)
             {
                 return;
             }
-            final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
-
-            // The code first, whichever branch follows: it is what the node is scored by once
-            // compressed scoring is on, and the insert below reads it while choosing neighbours.
-            this.trackPqCode(ordinal, vf);
-
-            if(currentIndex.containsNode(ordinal))
+            lock.lock();
+            try
             {
+                final int[] nodes = graphOf(target).nodeStream(0).toArray();
+                this.repairLiveGraph(() ->
+                    GraphReachability.repair(target, nodes, nodes.length, this::vectorOf, this.name)
+                );
+            }
+            finally
+            {
+                lock.unlock();
+            }
+        }
+
+        /**
+         * Inserts one node that is not in layer 0 of {@code target}: purges what an upper layer may still hold
+         * of it, writes its code and adds it, under the structure lock shared.
+         */
+        private void insertSingle(
+            final GraphIndexBuilder target ,
+            final int               ordinal,
+            final VectorFloat<?>    vf
+        )
+        {
+            this.purgeIfEntryDeleted(target);
+            final ReentrantReadWriteLock.ReadLock lock = this.structureLock.readLock();
+            lock.lock();
+            try
+            {
+                graphOf(target).removeNode(ordinal);
+                this.trackPqCode(ordinal, vf);
+                target.addGraphNode(ordinal, vf);
+            }
+            finally
+            {
+                lock.unlock();
+            }
+        }
+
+        /**
+         * Adds a graph node to {@code target}, tolerating an ordinal that is already present.
+         * Never calls {@code removeDeletedNodes()}: an add for a present ordinal means the entity is back
+         * or was replayed, not that its vector changed, so its links stay.
+         */
+        private void internalAddGraphNodeIdempotent(
+            final GraphIndexBuilder target ,
+            final int               ordinal,
+            final VectorFloat<?>    vf
+        )
+        {
+            if(target == null)
+            {
+                return;
+            }
+
+            final OnHeapGraphIndex graph = graphOf(target);
+
+            if(graph.containsNode(ordinal))
+            {
+                // The code first, whichever branch follows: it is what the node is scored by once
+                // compressed scoring is on, and the insert below reads it while choosing neighbours.
+                this.trackPqCode(ordinal, vf);
                 // Already a node of this graph, so there is nothing structural left to do - and
                 // reaching the same state by removing and re-adding is not merely wasteful, it
                 // corrupts the graph. removeNode strips the node's own entry but not the backlinks
                 // its neighbours hold, so the next insert that picks one of those stale references
-                // fails with an NPE inside ConcurrentNeighborMap. The callers that drain these ops
-                // swallow the exception, which leaves the node removed and never re-added.
+                // fails with an NPE inside ConcurrentNeighborMap.
                 //
                 // That is not a rare interleaving. After the in-memory PQ switch every queued add
                 // names an ordinal the replay has already inserted, so an unconditional remove
@@ -5203,159 +9459,273 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Clearing a deleted bit is kept, because an add for an ordinal that is present
                 // but marked deleted does mean "this entity is back" - the same thing the resurrect
                 // path does, and for the same reason.
-                currentIndex.getDeletedNodes().clear(ordinal);
+                graph.getDeletedNodes().clear(ordinal);
                 return;
             }
 
             // containsNode only inspects layer 0, so "absent" can still mean "present in an upper
             // layer" after an earlier interleaved add/remove. Purge all layers before adding, or
             // the add throws. Safe here in a way it is not above: there is no live layer-0 node
-            // whose neighbours could be left holding a reference to it.
-            currentIndex.removeNode(ordinal);
-            currentBuilder.addGraphNode(ordinal, vf);
+            // whose neighbours could be left holding a reference to it. insertSingle writes the code
+            // before the insert, which reads it while choosing neighbours.
+            this.insertSingle(target, ordinal, vf);
         }
 
         /**
-         * {@link #internalAddGraphNodeIdempotent} for an ordinal that may already have a version on
-         * disk, i.e. the embedded {@code null→vec} update path. Masks the disk-resident node first so
-         * search does not answer from both copies.
+         * Inserts the nodes of a batch into {@code target}, in parallel on the insert pool, with the semantics
+         * of {@link #internalAddGraphNodeIdempotent}: an ordinal that is a node of the graph already only comes
+         * back if it was deleted, and one whose vector is {@code null} is skipped.
+         * <p>
+         * In phases, each joined before the next starts, so each builds on what the one before completed:
+         * <ol>
+         *   <li>On this thread, the steps per ordinal that are not safe against concurrent inserts: which
+         *       ordinals are nodes already, and the purge of a node left over in an upper layer only.</li>
+         *   <li>With in-memory PQ codes, the code of every new node, the highest ordinal first on this thread so
+         *       the code store never grows while the workers write (see encodeRebuildCodes). Every code is
+         *       there before any insert scores against it.</li>
+         *   <li>The inserts, which jVector supports concurrently.</li>
+         * </ol>
+         * All of it under the structure lock shared, which keeps removeDeletedNodes() out. The workers take no
+         * lock and never need the parent monitor, which a sync caller holds while it waits for them.
+         *
+         * @param target   the builder to insert into, or {@code null} for none
+         * @param ordinals the ordinals of the batch, distinct
+         * @param vectors  the vector of the ordinal at an index of {@code ordinals}, or {@code null} for none;
+         *                 called on this thread only
          */
-        private void internalReaddGraphNode(final int ordinal, final VectorFloat<?> vf)
+        private void insertBatch(
+            final GraphIndexBuilder           target  ,
+            final int[]                       ordinals,
+            final IntFunction<VectorFloat<?>> vectors
+        )
         {
-            this.recordDiskOrdinalSuperseded(ordinal);
-            this.internalAddGraphNodeIdempotent(ordinal, vf);
+            if(target == null || ordinals.length == 0)
+            {
+                return;
+            }
+            this.purgeIfEntryDeleted(target);
+            final OnHeapGraphIndex                graph   = graphOf(target);
+            final int[]                           pending = new int[ordinals.length];
+            final VectorFloat<?>[]                inserts = new VectorFloat<?>[ordinals.length];
+            final ReentrantReadWriteLock.ReadLock lock    = this.structureLock.readLock();
+            int                                   count   = 0;
+            lock.lock();
+            try
+            {
+                for(int index = 0; index < ordinals.length; index++)
+                {
+                    final VectorFloat<?> vector = vectors.apply(index);
+                    if(vector == null)
+                    {
+                        continue;
+                    }
+                    final int ordinal = ordinals[index];
+                    if(graph.containsNode(ordinal))
+                    {
+                        // As in internalAddGraphNodeIdempotent: a node already, its code kept current, back if it
+                        // was deleted.
+                        this.trackPqCode(ordinal, vector);
+                        graph.getDeletedNodes().clear(ordinal);
+                        continue;
+                    }
+                    // As in internalAddGraphNodeIdempotent: a leftover in an upper layer would make the insert throw.
+                    graph.removeNode(ordinal);
+                    pending[count] = ordinal;
+                    inserts[count] = vector;
+                    count++;
+                }
+                final int total = count;
+
+                final MutablePQVectors codes = this.inMemoryPqVectors;
+                if(codes != null && total > 0)
+                {
+                    int highest = 0;
+                    for(int index = 1; index < total; index++)
+                    {
+                        if(pending[index] > pending[highest])
+                        {
+                            highest = index;
+                        }
+                    }
+                    codes.encodeAndSet(pending[highest], inserts[highest]);
+                    this.forEachInsert(total, index -> codes.encodeAndSet(pending[index], inserts[index]));
+                }
+                // Into an empty live graph, as after a freeze, the first node goes in on this thread, see seedIfEmpty.
+                final int seeded = seedIfEmpty(target, total, index -> target.addGraphNode(pending[index], inserts[index]));
+                this.forEachInsert(total - seeded, index -> target.addGraphNode(pending[index + seeded], inserts[index + seeded]));
+            }
+            finally
+            {
+                lock.unlock();
+            }
+            this.repairReachability(target, pending, count);
         }
 
         /**
-         * Re-adds or resurrects an embedded-mode node, deciding from CURRENT state at execution time.
-         * A node marked deleted only carries a bit (it stays in every layer), so clearing that bit is
-         * enough and keeps the op monitor-safe; a node that is gone entirely - e.g. because the
-         * builder was swapped between deferral and drain - must be added instead, otherwise the
-         * entity silently disappears from the graph.
+         * Reconnects what the parallel inserts of {@code ordinals} into {@code target} left unreachable, see
+         * {@link GraphReachability}, under the structure lock exclusive: the walk and the re-inserts need the
+         * graph to themselves. Does nothing for fewer nodes than run in parallel: those were inserted one after
+         * another, each seeing every node before it. Must not be called holding the structure lock shared.
+         *
+         * @param target   the builder the nodes were inserted into
+         * @param ordinals the ordinals inserted
+         * @param count    how many entries of {@code ordinals} are valid, from the start
          */
-        private void internalResurrectGraphNode(final int ordinal, final VectorFloat<?> vf)
+        private void repairReachability(
+            final GraphIndexBuilder target  ,
+            final int[]             ordinals,
+            final int               count
+        )
         {
-            this.recordDiskOrdinalSuperseded(ordinal);
-            final GraphIndexBuilder currentBuilder = this.builder;
-            if(currentBuilder == null)
+            if(count < ParallelGraphInsertion.MIN_PARALLEL_NODES)
             {
                 return;
             }
-            final OnHeapGraphIndex currentIndex = graphOf(currentBuilder);
-            if(currentIndex.containsNode(ordinal))
+            final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
+            lock.lock();
+            try
             {
-                // The node keeps its place in the graph, but its vector may not be the one it was
-                // inserted with - this path also serves an update whose embedding changed. Exact
-                // scoring never notices, because it reads the vector live from the GigaMap. A PQ
-                // code is a copy, so leaving it stale would keep scoring this node by the embedding
-                // it used to have, and it would stop being findable by its new one.
-                //
-                // Before the node becomes visible, not after. This path holds no builderLock, so a
-                // search can be traversing concurrently: clearing the deleted bit first would make
-                // the node reachable for the instant before its code is written, and it would be
-                // scored against whatever the code used to be - the old embedding, or zero. Every
-                // add path already writes the code before the node becomes reachable; this is the
-                // same rule for the resurrect path.
-                this.trackPqCode(ordinal, vf);
+                this.repairLiveGraph(() ->
+                    GraphReachability.repair(target, ordinals, count, this::vectorOf, this.name)
+                );
+            }
+            finally
+            {
+                lock.unlock();
+            }
+        }
 
-                currentIndex.getDeletedNodes().clear(ordinal);
+        /**
+         * Runs the per-node work of a batch on the insert pool, or on this thread for a small batch or once the
+         * pool is shut down.
+         */
+        private void forEachInsert(
+            final int         count ,
+            final IntConsumer action
+        )
+        {
+            final ForkJoinPool pool = this.insertPool;
+            if(pool == null || pool.isShutdown())
+            {
+                for(int index = 0; index < count; index++)
+                {
+                    action.accept(index);
+                }
                 return;
             }
-            // containsNode only inspects layer 0, so "absent" can still mean "present in an upper
-            // layer" after an earlier interleaved add/remove. Purge all layers before adding, or the
-            // add throws the very IllegalStateException this change is about.
-            currentIndex.removeNode(ordinal);
-            this.trackPqCode(ordinal, vf);
-            currentBuilder.addGraphNode(ordinal, vf);
+            ParallelGraphInsertion.forEach(count, action, pool);
+        }
+
+        /**
+         * Seeds an empty graph before its nodes are inserted in parallel. jVector sets the entry node only when
+         * an insert completes, so every insert that starts before that searches an empty graph and links only to
+         * the inserts still in progress at its start; one that finds none ends up without an edge from any node a
+         * search reaches, an orphan that stays, since the live graph never runs jVector's {@code cleanup()} (which
+         * refines upper-layer nodes only anyway). The first node therefore goes in on the calling thread, and the
+         * workers start from an entry.
+         *
+         * @param target the builder the nodes go into
+         * @param count  how many nodes the caller is about to insert
+         * @param insert inserts the node at an index of the caller's order, or skips it (no vector)
+         * @return how many leading indices the seed consumed: until the graph holds a node, 0 if it did already
+         */
+        private static int seedIfEmpty(
+            final GraphIndexBuilder target,
+            final int               count ,
+            final IntConsumer       insert
+        )
+        {
+            final OnHeapGraphIndex graph  = graphOf(target);
+            int                    seeded = 0;
+            while(seeded < count && graph.size(0) == 0)
+            {
+                insert.accept(seeded);
+                seeded++;
+            }
+            return seeded;
+        }
+
+        /**
+         * Purges the deleted nodes of {@code target} if its entry node is one of them, so that the inserts that
+         * follow start from a live one. jVector's insert search accepts live nodes only, and the entry is the
+         * only node of its top layer: from a deleted entry it finds no candidate there and hands none down, so
+         * every node inserted links to nothing but the nodes inserted after it, an island no search reaches.
+         * The purge picks a live entry, or leaves an empty graph whose next insert becomes the entry. Rare, as
+         * the entry is a single node. Must not be called holding the structure lock shared.
+         */
+        private void purgeIfEntryDeleted(final GraphIndexBuilder target)
+        {
+            final OnHeapGraphIndex                graph = graphOf(target);
+            final ImmutableGraphIndex.NodeAtLevel entry = graph.entryNode();
+            if(entry != null && graph.getDeletedNodes().get(entry.node))
+            {
+                this.removeDeletedNodes(target);
+            }
+        }
+
+        /**
+         * Purges the deleted nodes of {@code target}, under the structure lock exclusive: jVector does not
+         * support it concurrently with inserts. Must not be called holding the structure lock shared.
+         */
+        private void removeDeletedNodes(final GraphIndexBuilder target)
+        {
+            final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
+            lock.lock();
+            try
+            {
+                this.purgeDeleted(target);
+            }
+            finally
+            {
+                lock.unlock();
+            }
+        }
+
+        /**
+         * Purges the deleted nodes of {@code target} and, for the live graph, reconnects what the purge left
+         * unreachable, see {@link GraphReachability#purgeDeleted}. A frozen graph is repaired once, after all the
+         * operations moved into it, see {@link #purgeAndRepairFrozen}. Called holding the structure lock
+         * exclusive.
+         */
+        private void purgeDeleted(final GraphIndexBuilder target)
+        {
+            if(target == this.builder)
+            {
+                this.repairLiveGraph(() -> GraphReachability.purgeDeleted(target, this::vectorOf, this.name));
+            }
+            else
+            {
+                target.removeDeletedNodes();
+            }
+        }
+
+        /**
+         * Runs a reachability repair of the live graph. Nodes the repair took out of the graph and could not insert
+         * again are missing from it while the store holds them: escalated as a failed graph operation (an on-disk
+         * index rebuilds at its next consolidating persist, an in-memory one at its next start) and thrown on, so
+         * the caller does not carry on as if the graph were complete.
+         *
+         * @param repair the repair, run on this thread
+         * @throws GraphReachability.NodesLostException if the repair lost nodes
+         */
+        private void repairLiveGraph(final Runnable repair)
+        {
+            try
+            {
+                repair.run();
+            }
+            catch(final GraphReachability.NodesLostException e)
+            {
+                LOG.error("Vector index '{}' lost {} graph nodes in a reachability repair; their entities are not "
+                    + "found by a search until the graph is rebuilt (reindex() rebuilds it now)", this.name, e.lost(), e);
+                this.graphOperationFailed(e);
+                throw e;
+            }
         }
 
         private static OnHeapGraphIndex graphOf(final GraphIndexBuilder builder)
         {
             return (OnHeapGraphIndex)builder.getGraph();
-        }
-
-        /**
-         * Executes a builder operation immediately, or defers it if cleanup is in progress.
-         * Used by sync-mode mutations (called from GigaMap's synchronized methods) which
-         * cannot acquire builderLock without risking deadlock with embedded vectorizers.
-         */
-        private void executeOrDeferBuilderOp(final Runnable op)
-        {
-            if(this.cleanupInProgress)
-            {
-                this.deferredBuilderOps.add(op);
-            }
-            else
-            {
-                op.run();
-            }
-        }
-
-        /**
-         * Drains and executes all deferred builder operations.
-         * Called after cleanup completes (cleanupInProgress is already false).
-         * <p>
-         * Runs under {@code synchronized(parentMap())} because that monitor is the only lock the
-         * sync-mode mutation paths hold: without it the persist/optimize threads drain the queue
-         * bare (they release builderLock before draining) and race the application thread, which
-         * drains and executes the very same kind of op inline. Two such threads both seeing
-         * {@code containsNode(ordinal) == false} both call {@code addGraphNode} and one dies with
-         * {@code IllegalStateException: Node N already exists}, aborting the drain and killing the
-         * persist cycle for good (internal #142). The monitor is the outermost lock here - the
-         * persist/optimize drains hold nothing at this point - so it introduces no lock inversion.
-         * <p>
-         * INVARIANT: a deferred op must never enter a ForkJoinPool whose workers need this monitor.
-         * {@code addGraphNode} never does; {@code removeDeletedNodes()} does, and is therefore
-         * reachable only from the computed path, which scores through the separate vector store.
-         * <p>
-         * A failing op is logged and skipped rather than allowed to abort the drain: the op is
-         * already polled and lost either way, but stranding the rest of the queue would leave the
-         * index unable to ever persist again. The failure sets {@link #graphIncomplete}, so the next
-         * persist rebuilds the graph from the source of truth before it captures it. An {@link Error}
-         * sets it as well and is rethrown; the ops not run yet stay queued.
-         */
-        private void drainDeferredBuilderOps()
-        {
-            final Runnable entryHook = this.drainEntryTestHook;
-            if(entryHook != null)
-            {
-                entryHook.run();
-            }
-
-            synchronized(this.parentMap())
-            {
-                this.runDeferredBuilderOps();
-            }
-        }
-
-        /**
-         * The body of {@link #drainDeferredBuilderOps()}. Must be called while holding the parent-map monitor.
-         * Persist Phase 1 also calls it with the write lock held, so the INVARIANT stated there applies to both.
-         */
-        private void runDeferredBuilderOps()
-        {
-            Runnable op;
-            while((op = this.deferredBuilderOps.poll()) != null)
-            {
-                try
-                {
-                    op.run();
-                }
-                catch(final RuntimeException e)
-                {
-                    this.graphIncomplete = true;
-                    LOG.error("Deferred builder operation failed for index '{}', skipping it; its change is missing"
-                        + " from the graph until the graph is rebuilt (next persist of an on-disk index, or restart): {}",
-                        this.name, e.getMessage(), e);
-                }
-                catch(final Error e)
-                {
-                    // The op is lost all the same (already polled), so the graph needs the rebuild too. The ops not
-                    // run yet stay queued for the next drain.
-                    this.graphIncomplete = true;
-                    throw e;
-                }
-            }
         }
 
     }

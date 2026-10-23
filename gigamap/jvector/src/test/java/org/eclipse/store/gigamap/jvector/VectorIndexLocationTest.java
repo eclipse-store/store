@@ -34,7 +34,6 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Random;
@@ -85,7 +84,7 @@ class VectorIndexLocationTest
 			assertEquals(IndexLocation.Absolute(index), vectorIndex.configuration().indexLocation());
 			assertEquals(index, vectorIndex.indexDirectory());
 			assertEquals(5, vectorIndex.search(queryVector(), 5).size());
-			assertTrue(isIncrementalMode(vectorIndex), "the graph must be loaded, not rebuilt");
+			assertTrue(isLoadedFromDisk(vectorIndex), "the graph must be loaded, not rebuilt");
 		}
 	}
 
@@ -100,7 +99,7 @@ class VectorIndexLocationTest
 		createStore(storageA, onDisk(IndexLocation.Named(LOCATION)));
 		copyTree(storageA, storageB);
 		copyTree(indexA  , indexB  );
-		final byte[] originalMeta = Files.readAllBytes(indexA.resolve(INDEX + ".meta"));
+		final byte[] originalMeta = Files.readAllBytes(indexA.resolve(INDEX + ".manifest"));
 
 		IndexLocations.bind(LOCATION, indexB);
 		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(storageB))
@@ -108,13 +107,13 @@ class VectorIndexLocationTest
 			final GigaMap<Doc>     map         = manager.root();
 			final VectorIndex<Doc> vectorIndex = vectorIndex(map);
 			assertEquals(indexB, vectorIndex.indexDirectory());
-			assertTrue(isIncrementalMode(vectorIndex), "the copied graph must be loaded, not rebuilt");
+			assertTrue(isLoadedFromDisk(vectorIndex), "the copied graph must be loaded, not rebuilt");
 			assertEquals(5, vectorIndex.search(queryVector(), 5).size());
 
 			map.add(new Doc(vector(new Random(5))));
 			vectorIndex.persistToDisk();
 		}
-		assertArrayEquals(originalMeta, Files.readAllBytes(indexA.resolve(INDEX + ".meta")),
+		assertArrayEquals(originalMeta, Files.readAllBytes(indexA.resolve(INDEX + ".manifest")),
 			"the original's files must not be touched");
 	}
 
@@ -130,11 +129,11 @@ class VectorIndexLocationTest
 		try(final EmbeddedStorageManager manager = EmbeddedStorage.start(storage))
 		{
 			final VectorIndex<Doc> vectorIndex = vectorIndex(manager.root());
-			assertFalse(isIncrementalMode(vectorIndex), "no graph there: built from the stored vectors");
+			assertFalse(isLoadedFromDisk(vectorIndex), "no graph there: built from the stored vectors");
 			assertEquals(5, vectorIndex.search(queryVector(), 5).size());
 			vectorIndex.persistToDisk();
 		}
-		assertTrue(Files.exists(empty.resolve(INDEX + ".meta")), "the rebuilt graph is written to the bound directory");
+		assertTrue(Files.exists(empty.resolve(INDEX + ".manifest")), "the rebuilt graph is written to the bound directory");
 	}
 
 	@Test
@@ -315,7 +314,7 @@ class VectorIndexLocationTest
 			final VectorIndex<Doc> vectorIndex = vectorIndex(manager.root());
 			assertEquals(LOCATION, vectorIndex.configuration().indexLocationName(), "the change must reach the storage");
 			assertEquals(index, vectorIndex.indexDirectory());
-			assertTrue(isIncrementalMode(vectorIndex), "the graph must be loaded, not rebuilt");
+			assertTrue(isLoadedFromDisk(vectorIndex), "the graph must be loaded, not rebuilt");
 			assertEquals(5, vectorIndex.search(queryVector(), 5).size());
 		}
 	}
@@ -341,7 +340,7 @@ class VectorIndexLocationTest
 			final VectorIndex<Doc> vectorIndex = vectorIndex(manager.root());
 			assertEquals(index, vectorIndex.configuration().indexDirectory());
 			assertEquals(bound, vectorIndex.indexDirectory());
-			assertTrue(isIncrementalMode(vectorIndex), "the copied graph must be loaded, not rebuilt");
+			assertTrue(isLoadedFromDisk(vectorIndex), "the copied graph must be loaded, not rebuilt");
 		}
 	}
 
@@ -612,14 +611,15 @@ class VectorIndexLocationTest
 	}
 
 	/**
-	 * Reads the private incremental-mode flag of {@link VectorIndex.Default}: it tells a loaded graph
-	 * from a rebuilt one, which search results alone cannot.
+	 * Tells a loaded graph from a rebuilt one, which search results alone cannot: a loaded index answers
+	 * from its segments and its live in-memory graph starts empty, a rebuilt one holds every vector in
+	 * the live graph and has no segment.
 	 */
-	private static boolean isIncrementalMode(final VectorIndex<?> index) throws ReflectiveOperationException
+	private static boolean isLoadedFromDisk(final VectorIndex<?> index)
 	{
-		final Field field = VectorIndex.Default.class.getDeclaredField("incrementalMode");
-		field.setAccessible(true);
-		return field.getBoolean(index);
+		final VectorIndex.Default<?> def = (VectorIndex.Default<?>)index;
+		final SourceSet              set = def.sourceSet();
+		return set != null && !set.segments().isEmpty() && def.inMemoryGraphNodeCount() == 0;
 	}
 
 	/** Whether one exception in the cause chain has a message containing all the given parts. */

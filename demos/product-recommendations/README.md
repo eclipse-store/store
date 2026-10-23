@@ -5,7 +5,7 @@ Uses [LangChain4j](https://docs.langchain4j.dev/) with a local [Ollama](https://
 
 ## Prerequisites
 
-- Java 17+
+- Java 25+ (required by `gigamap-jvector`)
 - [Ollama](https://ollama.com/) running locally
 - Pull the embedding model:
   ```

@@ -24,7 +24,7 @@ EclipseStore is available under [Eclipse Public License - v 2.0](LICENSE).
 
 ## Build
 
-To build EclipseStore you need Java 17 and Maven.
+To build EclipseStore you need JDK 25 and Maven. The modules target Java 17 (`maven.compiler.release`), except `gigamap-jvector` and the demo, example and code generator tests that use it, which target Java 25.
 
 Just run
 

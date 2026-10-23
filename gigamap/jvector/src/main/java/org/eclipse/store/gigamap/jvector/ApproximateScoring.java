@@ -29,10 +29,26 @@ package org.eclipse.store.gigamap.jvector;
  * <table border="1">
  *   <tr><th>Priority</th><th>Recommended</th><th>Reason</th></tr>
  *   <tr><td>Smallest index on disk</td><td>{@link #NONE}</td><td>Adds nothing to the graph</td></tr>
- *   <tr><td>Query latency on a large index</td><td>{@link #FUSED_PQ}</td><td>One sequential read scores a whole neighbourhood</td></tr>
- *   <tr><td>Same, but disk is tighter than heap</td><td>{@link #PQ_IN_MEMORY}</td><td>Costs heap per vector instead of disk per node</td></tr>
+ *   <tr><td>Recall and latency while the graph fits in memory</td><td>{@link #NONE}</td><td>Faster and more
+ *       accurate there than scoring from PQ codes, see below; exact with {@link VectorStorage#INLINE}, while
+ *       {@link VectorStorage#NVQ} traverses its quantized vectors</td></tr>
+ *   <tr><td>Query latency on a graph larger than the page cache</td><td>{@link #FUSED_PQ}</td><td>One sequential
+ *       read scores a whole neighbourhood</td></tr>
+ *   <tr><td>Same, but disk is tighter than heap</td><td>{@link #PQ_IN_MEMORY}</td><td>Costs heap per vector instead
+ *       of disk per node</td></tr>
  *   <tr><td>Unknown/unsure</td><td>{@link #NONE}</td><td>The default, and free</td></tr>
  * </table>
+ *
+ * <h2>Trade-off</h2>
+ * Approximate scoring saves reads, not arithmetic. A hop scored from codes costs one table lookup per subspace
+ * and candidate, which at the automatic {@code pqSubspaces} of {@code dimension / 4} costs about as much as the
+ * exact comparison it replaces, and the candidates found are reranked exactly afterwards either way. What it does
+ * change is which candidates traversal finds: a neighbour that scores badly from its code is never visited, and
+ * reranking cannot recover a candidate that was never found. So while the graph and its vectors are in the page
+ * cache, scoring from PQ codes is slower and finds fewer of the true nearest neighbours; enough subspaces to
+ * match the recall of exact traversal make it slower still. Scoring from PQ codes pays only where the graph is not
+ * in the page cache, where it turns a random read per candidate into one sequential read per hop, and it pays for
+ * that with recall.
  *
  * @see VectorStorage
  * @see VectorIndexConfiguration#approximateScoring()
@@ -45,16 +61,16 @@ public enum ApproximateScoring
      * alone - and the two storage modes differ in both cost and candidate selection.
      * <ul>
      *   <li><b>With {@link VectorStorage#INLINE}:</b> traversal scores exactly, reading each
-     *       candidate's full-precision vector from the GigaMap. One lookup per candidate, and no
+     *       candidate's full-precision vector. One read per candidate, and no
      *       candidate is ever missed to quantization. This pairing is the only one that is exact
      *       all the way through, which is why it is the maximum-recall configuration.</li>
      *   <li><b>With {@link VectorStorage#NVQ}:</b> traversal scores from the graph's own quantized
      *       vectors, so it is approximate after all despite the name of this constant. Cheaper per
-     *       hop, since nothing is read from the GigaMap until reranking, but quantization error
+     *       hop, since no full-precision vector is read until reranking, but quantization error
      *       changes which candidates are visited - and one that is never reached is one reranking
      *       cannot recover.</li>
      * </ul>
-     * Reranking is exact either way, against the full-precision vectors in the GigaMap, so the
+     * Reranking is exact either way, against the full-precision vectors in the index's vector file, so the
      * scores and the ordering returned are exact under both.
      * <ul>
      *   <li><b>Cost:</b> nothing is added to the graph</li>
@@ -63,8 +79,8 @@ public enum ApproximateScoring
      * <ul>
      *   <li><b>Minimising the index footprint</b> - combined with {@link VectorStorage#NVQ} this is
      *       the smallest on-disk configuration available.</li>
-     *   <li><b>Indices that fit in memory</b> - with no page faults to avoid, the fused codes of
-     *       {@link #FUSED_PQ} buy little while still costing their bytes.</li>
+     *   <li><b>Indices that fit in memory</b> - with no page faults to avoid, it is both faster
+     *       and more accurate than scoring from PQ codes, with either storage, see the trade-off above.</li>
      *   <li><b>Anything unsure</b> - this is the default.</li>
      * </ul>
      */
@@ -77,24 +93,27 @@ public enum ApproximateScoring
      *   <li><b>Cost:</b> {@code pqSubspaces * maxDegree} additional bytes per node</li>
      *   <li><b>Per hop:</b> one sequential read scores every candidate in the neighbourhood</li>
      * </ul>
-     * <b>This is a speed optimisation, not a space one.</b> Fusing the neighbour codes into every
+     * <b>This is an I/O optimisation, not a space one.</b> Fusing the neighbour codes into every
      * node duplicates each code {@code maxDegree} times, so the {@code .graph} file gets
-     * <i>larger</i>. What it buys is far less I/O and far better cache locality per hop: one
-     * contiguous block instead of {@link VectorIndexConfiguration#maxDegree()} scattered reads.
+     * <i>larger</i>. What it buys is far less I/O per hop: one contiguous block instead of
+     * {@link VectorIndexConfiguration#maxDegree()} scattered reads. While the graph is in the page cache
+     * there is no I/O left to save, and it is slower than {@link #NONE} with the same storage and, at
+     * the automatic {@code pqSubspaces}, less accurate, see the trade-off above.
      * <p>
      * The codebook is trained once, on the first persist at which at least 256 <i>embeddings</i>
      * exist - entities without one are skipped, so an index of 256 entities of which some have no
      * vector does not yet qualify. Below that threshold the graph is written without the fused
      * codes and training is reattempted on the next persist that follows a graph-affecting change.
      * An unchanged index is deliberately not retried, since that would rebuild the whole graph on
-     * every idle persist. Once trained, the codebook lives in the graph header and is recovered on
-     * every subsequent load, so it is never retrained for the life of that on-disk index.
+     * every idle persist. Once trained, the codebook is written into the graph header of every
+     * segment that carries the fused codes and recovered from them on every subsequent load, so it
+     * is not retrained while such a segment exists.
      * <p>
      * <b>Best for:</b>
      * <ul>
-     *   <li><b>Query latency on a large on-disk index</b> - the case it exists for.</li>
-     *   <li><b>Indices that do not fit in memory</b> - it converts many random reads per hop into
-     *       one sequential one, which is exactly the cost that dominates there.</li>
+     *   <li><b>Indices that do not fit in memory</b> - the case it exists for: it converts many
+     *       random reads per hop into one sequential one, which is exactly the cost that dominates
+     *       there, and pays for it with recall.</li>
      * </ul>
      * <b>Example:</b> at {@code dimension=768}, {@code maxDegree=32} and the automatic
      * {@code pqSubspaces} of 192 this adds 6144 bytes per node, nearly tripling a
@@ -137,7 +156,8 @@ public enum ApproximateScoring
      *       {@link VectorStorage#NVQ} this is the smallest on-disk configuration that still traverses
      *       approximately.</li>
      *   <li><b>Machines with heap to spare</b> - scoring never touches the disk, so it does not
-     *       compete with the page cache the graph itself wants.</li>
+     *       compete with the page cache the graph itself wants. As with {@link #FUSED_PQ}, that pays
+     *       only once the graph no longer fits in the page cache, see the trade-off above.</li>
      * </ul>
      *
      * @see VectorIndexConfiguration#pqSubspaces()
@@ -148,8 +168,9 @@ public enum ApproximateScoring
     /**
      * Stable numeric identifier, deliberately independent of {@link #ordinal()}.
      * <p>
-     * This value is written into the index metadata file, so it must never change for an existing
-     * constant. Using the ordinal instead would silently remap every previously written file the
+     * This value is written into each segment entry of the index manifest, so it must never change
+     * for an existing constant. Using the ordinal instead would silently remap every previously
+     * written file the
      * moment a constant were inserted anywhere but at the end.
      */
     private final int code;
@@ -160,7 +181,7 @@ public enum ApproximateScoring
     }
 
     /**
-     * Returns the stable numeric identifier written into the index metadata.
+     * Returns the stable numeric identifier written into the index manifest.
      *
      * @return the code of this constant
      * @see #fromCode(int)
@@ -171,14 +192,14 @@ public enum ApproximateScoring
     }
 
     /**
-     * Resolves a constant from the stable identifier written into an index metadata file.
+     * Resolves a constant from the stable identifier written into the index manifest.
      * <p>
-     * Returns {@code null} rather than throwing for an unrecognised code, which is what a file
+     * Returns {@code null} rather than throwing for an unrecognised code, which is what a manifest
      * written by a newer version carrying a constant this build does not know looks like. The
-     * caller treats that as a metadata mismatch and rebuilds the graph, so a newer file is always
-     * rejected and never misread.
+     * caller rejects such a manifest and rebuilds the graph, so a newer file is always rejected
+     * and never misread.
      *
-     * @param code the identifier read from the metadata file
+     * @param code the identifier read from the manifest
      * @return the matching constant, or {@code null} if this build knows no such code
      * @see #code()
      */

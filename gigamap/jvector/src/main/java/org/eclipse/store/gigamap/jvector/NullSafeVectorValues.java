@@ -31,8 +31,10 @@ import java.util.Arrays;
  * finite-magnitude vector that produces valid similarity scores without
  * affecting search results (deleted nodes are filtered via {@code liveNodes}).
  * <p>
- * This wrapper is only used during search operations; the underlying vector
- * values classes retain their original null-returning contract.
+ * Used for searches and as the graph builder's score source, the latter shared by
+ * the parallel rebuild's worker threads; thread-safe as long as the delegate is.
+ * The underlying vector values classes retain their original null-returning
+ * contract.
  */
 class NullSafeVectorValues implements RandomAccessVectorValues
 {
@@ -50,7 +52,14 @@ class NullSafeVectorValues implements RandomAccessVectorValues
     private final RandomAccessVectorValues delegate         ;
     private final int                      dimension        ;
     private final VectorTypeSupport        vectorTypeSupport;
-    private       VectorFloat<?>           cachedPlaceholder;
+    // Created lazily on the first hole, because a fresh instance wraps every search's vector
+    // values and most queries never visit a hole, so an eager placeholder would cost one
+    // dimension-sized vector per search. Volatile because one instance is also the shared score
+    // source of all parallel rebuild workers (the switchable source below it is unshared and
+    // returns itself from copy()): the volatile write publishes the fully built vector, so no
+    // reader can see it half initialised. Two threads may both create one on the first hole; any
+    // of them is equally valid, as the vector is never written after creation.
+    private volatile VectorFloat<?>        placeholder      ;
 
     NullSafeVectorValues(
         final RandomAccessVectorValues delegate         ,
@@ -58,9 +67,34 @@ class NullSafeVectorValues implements RandomAccessVectorValues
         final VectorTypeSupport        vectorTypeSupport
     )
     {
+        this(delegate, dimension, vectorTypeSupport, null);
+    }
+
+    /**
+     * @param placeholder an already created placeholder to share, or {@code null} to create one on
+     *                    the first hole
+     */
+    private NullSafeVectorValues(
+        final RandomAccessVectorValues delegate         ,
+        final int                      dimension        ,
+        final VectorTypeSupport        vectorTypeSupport,
+        final VectorFloat<?>           placeholder
+    )
+    {
         this.delegate          = delegate         ;
         this.dimension         = dimension        ;
         this.vectorTypeSupport = vectorTypeSupport;
+        this.placeholder       = placeholder      ;
+    }
+
+    private static VectorFloat<?> createPlaceholder(
+        final int               dimension        ,
+        final VectorTypeSupport vectorTypeSupport
+    )
+    {
+        final float[] placeholder = new float[dimension];
+        Arrays.fill(placeholder, PLACEHOLDER_COMPONENT);
+        return vectorTypeSupport.createFloatVector(placeholder);
     }
 
     @Override
@@ -83,13 +117,31 @@ class NullSafeVectorValues implements RandomAccessVectorValues
         {
             return vector;
         }
-        if(this.cachedPlaceholder == null)
+        VectorFloat<?> placeholder = this.placeholder;
+        if(placeholder == null)
         {
-            final float[] placeholder = new float[this.dimension];
-            Arrays.fill(placeholder, PLACEHOLDER_COMPONENT);
-            this.cachedPlaceholder = this.vectorTypeSupport.createFloatVector(placeholder);
+            placeholder      = createPlaceholder(this.dimension, this.vectorTypeSupport);
+            this.placeholder = placeholder;
         }
-        return this.cachedPlaceholder;
+        return placeholder;
+    }
+
+    @Override
+    public void getVectorInto(
+        final int            ordinal    ,
+        final VectorFloat<?> destination,
+        final int            offset
+    )
+    {
+        // Straight into the destination where the mapping allows it, through the placeholder otherwise.
+        if(this.delegate instanceof final MappedVectorValues mapped
+            && destination.get() instanceof final float[] array
+            && mapped.readInto(ordinal, array, destination.offset(offset)))
+        {
+            return;
+        }
+        final VectorFloat<?> vector = this.getVector(ordinal);
+        destination.copyFrom(vector, 0, offset, vector.length());
     }
 
     @Override
@@ -101,10 +153,12 @@ class NullSafeVectorValues implements RandomAccessVectorValues
     @Override
     public RandomAccessVectorValues copy()
     {
+        // The placeholder is only ever read, so copies can share it, if it exists yet.
         return new NullSafeVectorValues(
             this.delegate.copy(),
             this.dimension,
-            this.vectorTypeSupport
+            this.vectorTypeSupport,
+            this.placeholder
         );
     }
 

@@ -16,6 +16,8 @@ package org.eclipse.store.gigamap.jvector;
 
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.eclipse.store.gigamap.types.ScoredSearchResult;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
+import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -23,7 +25,10 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -324,15 +329,10 @@ class VectorIndexConcurrentStressTest
                                     final float[] vector = randomVector(random, dimension);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.set(targetId, new Document(
-                                                "updated_" + targetId, vector
-                                            ));
-                                        } catch (final Exception e)
-                                        {
-                                            // Entity may have been removed by another thread — acceptable
-                                        }
+                                        // set() refills the slot of a removed id: no exception is expected
+                                        gigaMap.set(targetId, new Document(
+                                            "updated_" + targetId, vector
+                                        ));
                                     }
                                 } else if (action < 45)
                                 {
@@ -340,13 +340,8 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.removeById(targetId);
-                                        } catch (final Exception e)
-                                        {
-                                            // Entity may already be removed — acceptable
-                                        }
+                                        // a removed id is a no-op: no exception is expected
+                                        gigaMap.removeById(targetId);
                                     }
                                 } else if (action < 55)
                                 {
@@ -676,16 +671,11 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.set(targetId, new Document(
-                                                "upd_" + targetId,
-                                                randomVector(random, dimension)
-                                            ));
-                                        }
-                                        catch(final Exception ignored)
-                                        {
-                                        }
+                                        // set() refills the slot of a removed id: no exception is expected
+                                        gigaMap.set(targetId, new Document(
+                                            "upd_" + targetId,
+                                            randomVector(random, dimension)
+                                        ));
                                     }
                                 } else if (action < 40)
                                 {
@@ -693,13 +683,8 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.removeById(targetId);
-                                        }
-                                        catch(final Exception ignored)
-                                        {
-                                        }
+                                        // a removed id is a no-op: no exception is expected
+                                        gigaMap.removeById(targetId);
                                     }
                                 } else if (action < 50)
                                 {
@@ -859,16 +844,11 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.set(targetId, new Document(
-                                                "upd_" + targetId,
-                                                randomVector(random, dimension)
-                                            ));
-                                        }
-                                        catch(final Exception ignored)
-                                        {
-                                        }
+                                        // set() refills the slot of a removed id: no exception is expected
+                                        gigaMap.set(targetId, new Document(
+                                            "upd_" + targetId,
+                                            randomVector(random, dimension)
+                                        ));
                                     }
                                 } else if (action < 50)
                                 {
@@ -876,13 +856,8 @@ class VectorIndexConcurrentStressTest
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.removeById(targetId);
-                                        }
-                                        catch(final Exception ignored)
-                                        {
-                                        }
+                                        // a removed id is a no-op: no exception is expected
+                                        gigaMap.removeById(targetId);
                                     }
                                 } else
                                 {
@@ -948,8 +923,8 @@ class VectorIndexConcurrentStressTest
      * <p>
      * Seeds entities, persists to disk (entering incremental mode), then hammers
      * the index with concurrent searches and updates/removes. This exercises the
-     * {@code createDiskAcceptBits()} path while mutations record into
-     * {@code diskDeletedOrdinals}. An earlier snapshot-based mask threw
+     * segment accept bits while mutations release entities in the disk owners. An earlier
+     * snapshot-based mask threw
      * {@code ArrayIndexOutOfBoundsException} when the set was modified between
      * its max-scan and mask-fill passes.
      */
@@ -1033,37 +1008,25 @@ class VectorIndexConcurrentStressTest
                                 }
                                 else if (action < 35)
                                 {
-                                    // 20%: UPDATE — adds to diskDeletedOrdinals
+                                    // 20%: UPDATE - releases the disk owner
                                     final long targetId = random.nextInt(seedCount);
                                     final float[] vector = randomVector(random, dimension);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.set(targetId, new Document(
-                                                "updated_" + targetId, vector
-                                            ));
-                                        }
-                                        catch (final Exception e)
-                                        {
-                                            // Entity may have been removed — acceptable
-                                        }
+                                        // set() refills the slot of a removed id: no exception is expected
+                                        gigaMap.set(targetId, new Document(
+                                            "updated_" + targetId, vector
+                                        ));
                                     }
                                 }
                                 else if (action < 50)
                                 {
-                                    // 15%: REMOVE — adds to diskDeletedOrdinals
+                                    // 15%: REMOVE - releases the disk owner
                                     final long targetId = random.nextInt(seedCount);
                                     synchronized (gigaMap)
                                     {
-                                        try
-                                        {
-                                            gigaMap.removeById(targetId);
-                                        }
-                                        catch (final Exception e)
-                                        {
-                                            // Entity may already be removed — acceptable
-                                        }
+                                        // a removed id is a no-op: no exception is expected
+                                        gigaMap.removeById(targetId);
                                     }
                                 }
                                 else
@@ -1256,5 +1219,222 @@ class VectorIndexConcurrentStressTest
                 "no entity may be indexed twice"
             );
         }
+    }
+
+
+    // ==================== Flushes and Consolidations under Load ====================
+
+    /**
+     * Mixed adds, updates, removes and searches on an on-disk index while explicit persists and
+     * background persistence flush its in-memory graph again and again: a small flush threshold makes
+     * many segments, and a cap of three makes the background merges combine them, and the persists
+     * consolidate them where the merges fall behind, over and over. Afterwards
+     * every entity is found by its own vector and no removed one is found at all, and a restart loads
+     * what the shutdown persist flushed without rebuilding.
+     */
+    @Test
+    @Timeout(value = 180, unit = TimeUnit.SECONDS)
+    void testFlushesAndConsolidationsUnderConcurrentMutation(@TempDir final Path tempDir) throws Exception
+    {
+        final int  dimension    = 32;
+        final int  seedCount    = 300;
+        final int  opsPerThread = 600;
+        final int  threadCount  = 4;
+        final Path storageDir   = tempDir.resolve("storage");
+        final Path indexDir     = tempDir.resolve("index");
+
+        final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+            .dimension(dimension)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .maxDegree(16)
+            .beamWidth(100)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .persistenceIntervalMs(50)
+            .minChangesBetweenPersists(1)
+            .flushThreshold(200)
+            .maxSegments(3)
+            .build();
+
+        // The expected live vector of every entity, changed together with the map under its monitor.
+        final Map<Long, float[]> expected = new HashMap<>();
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(GigaMap.New(), storageDir))
+        {
+            final GigaMap<Document>             gigaMap = rootOf(storage);
+            final VectorIndex.Default<Document> index   = (VectorIndex.Default<Document>)gigaMap.index()
+                .register(VectorIndices.Category())
+                .add("embeddings", config, new ComputedDocumentVectorizer());
+
+            final Random seedRandom = new Random(42);
+            for(int i = 0; i < seedCount; i++)
+            {
+                final float[] vector = randomVector(seedRandom, dimension);
+                expected.put(gigaMap.add(new Document("seed_" + i, vector)), vector);
+            }
+            index.persistToDisk();
+
+            final List<Throwable> errors   = Collections.synchronizedList(new ArrayList<>());
+            final AtomicBoolean   running  = new AtomicBoolean(true);
+            final CountDownLatch  done     = new CountDownLatch(threadCount);
+            final ExecutorService executor = Executors.newFixedThreadPool(threadCount + 1);
+
+            for(int t = 0; t < threadCount; t++)
+            {
+                final int threadId = t;
+                executor.submit(() ->
+                {
+                    try
+                    {
+                        final Random random = new Random(4000 + threadId);
+                        for(int op = 0; op < opsPerThread && errors.isEmpty(); op++)
+                        {
+                            final int action = random.nextInt(100);
+                            if(action < 50)
+                            {
+                                mutateRandomly(gigaMap, expected, random, dimension, action, threadId, op);
+                            }
+                            else
+                            {
+                                final VectorSearchResult<Document> result = index.search(
+                                    randomVector(random, dimension), 10
+                                );
+                                assertEquals(
+                                    (long)result.size(),
+                                    result.stream().map(ScoredSearchResult.Entry::entityId).distinct().count(),
+                                    "no entity may be found twice"
+                                );
+                            }
+                        }
+                    }
+                    catch(final Throwable e)
+                    {
+                        errors.add(e);
+                    }
+                    finally
+                    {
+                        done.countDown();
+                    }
+                });
+            }
+            executor.submit(() ->
+            {
+                try
+                {
+                    while(running.get() && errors.isEmpty())
+                    {
+                        index.persistToDisk();
+                        Thread.sleep(20L);
+                    }
+                }
+                catch(final Throwable e)
+                {
+                    errors.add(e);
+                }
+            });
+
+            final boolean finished = done.await(150, TimeUnit.SECONDS);
+            running.set(false);
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS), "executor should terminate");
+            assertTrue(finished, "mutating threads should finish");
+            if(!errors.isEmpty())
+            {
+                final AssertionError failure = new AssertionError(errors.size() + " error(s), the first attached");
+                failure.initCause(errors.get(0));
+                throw failure;
+            }
+
+            assertTrue(index.flushCount() > 3, "the threshold and the persists must have flushed repeatedly");
+            assertTrue(index.mergeCount() + index.consolidationCount() > 0,
+                "the segments must have been merged or consolidated");
+            assertTrue(index.sourceSet().segments().size() <= 3, "the segment cap must hold");
+            assertFindsExactlyTheExpected(index, expected);
+
+            storage.storeRoot();
+            index.close();
+        }
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final VectorIndex.Default<Document> index = (VectorIndex.Default<Document>)rootOf(storage).index()
+                .get(VectorIndices.Category())
+                .get("embeddings");
+            assertFindsExactlyTheExpected(index, expected);
+            assertEquals(0, index.inMemoryGraphNodeCount(), "the restart must load the segments, not rebuild");
+            index.close();
+        }
+    }
+
+    /**
+     * One add, update or remove for {@code action} below 50, applied to the map and to
+     * {@code expected} together, under the map's monitor.
+     */
+    private static void mutateRandomly(
+        final GigaMap<Document>  gigaMap  ,
+        final Map<Long, float[]> expected ,
+        final Random             random   ,
+        final int                dimension,
+        final int                action   ,
+        final int                threadId ,
+        final int                op
+    )
+    {
+        final float[] vector = randomVector(random, dimension);
+        synchronized(gigaMap)
+        {
+            if(action < 20 || expected.isEmpty())
+            {
+                expected.put(gigaMap.add(new Document("t" + threadId + "_" + op, vector)), vector);
+                return;
+            }
+            final List<Long> ids    = new ArrayList<>(expected.keySet());
+            final long       target = ids.get(random.nextInt(ids.size()));
+            if(action < 40)
+            {
+                gigaMap.set(target, new Document("updated_" + target, vector));
+                expected.put(target, vector);
+            }
+            else
+            {
+                gigaMap.removeById(target);
+                expected.remove(target);
+            }
+        }
+    }
+
+    /**
+     * Asserts that nearly every expected entity is the nearest hit for its own, latest vector, and that
+     * no hit is an entity that is gone.
+     */
+    private static void assertFindsExactlyTheExpected(
+        final VectorIndex<Document> index   ,
+        final Map<Long, float[]>    expected
+    )
+    {
+        int found = 0;
+        for(final Map.Entry<Long, float[]> entry : expected.entrySet())
+        {
+            final VectorSearchResult<Document> result = index.search(entry.getValue(), 3);
+            for(final ScoredSearchResult.Entry<Document> hit : result)
+            {
+                assertTrue(expected.containsKey(hit.entityId()), () -> "removed entity " + hit.entityId() + " found");
+            }
+            if(result.size() > 0 && result.iterator().next().entityId() == entry.getKey())
+            {
+                found++;
+            }
+        }
+        final double recall = (double)found / expected.size();
+        assertTrue(recall >= 0.98, "self-recall " + recall + " over " + expected.size() + " entities");
+    }
+
+    /**
+     * The root as the typed map: the storage manager is not generic over the root.
+     */
+    @SuppressWarnings("unchecked")
+    private static GigaMap<Document> rootOf(final EmbeddedStorageManager storage)
+    {
+        return (GigaMap<Document>)storage.root();
     }
 }

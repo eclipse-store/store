@@ -32,12 +32,12 @@ package org.eclipse.store.gigamap.jvector;
  * </table>
  * <p>
  * <b>Both options are safe with respect to your data.</b> The {@code .graph} file is a derived
- * artifact: it is rebuilt from the vectors held in the GigaMap whenever its metadata is rejected.
+ * artifact: it is rebuilt from the index's vector file whenever its metadata is rejected.
  * Quantizing the graph's copy therefore trades recall, never durability.
  * <p>
  * Requires {@link VectorIndexConfiguration#onDisk()} to be true, since it describes the on-disk
- * format only. An in-memory index scores against the vectors in the GigaMap and has no second copy
- * to quantize.
+ * format only. An in-memory index scores against its vector file and has no graph copy to
+ * quantize.
  *
  * @see ApproximateScoring
  * @see VectorIndexConfiguration#vectorStorage()
@@ -69,7 +69,7 @@ public enum VectorStorage
      * Non-uniform vector quantization (NVQ): 8-bit quantized vectors stored inline in the graph.
      * <ul>
      *   <li><b>Cost:</b> {@code 4 + dimension + 28 * nvqSubvectors} bytes per node</li>
-     *   <li><b>Reranking:</b> exact, against the vectors held in the GigaMap</li>
+     *   <li><b>Reranking:</b> exact, against the full-precision vectors in the index's vector file</li>
      * </ul>
      * Each vector is recentred on a global mean and then scaled per subvector through a learned
      * nonlinearity, which is what lets 8 bits per dimension carry as much as it does.
@@ -79,7 +79,7 @@ public enum VectorStorage
      * cache and cold traversal touches fewer pages.
      * <p>
      * <b>It never costs score accuracy.</b> Reranking compares against the vectors held in the
-     * GigaMap, which are full precision, so the top-k a search returns carries exact similarities
+     * index's vector file, which are full precision, so the top-k a search returns carries exact similarities
      * and exact ordering whatever the scoring mode is.
      * <p>
      * <b>What else it costs depends on that mode</b>, because that decides whether these vectors are
@@ -88,15 +88,15 @@ public enum VectorStorage
      * reranking cannot recover; a wider search beam is what gets them back. With
      * {@link ApproximateScoring#FUSED_PQ} the fused codes drive traversal and this block is not
      * consulted, so candidate selection is exactly what it would be under {@link #INLINE}, and the
-     * cost is the footprint saving plus one GigaMap lookup per reranked candidate where an inline
+     * cost is the footprint saving plus one vector-file read per reranked candidate where an inline
      * graph reads them from its own mapping.
      * <p>
      * The dispatch does hold one branch that reranks from the graph's own quantized copy instead,
-     * for a non-incremental disk search. An on-disk index does not currently enter that state -
-     * loading enters incremental mode and each persist re-enters it - so the branch is unreached
-     * today and kept for correctness if that changes. Were it reached, the final ordering would be
-     * computed from dequantized vectors; a raw jvector probe reranked that way at
-     * {@code dimension=256} measured about 0.002 recall@10 below an exact baseline.
+     * for a disk search whose results are not merged with any other source. An on-disk index does
+     * not currently search that way - it always merges its segments with its in-memory graphs - so
+     * the branch is unreached today and kept for correctness if that changes. Were it reached, the
+     * final ordering would be computed from dequantized vectors; a raw jvector probe reranked that
+     * way at {@code dimension=256} measured about 0.002 recall@10 below an exact baseline.
      * <p>
      * <b>Best for:</b>
      * <ul>
@@ -117,8 +117,9 @@ public enum VectorStorage
     /**
      * Stable numeric identifier, deliberately independent of {@link #ordinal()}.
      * <p>
-     * This value is written into the index metadata file, so it must never change for an existing
-     * constant. Using the ordinal instead would silently remap every previously written file the
+     * This value is written into each segment entry of the index manifest, so it must never change
+     * for an existing constant. Using the ordinal instead would silently remap every previously
+     * written file the
      * moment a constant were inserted anywhere but at the end.
      */
     private final int code;
@@ -129,7 +130,7 @@ public enum VectorStorage
     }
 
     /**
-     * Returns the stable numeric identifier written into the index metadata.
+     * Returns the stable numeric identifier written into the index manifest.
      *
      * @return the code of this constant
      * @see #fromCode(int)
@@ -140,14 +141,14 @@ public enum VectorStorage
     }
 
     /**
-     * Resolves a constant from the stable identifier written into an index metadata file.
+     * Resolves a constant from the stable identifier written into the index manifest.
      * <p>
-     * Returns {@code null} rather than throwing for an unrecognised code, which is what a file
+     * Returns {@code null} rather than throwing for an unrecognised code, which is what a manifest
      * written by a newer version carrying a constant this build does not know looks like. The
-     * caller treats that as a metadata mismatch and rebuilds the graph, so a newer file is always
-     * rejected and never misread.
+     * caller rejects such a manifest and rebuilds the graph, so a newer file is always rejected
+     * and never misread.
      *
-     * @param code the identifier read from the metadata file
+     * @param code the identifier read from the manifest
      * @return the matching constant, or {@code null} if this build knows no such code
      * @see #code()
      */

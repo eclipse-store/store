@@ -76,10 +76,16 @@ import static org.eclipse.serializer.util.X.notNull;
  *     .persistOnShutdown(true)                           // Persist pending changes on close()
  *     .build();
  * }</pre>
+ * A persist writes the in-memory graph, which holds the changes since the previous one, as a new
+ * immutable segment. A background persist does so once the in-memory graph holds
+ * {@code flushThreshold} nodes. A background merge combines segments of similar size, {@code segmentMergeFactor}
+ * at a time, into one, so the segment count grows with the logarithm of the index size, and {@code maxSegments}
+ * bounds how many segments accumulate before a persist consolidates them into one, should the merges fall
+ * behind.
  *
  * <h2>Background Optimization</h2>
- * Background optimization runs {@code builder.cleanup()} periodically to remove excess neighbors
- * accumulated during construction, reducing memory and improving query latency.
+ * Background optimization periodically purges removed entities from the graph and removes excess
+ * neighbors accumulated during construction, reducing memory and improving query latency.
  * Setting {@code optimizationIntervalMs} to a value greater than 0 enables background optimization:
  * <pre>{@code
  * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
@@ -92,9 +98,13 @@ import static org.eclipse.serializer.util.X.notNull;
  * <p>
  * <b>Note:</b> Background optimization acquires exclusive access to the graph, briefly blocking
  * add/remove/search operations during cleanup.
+ * <p>
+ * Optimization applies to in-memory indices only. For an on-disk index it does nothing: every
+ * flush purges and trims the graph it writes.
  *
  * <h2>Combined Example</h2>
- * Production configuration with on-disk storage, persistence, and optimization:
+ * Production configuration with on-disk storage, persistence, and optimization settings (which
+ * an on-disk index accepts but does not act on, see above):
  * <pre>{@code
  * VectorIndexConfiguration config = VectorIndexConfiguration.builder()
  *     .dimension(768)
@@ -283,6 +293,11 @@ public interface VectorIndexConfiguration
      *   <li><b>Larger datasets</b>: Support datasets that don't fit in memory (with PQ compression)</li>
      * </ul>
      * <p>
+     * The vector file goes with the mode: an on-disk index keeps it in {@link #indexDirectory()} across restarts,
+     * an in-memory index uses a temporary one and re-vectorizes every entity on every load, under the GigaMap
+     * monitor. For a vectorizer that is expensive to call, such as an embedding API, prefer on-disk; see
+     * {@link Vectorizer}.
+     * <p>
      * Requires {@link #indexDirectory()} to be set.
      *
      * @return true if on-disk mode is enabled (default: false)
@@ -296,26 +311,30 @@ public interface VectorIndexConfiguration
      * <p>
      * Required when {@link #onDisk()} is true. The directory will contain:
      * <ul>
-     *   <li>{@code {name}.graph} - The graph structure: HNSW edges, one vector block per node, and,
-     *       when {@link #approximateScoring()} is {@link ApproximateScoring#FUSED_PQ}, the PQ
-     *       codebook and fused compressed codes. There is no separate codebook file. Which vector
-     *       block is written depends on {@link #vectorStorage()}: full-precision inline vectors, or
-     *       the smaller quantized ones.</li>
-     *   <li>{@code {name}.meta} - Metadata file (format version, dimension, vector count, highest
-     *       entity id, structural modification count, the two format settings, and the two
-     *       quantization counts they encode with - the latter in effective form, so that an
-     *       automatic count and the value it resolves to are recorded identically)</li>
-     *   <li>{@code {name}.pqv} - <b>Only</b> when {@link #approximateScoring()} is
-     *       {@link ApproximateScoring#PQ_IN_MEMORY}: the PQ codes, one per ordinal, and the
-     *       codebook they were encoded with. This mode writes no fused feature, so the graph header
-     *       carries no codebook and this file is the only copy. It is required rather than
-     *       optional - an index whose metadata says it traverses on PQ codes is rejected and
-     *       rebuilt from the store if the sidecar is missing - so <b>include it in any backup or
-     *       copy of the directory, and do not delete it separately from the graph.</b></li>
+     *   <li>{@code {name}.manifest} - The commit point: format version, dimension, vector count,
+     *       highest entity id and structural modification count, and per segment its format
+     *       settings - the two modes and the two quantization counts they encode with, the latter in
+     *       effective form, so that an automatic count and the value it resolves to are recorded
+     *       identically - and the nodes it no longer holds the live copy of.</li>
+     *   <li>{@code {name}.seg-{n}.graph} - The graph of segment {@code n}: HNSW edges, one vector
+     *       block per node, and, when {@link #approximateScoring()} is
+     *       {@link ApproximateScoring#FUSED_PQ}, the PQ codebook and fused compressed codes. There is
+     *       no separate codebook file. Which vector block is written depends on
+     *       {@link #vectorStorage()}: full-precision inline vectors, or the smaller quantized ones.
+     *       Nodes are numbered densely within the segment.</li>
+     *   <li>{@code {name}.seg-{n}.l2g} - The entity id of each node of segment {@code n}.</li>
+     *   <li>{@code {name}.seg-{n}.pqv} - <b>Only</b> when {@link #approximateScoring()} is
+     *       {@link ApproximateScoring#PQ_IN_MEMORY}: the PQ codes of segment {@code n}, one per
+     *       node, and the codebook they were encoded with. This mode writes no fused feature, so the
+     *       graph header carries no codebook and this file is the only copy. It is required rather
+     *       than optional - an index whose manifest lists it is rejected and rebuilt from the store
+     *       if it is missing - so <b>include it in any backup or copy of the directory, and do not
+     *       delete it separately from the graph.</b></li>
      * </ul>
-     * All of them are written to {@code .tmp} siblings and renamed into place, sidecar first and
-     * metadata last, so an interrupted persist leaves at most a stale temporary file and never a
-     * metadata file describing artifacts that are not there.
+     * Segment files are written and synced before the manifest that lists them, and the manifest is
+     * written to a {@code .tmp} sibling, synced and renamed into place, so an interrupted persist
+     * leaves the previous manifest with all of its segments, plus files no manifest lists, which
+     * the next load deletes.
      *
      * @return the index directory path, or null if not using on-disk mode
      * @see #onDisk()
@@ -391,9 +410,9 @@ public interface VectorIndexConfiguration
      * <p>
      * {@link VectorStorage#NVQ} is the only setting on either dimension that makes the
      * {@code .graph} file <i>smaller</i>: roughly 3x. It never costs score accuracy - reranking
-     * compares against the vectors held in the GigaMap, so a search returns exact similarities
-     * either way - and whether it costs anything else depends on {@link #approximateScoring()}. See
-     * the constant's own documentation.
+     * compares against the full-precision vectors in the index's vector file, so a search returns
+     * exact similarities either way - and whether it costs anything else depends on
+     * {@link #approximateScoring()}. See the constant's own documentation.
      * <p>
      * Requires {@link #onDisk()} to be true, since it describes the on-disk format only.
      * <p>
@@ -492,7 +511,7 @@ public interface VectorIndexConfiguration
      * {@link VectorStorage#INLINE} the full-precision vectors are still written and the best
      * candidates are reranked against them, read straight from the memory-mapped graph, as before.
      * With {@link VectorStorage#NVQ} the graph holds quantized vectors instead, so the rerank reads
-     * the full-precision vectors held in the GigaMap: still exact, but one lookup per reranked
+     * the full-precision vectors in the index's vector file: still exact, but one lookup per reranked
      * candidate rather than none. See {@link #vectorStorage()}.
      * <p>
      * <b>This is a speed optimisation, not a space one.</b> Fusing the neighbour codes into every
@@ -517,8 +536,9 @@ public interface VectorIndexConfiguration
      * <b>With {@link VectorStorage#NVQ} storage</b> the arithmetic above does not carry over. There
      * are no full-precision inline vectors: the graph holds quantized ones, so the bytes the persist
      * writes are roughly a quarter of the figures quoted above. Reranking is unaffected in accuracy
-     * but changes source - with no full-precision copy in the graph it reads the vectors held in the
-     * GigaMap, so it costs a lookup per reranked candidate instead of a read from the mapping. The
+     * but changes source - with no full-precision copy in the graph it reads the vectors in the
+     * index's vector file, so it costs a lookup per reranked candidate instead of a read from the
+     * graph mapping. The
      * fused block is unchanged, and remains the dominant per-node cost.
      * <p>
      * The codebook is trained once, on the first persist at which at least 256 <i>embeddings</i>
@@ -527,8 +547,9 @@ public interface VectorIndexConfiguration
      * training is reattempted on the next persist that follows a graph-affecting change, or in a
      * later session. An unchanged index is deliberately not retried, since that would rebuild the
      * whole graph on every idle persist.
-     * Once trained, the codebook is stored in the graph header and recovered on every subsequent
-     * load, so it is never retrained for the life of that on-disk index.
+     * Once trained, the codebook is written into the graph header of every segment that carries the
+     * fused codes and recovered from them on every subsequent load, so it is not retrained while
+     * such a segment exists.
      * <p>
      * Requires {@link #onDisk()} to be true.
      *
@@ -634,9 +655,9 @@ public interface VectorIndexConfiguration
      * and self-heal from the store on the next load, an aborted persist never loses data or leaves a
      * torn file — it simply degrades to a rebuild on the next boot.
      * <p>
-     * In incremental on-disk mode the shutdown persist returns immediately (no full-graph
-     * consolidation is performed on shutdown), so in practice this timeout only bounds a genuinely
-     * slow first-time (non-incremental) persist or an unexpectedly slow drain/optimize.
+     * The shutdown persist of an on-disk index writes the in-memory graph as one more segment and
+     * never rebuilds, so this timeout mainly bounds the write of a large in-memory graph or an
+     * unexpectedly slow drain/optimize.
      *
      * @return the shutdown work timeout in milliseconds (default: 30000)
      * @see #persistOnShutdown()
@@ -660,12 +681,141 @@ public interface VectorIndexConfiguration
     public int minChangesBetweenPersists();
 
     /**
+     * Returns how many nodes the in-memory graph of an on-disk index must hold before a background
+     * persist writes it to disk as a new segment.
+     * <p>
+     * A persist of an on-disk index freezes the in-memory graph, which holds the changes since the
+     * previous persist, and writes it as one more immutable segment while a fresh in-memory graph
+     * takes new mutations. Below this threshold a background persist leaves the in-memory graph
+     * where it is and lets it grow: every flush adds a segment, and a crash makes the next start
+     * rebuild the graph from the vector file anyway, whenever the last flush was, so frequent small
+     * flushes add segments without making anything more durable. An explicit
+     * {@code persistToDisk()} and the persist on shutdown write whatever changed, regardless of this
+     * threshold. So does a background persist while the in-memory graph is empty: with no segment to
+     * write, it commits only the manifest, which records the deletions and the entities added without
+     * a vector.
+     * <p>
+     * Keep it large. A small segment can be too small for a hierarchical graph, and a flat one
+     * cannot be traversed on fused PQ codes, so it is searched exactly.
+     * <p>
+     * Only relevant for {@link #onDisk()} indices. Defaults to {@code 100_000} for a configuration
+     * stored by a version that did not have it.
+     *
+     * @return the flush threshold in nodes (default: 100000)
+     * @see #backgroundPersistence()
+     * @see #maxSegments()
+     */
+    public default int flushThreshold()
+    {
+        return Builder.Default.DEFAULT_FLUSH_THRESHOLD;
+    }
+
+    /**
+     * Returns the most segments an on-disk index keeps before a persist consolidates them into one.
+     * <p>
+     * Each flush (see {@link #flushThreshold()}) adds a segment, and every search visits all of
+     * them. Background merges (see {@link #segmentMergeFactor()}) keep the count well below this
+     * number, and merge the smallest segments ahead of their tier once the next flush would reach it.
+     * Only when a persist would exceed it all the same, because the merges fell behind, does it rebuild
+     * the whole index from the vector file into a single segment instead, which blocks mutations
+     * and searches for the duration of the rebuild. The upper bound of {@code 240} leaves room in the
+     * 255 owner slots for the in-memory graphs, a merge in flight and segments a running search still
+     * holds.
+     * <p>
+     * Only relevant for {@link #onDisk()} indices. Defaults to {@code 32} for a configuration stored
+     * by a version that did not have it.
+     *
+     * @return the maximum segment count, between 2 and 240 (default: 32)
+     * @see #flushThreshold()
+     */
+    public default int maxSegments()
+    {
+        return Builder.Default.DEFAULT_MAX_SEGMENTS;
+    }
+
+    /**
+     * Returns how many segments of similar size a background merge of an on-disk index combines into
+     * one.
+     * <p>
+     * Segments are sorted into size tiers: tier {@code t} holds the segments with fewer than
+     * {@code flushThreshold * segmentMergeFactor^(t+1)} live nodes. Once a tier holds this many
+     * segments, a background merge rebuilds them, from the vector file and in parallel, into one
+     * segment of the next tier, while searches and mutations go on. So each vector is rewritten about
+     * once per tier, and the index keeps fewer than {@code segmentMergeFactor} segments per tier. A
+     * larger factor merges less often and leaves more segments for every search to visit. Segments
+     * written for another format or codebook than the configured one are merged first, on their own.
+     * <p>
+     * Capped at {@link #maxSegments()} where that is smaller. Only relevant for {@link #onDisk()}
+     * indices. Defaults to {@code 4} for a configuration stored by a version that did not have it.
+     *
+     * @return the merge factor, between 2 and 240 (default: 4)
+     * @see #maxSegments()
+     * @see #flushThreshold()
+     */
+    public default int segmentMergeFactor()
+    {
+        return Builder.Default.DEFAULT_SEGMENT_MERGE_FACTOR;
+    }
+
+    /**
+     * Returns the interval at which the vector file of the index is checkpointed.
+     * <p>
+     * Every index keeps its vectors in a memory-mapped vector file next to its segments, or in a private
+     * temporary directory for an in-memory index. That file is a cache: the entities are the source of truth,
+     * reached through the {@link Vectorizer}, so nothing about it is made durable when the store commits. A
+     * checkpoint forces the chunks written since the previous one and marks them as safe. After a crash only
+     * the chunks written since the last checkpoint are looked at again: after a killed process their slots
+     * written after the last store are re-vectorized, after a reboot every one of their ordinals is. A shorter
+     * interval costs more header writes at runtime and less recovery after a crash.
+     * <p>
+     * The vector file must stay with the store it belongs to. Restoring it separately is not supported;
+     * deleting it only makes the next start re-vectorize every entity.
+     * <p>
+     * Defaults to {@code 30_000} for a configuration stored by a version that did not have it.
+     *
+     * @return the checkpoint interval in milliseconds (default: 30000)
+     * @see #vectorChunkBytes()
+     */
+    public default long vectorCheckpointIntervalMs()
+    {
+        return Builder.Default.DEFAULT_VECTOR_CHECKPOINT_INTERVAL_MS;
+    }
+
+    /**
+     * Returns the size of one chunk of the vector file, in bytes.
+     * <p>
+     * The vector file grows chunk by chunk, each one written out in full when it is created, so a full disk
+     * fails as an exception rather than as a crash on a page the file system cannot back. A chunk is also the
+     * unit of recovery: a crash makes the next start look again at every chunk written since the last
+     * checkpoint (see {@link #vectorCheckpointIntervalMs()}). Changing the size of an existing index makes its
+     * next start re-vectorize every entity.
+     * <p>
+     * A chunk holds at least {@link VectorFile#MIN_SLOTS_PER_CHUNK} vectors, which keeps the chunk table small
+     * however sparse the entity ids are. Defaults to 64 MB, or to that minimum where a large dimension needs
+     * more, also for a configuration stored by a version that did not have it.
+     *
+     * @return the chunk size in bytes (default: 67108864, or more for a large dimension)
+     */
+    public default long vectorChunkBytes()
+    {
+        return Math.max(
+            Builder.Default.DEFAULT_VECTOR_CHUNK_BYTES,
+            Builder.Default.minimumChunkBytes(this.dimension())
+        );
+    }
+
+    /**
      * Returns whether background optimization is enabled.
      * <p>
      * Background optimization is enabled when {@link #optimizationIntervalMs()} is greater than 0.
-     * When enabled, the index will run {@code builder.cleanup()} in a background thread
-     * at regular intervals, which removes excess neighbors accumulated during construction.
+     * When enabled, the index will run {@link VectorIndex#optimize()} in a background thread
+     * at regular intervals, which purges removed entities from the graph and removes excess
+     * neighbors accumulated during construction.
      * This reduces memory usage and improves query latency.
+     * <p>
+     * This applies to in-memory indices only. For an on-disk index the optimization itself does
+     * nothing: every flush purges and trims the graph it writes, so there is nothing for a separate
+     * pass to do.
      * <p>
      * Background optimization is independent of background persistence - both can be
      * enabled separately.
@@ -735,15 +885,16 @@ public interface VectorIndexConfiguration
      * Returns whether eventual indexing mode is enabled.
      * <p>
      * When enabled, expensive HNSW graph mutations (add, update, remove) are
-     * deferred to a background thread. The vector store is still updated
+     * deferred to a background thread. The vector file is still updated
      * synchronously, but graph construction happens asynchronously.
      * <p>
      * This reduces the latency of mutation operations at the cost of
      * eventual consistency — search results may not immediately reflect the
      * most recent mutations.
      * <p>
-     * The graph is automatically drained (all pending operations applied)
-     * before {@code optimize()}, {@code persistToDisk()}, and {@code close()}.
+     * Pending operations are applied to the graph before {@code optimize()} and
+     * {@code close()}. {@code persistToDisk()} does not drain the queue: it moves the
+     * pending operations into the graph it freezes, and the flush applies them there.
      *
      * @return true if eventual indexing is enabled (default: false)
      */
@@ -908,7 +1059,9 @@ public interface VectorIndexConfiguration
      * Creates an on-disk configuration optimized for large datasets (&gt;1M vectors) with PQ compression.
      * <p>
      * Uses higher parameter values for better recall at scale, with on-disk storage, PQ compression
-     * for faster traversal, and background persistence/optimization. Note that PQ trades disk space
+     * for faster traversal, and background persistence. The optimization interval is set as well,
+     * but optimization does nothing for an on-disk index (see {@link #backgroundOptimization()}).
+     * Note that PQ trades disk space
      * for search speed - it makes the graph file larger, not smaller; see
      * {@link #enablePqCompression()}. Use {@link #forLargeDataset(int, Path, boolean)} with
      * {@code false} to opt out.
@@ -931,7 +1084,8 @@ public interface VectorIndexConfiguration
      * Creates an on-disk configuration optimized for large datasets (&gt;1M vectors).
      * <p>
      * Uses higher parameter values for better recall at scale, with on-disk storage
-     * and background persistence/optimization. PQ compression can be optionally enabled to
+     * and background persistence (the optimization interval is set as well, but optimization does
+     * nothing for an on-disk index). PQ compression can be optionally enabled to
      * speed up traversal; note that it makes the graph file larger, not smaller - see
      * {@link #enablePqCompression()}.
      * <p>
@@ -957,7 +1111,8 @@ public interface VectorIndexConfiguration
      * <p>
      * Use this when you need to customize additional parameters beyond the defaults
      * for large datasets. The builder is pre-configured with on-disk storage and
-     * background persistence/optimization enabled.
+     * background persistence enabled. The optimization interval is set as well, but optimization
+     * does nothing for an on-disk index.
      * <p>
      * <b>Pre-configured values:</b> maxDegree=32, beamWidth=300, onDisk=true,
      * persistenceIntervalMs=30000, optimizationIntervalMs=60000
@@ -1000,7 +1155,7 @@ public interface VectorIndexConfiguration
      * reads its candidates' own stored vectors rather than one contiguous block - though those
      * vectors are now 800 bytes rather than 3072, so a hop is far cheaper than it would be on an
      * uncompressed graph. Reranking stays exact, as it does under every setting a live index
-     * reaches: the search path reranks against the vectors held in the GigaMap. Use
+     * reaches: the search path reranks against the vectors in the index's vector file. Use
      * {@link #forLargeDataset(int, Path)} when query latency matters more than footprint.
      * <p>
      * <b>Configuration:</b> maxDegree=32, beamWidth=300, onDisk=true, vectorStorage=NVQ,
@@ -1399,6 +1554,88 @@ public interface VectorIndexConfiguration
         public Builder minChangesBetweenPersists(int minChangesBetweenPersists);
 
         /**
+         * Sets how many nodes the in-memory graph of an on-disk index must hold before a background
+         * persist writes it as a new segment.
+         * <p>
+         * A {@code default} so that a builder implementation written against an earlier version of
+         * this interface still compiles and links. It throws rather than ignoring the call, because
+         * a builder that cannot carry the setting must not report success and then hand back a
+         * configuration that silently says something else.
+         *
+         * @param flushThreshold the threshold in nodes (must be positive)
+         * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
+         * @see VectorIndexConfiguration#flushThreshold()
+         */
+        public default Builder flushThreshold(final int flushThreshold)
+        {
+            throw new UnsupportedOperationException("flushThreshold is not supported by " + this.getClass().getName());
+        }
+
+        /**
+         * Sets the most segments an on-disk index keeps before a persist consolidates them into one.
+         * <p>
+         * A {@code default} for the same reason as {@link #flushThreshold(int)}.
+         *
+         * @param maxSegments the maximum segment count, between 2 and 240
+         * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
+         * @see VectorIndexConfiguration#maxSegments()
+         */
+        public default Builder maxSegments(final int maxSegments)
+        {
+            throw new UnsupportedOperationException("maxSegments is not supported by " + this.getClass().getName());
+        }
+
+        /**
+         * Sets how many segments of similar size a background merge combines into one.
+         * <p>
+         * A {@code default} for the same reason as {@link #flushThreshold(int)}.
+         *
+         * @param segmentMergeFactor the merge factor, between 2 and 240
+         * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
+         * @see VectorIndexConfiguration#segmentMergeFactor()
+         */
+        public default Builder segmentMergeFactor(final int segmentMergeFactor)
+        {
+            throw new UnsupportedOperationException(
+                "segmentMergeFactor is not supported by " + this.getClass().getName());
+        }
+
+        /**
+         * Sets the interval at which the vector file is checkpointed.
+         * <p>
+         * A {@code default} for the same reason as {@link #flushThreshold(int)}.
+         *
+         * @param vectorCheckpointIntervalMs the interval in milliseconds (must be positive)
+         * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
+         * @see VectorIndexConfiguration#vectorCheckpointIntervalMs()
+         */
+        public default Builder vectorCheckpointIntervalMs(final long vectorCheckpointIntervalMs)
+        {
+            throw new UnsupportedOperationException(
+                "vectorCheckpointIntervalMs is not supported by " + this.getClass().getName());
+        }
+
+        /**
+         * Sets the size of one chunk of the vector file.
+         * <p>
+         * A {@code default} for the same reason as {@link #flushThreshold(int)}.
+         *
+         * @param vectorChunkBytes the chunk size in bytes, enough for {@link VectorFile#MIN_SLOTS_PER_CHUNK} vectors
+         * @return this builder for method chaining
+         * @throws UnsupportedOperationException from the default implementation
+         * @see VectorIndexConfiguration#vectorChunkBytes()
+         */
+        public default Builder vectorChunkBytes(final long vectorChunkBytes)
+        {
+            throw new UnsupportedOperationException(
+                "vectorChunkBytes is not supported by " + this.getClass().getName());
+        }
+
+        /**
          * Sets the interval between background optimization attempts.
          * A value greater than 0 enables background optimization. A value of 0 disables it.
          *
@@ -1454,12 +1691,15 @@ public interface VectorIndexConfiguration
          * Builds the configuration with the specified parameters.
          *
          * @return a new immutable {@link VectorIndexConfiguration}
-         * @throws IllegalStateException if onDisk is true but indexDirectory is null
+         * @throws IllegalStateException if onDisk is true but neither indexDirectory nor an index location is set
          * @throws IllegalStateException if approximateScoring is FUSED_PQ but onDisk is false, or
          *         if it is PQ_IN_MEMORY without onDisk and no optimization is scheduled
          * @throws IllegalStateException if vectorStorage is not INLINE but onDisk is false
+         * @throws IllegalStateException if persistenceIntervalMs > 0 but onDisk is false
          * @throws IllegalArgumentException if pqSubspaces > 0 and dimension is not divisible by pqSubspaces
          * @throws IllegalArgumentException if nvqSubvectors exceeds the dimension
+         * @throws IllegalArgumentException if vectorChunkBytes > 0 but holds fewer than the minimum number
+         *         of vector slots at this dimension
          */
         public VectorIndexConfiguration build();
 
@@ -1475,6 +1715,50 @@ public interface VectorIndexConfiguration
              * Default upper bound (30s) on how long a shutdown persist may run before it is aborted.
              */
             private static final long DEFAULT_SHUTDOWN_PERSIST_TIMEOUT_MILLIS = 30_000L;
+
+            /**
+             * Default number of in-memory nodes at which a background persist flushes a segment.
+             */
+            static final int DEFAULT_FLUSH_THRESHOLD = 100_000;
+
+            /**
+             * Default maximum number of segments before a persist consolidates them.
+             */
+            static final int DEFAULT_MAX_SEGMENTS = 32;
+
+            /**
+             * Bounds of {@link #maxSegments(int)}: one segment cannot be consolidated with anything, and
+             * the 255 owner slots also have to hold the in-memory graphs and the segments a running
+             * search still holds.
+             */
+            static final int MIN_MAX_SEGMENTS = 2  ;
+            static final int MAX_MAX_SEGMENTS = 240;
+
+            /**
+             * Default number of segments a background merge combines.
+             */
+            static final int DEFAULT_SEGMENT_MERGE_FACTOR = 4;
+
+            /**
+             * Default interval between checkpoints of the vector file.
+             */
+            static final long DEFAULT_VECTOR_CHECKPOINT_INTERVAL_MS = 30_000L;
+
+            /**
+             * Default size of a chunk of the vector file.
+             */
+            static final long DEFAULT_VECTOR_CHUNK_BYTES = VectorFile.DEFAULT_CHUNK_BYTES;
+
+            /**
+             * The smallest chunk that holds {@link VectorFile#MIN_SLOTS_PER_CHUNK} slots at the given dimension.
+             *
+             * @param dimension the vector dimension
+             * @return the minimum chunk size in bytes
+             */
+            static long minimumChunkBytes(final int dimension)
+            {
+                return (long)VectorFile.strideOf(dimension) * VectorFile.MIN_SLOTS_PER_CHUNK;
+            }
 
             private int                      dimension                    ;
             private VectorSimilarityFunction similarityFunction           ;
@@ -1494,6 +1778,11 @@ public interface VectorIndexConfiguration
             private boolean                  persistOnShutdown            ;
             private long                     shutdownPersistTimeoutMillis ;
             private int                      minChangesBetweenPersists    ;
+            private int                      flushThreshold               ;
+            private int                      maxSegments                  ;
+            private int                      segmentMergeFactor           ;
+            private long                     vectorCheckpointIntervalMs   ;
+            private long                     vectorChunkBytes             ;
             private long                     optimizationIntervalMs       ;
             private int                      minChangesBetweenOptimizations;
             private boolean                  optimizeOnShutdown           ;
@@ -1520,6 +1809,11 @@ public interface VectorIndexConfiguration
                 this.persistOnShutdown             = true;
                 this.shutdownPersistTimeoutMillis  = DEFAULT_SHUTDOWN_PERSIST_TIMEOUT_MILLIS;
                 this.minChangesBetweenPersists     = 100;
+                this.flushThreshold                = DEFAULT_FLUSH_THRESHOLD;
+                this.maxSegments                   = DEFAULT_MAX_SEGMENTS;
+                this.segmentMergeFactor            = DEFAULT_SEGMENT_MERGE_FACTOR;
+                this.vectorCheckpointIntervalMs    = DEFAULT_VECTOR_CHECKPOINT_INTERVAL_MS;
+                this.vectorChunkBytes              = 0L; // not set: the default, or more for a large dimension
                 this.optimizationIntervalMs        = 0;  // 0 = disabled
                 this.minChangesBetweenOptimizations = 1000;
                 this.optimizeOnShutdown            = false;
@@ -1696,6 +1990,61 @@ public interface VectorIndexConfiguration
             }
 
             @Override
+            public Builder flushThreshold(final int flushThreshold)
+            {
+                this.flushThreshold = positive(flushThreshold);
+                return this;
+            }
+
+            @Override
+            public Builder maxSegments(final int maxSegments)
+            {
+                if(maxSegments < MIN_MAX_SEGMENTS || maxSegments > MAX_MAX_SEGMENTS)
+                {
+                    throw new IllegalArgumentException("maxSegments must be between " + MIN_MAX_SEGMENTS
+                        + " and " + MAX_MAX_SEGMENTS + ", got: " + maxSegments);
+                }
+                this.maxSegments = maxSegments;
+                return this;
+            }
+
+            @Override
+            public Builder segmentMergeFactor(final int segmentMergeFactor)
+            {
+                // The same bounds as maxSegments: a merge of one segment combines nothing.
+                if(segmentMergeFactor < MIN_MAX_SEGMENTS || segmentMergeFactor > MAX_MAX_SEGMENTS)
+                {
+                    throw new IllegalArgumentException("segmentMergeFactor must be between " + MIN_MAX_SEGMENTS
+                        + " and " + MAX_MAX_SEGMENTS + ", got: " + segmentMergeFactor);
+                }
+                this.segmentMergeFactor = segmentMergeFactor;
+                return this;
+            }
+
+            @Override
+            public Builder vectorCheckpointIntervalMs(final long vectorCheckpointIntervalMs)
+            {
+                if(vectorCheckpointIntervalMs <= 0)
+                {
+                    throw new IllegalArgumentException(
+                        "vectorCheckpointIntervalMs must be positive, got: " + vectorCheckpointIntervalMs);
+                }
+                this.vectorCheckpointIntervalMs = vectorCheckpointIntervalMs;
+                return this;
+            }
+
+            @Override
+            public Builder vectorChunkBytes(final long vectorChunkBytes)
+            {
+                if(vectorChunkBytes <= 0)
+                {
+                    throw new IllegalArgumentException("vectorChunkBytes must be positive, got: " + vectorChunkBytes);
+                }
+                this.vectorChunkBytes = vectorChunkBytes;
+                return this;
+            }
+
+            @Override
             public Builder optimizationIntervalMs(final long optimizationIntervalMs)
             {
                 if(optimizationIntervalMs < 0)
@@ -1860,6 +2209,14 @@ public interface VectorIndexConfiguration
                     }
                 }
 
+                if(this.vectorChunkBytes > 0L && this.vectorChunkBytes < minimumChunkBytes(this.dimension))
+                {
+                    throw new IllegalArgumentException("vectorChunkBytes " + this.vectorChunkBytes
+                        + " holds fewer than " + VectorFile.MIN_SLOTS_PER_CHUNK + " vector slots of "
+                        + VectorFile.strideOf(this.dimension) + " bytes at dimension " + this.dimension
+                        + ": at least " + minimumChunkBytes(this.dimension) + " bytes");
+                }
+
                 return new VectorIndexConfiguration.Default(
                     this.dimension,
                     this.similarityFunction,
@@ -1879,6 +2236,11 @@ public interface VectorIndexConfiguration
                     this.persistOnShutdown,
                     this.shutdownPersistTimeoutMillis,
                     this.minChangesBetweenPersists,
+                    this.flushThreshold,
+                    this.maxSegments,
+                    this.segmentMergeFactor,
+                    this.vectorCheckpointIntervalMs,
+                    this.vectorChunkBytes,
                     this.optimizationIntervalMs,
                     this.minChangesBetweenOptimizations,
                     this.optimizeOnShutdown,
@@ -1930,6 +2292,12 @@ public interface VectorIndexConfiguration
         private final boolean                  persistOnShutdown             ;
         private final long                     shutdownPersistTimeoutMillis  ;
         private final int                      minChangesBetweenPersists     ;
+        // 0 in a configuration stored before these existed; the getters fall back to the defaults.
+        private final int                      flushThreshold                ;
+        private final int                      maxSegments                   ;
+        private final int                      segmentMergeFactor            ;
+        private final long                     vectorCheckpointIntervalMs    ;
+        private final long                     vectorChunkBytes              ;
         private final long                     optimizationIntervalMs        ;
         private final int                      minChangesBetweenOptimizations;
         private final boolean                  optimizeOnShutdown            ;
@@ -1955,6 +2323,11 @@ public interface VectorIndexConfiguration
             final boolean                  persistOnShutdown              ,
             final long                     shutdownPersistTimeoutMillis   ,
             final int                      minChangesBetweenPersists      ,
+            final int                      flushThreshold                 ,
+            final int                      maxSegments                    ,
+            final int                      segmentMergeFactor             ,
+            final long                     vectorCheckpointIntervalMs     ,
+            final long                     vectorChunkBytes               ,
             final long                     optimizationIntervalMs         ,
             final int                      minChangesBetweenOptimizations ,
             final boolean                  optimizeOnShutdown             ,
@@ -1981,6 +2354,11 @@ public interface VectorIndexConfiguration
             this.persistOnShutdown              = persistOnShutdown                                        ;
             this.shutdownPersistTimeoutMillis   = shutdownPersistTimeoutMillis                             ;
             this.minChangesBetweenPersists      = minChangesBetweenPersists                                ;
+            this.flushThreshold                 = flushThreshold                                           ;
+            this.maxSegments                    = maxSegments                                              ;
+            this.segmentMergeFactor             = segmentMergeFactor                                       ;
+            this.vectorCheckpointIntervalMs     = vectorCheckpointIntervalMs                               ;
+            this.vectorChunkBytes               = vectorChunkBytes                                         ;
             this.optimizationIntervalMs         = optimizationIntervalMs                                   ;
             this.minChangesBetweenOptimizations = minChangesBetweenOptimizations                           ;
             this.optimizeOnShutdown             = optimizeOnShutdown                                       ;
@@ -2077,6 +2455,11 @@ public interface VectorIndexConfiguration
                 this.persistOnShutdown                                           ,
                 this.shutdownPersistTimeoutMillis                                ,
                 this.minChangesBetweenPersists                                   ,
+                this.flushThreshold                                              ,
+                this.maxSegments                                                 ,
+                this.segmentMergeFactor                                          ,
+                this.vectorCheckpointIntervalMs                                  ,
+                this.vectorChunkBytes                                            ,
                 this.optimizationIntervalMs                                      ,
                 this.minChangesBetweenOptimizations                              ,
                 this.optimizeOnShutdown                                          ,
@@ -2162,6 +2545,56 @@ public interface VectorIndexConfiguration
         public int minChangesBetweenPersists()
         {
             return this.minChangesBetweenPersists;
+        }
+
+        @Override
+        public int flushThreshold()
+        {
+            // Zero for a configuration stored before this field existed (Eclipse Store fills a field
+            // added by schema evolution with 0), which would flush on every background persist.
+            return this.flushThreshold > 0
+                ? this.flushThreshold
+                : Builder.Default.DEFAULT_FLUSH_THRESHOLD;
+        }
+
+        @Override
+        public int maxSegments()
+        {
+            // Zero for a configuration stored before this field existed, see flushThreshold().
+            return this.maxSegments > 0
+                ? this.maxSegments
+                : Builder.Default.DEFAULT_MAX_SEGMENTS;
+        }
+
+        @Override
+        public int segmentMergeFactor()
+        {
+            // Zero for a configuration stored before this field existed, see flushThreshold().
+            return this.segmentMergeFactor > 0
+                ? this.segmentMergeFactor
+                : Builder.Default.DEFAULT_SEGMENT_MERGE_FACTOR;
+        }
+
+        @Override
+        public long vectorCheckpointIntervalMs()
+        {
+            // Zero for a configuration stored before this field existed, see flushThreshold().
+            return this.vectorCheckpointIntervalMs > 0
+                ? this.vectorCheckpointIntervalMs
+                : Builder.Default.DEFAULT_VECTOR_CHECKPOINT_INTERVAL_MS;
+        }
+
+        @Override
+        public long vectorChunkBytes()
+        {
+            // Zero when not set, also for a configuration stored before this field existed: the default, or the
+            // minimum where the dimension is so large that the default holds too few slots.
+            return this.vectorChunkBytes > 0
+                ? this.vectorChunkBytes
+                : Math.max(
+                    Builder.Default.DEFAULT_VECTOR_CHUNK_BYTES,
+                    Builder.Default.minimumChunkBytes(this.dimension)
+                );
         }
 
         @Override

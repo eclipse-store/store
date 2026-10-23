@@ -60,8 +60,8 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * With {@link VectorIndexConfiguration#eventualIndexing() eventual indexing}, the vectors of all
      * present entities are computed and validated before registration, but the graph is built in the
      * background afterwards, as for any later add. A vectorizer failure for an entity's own vector is
-     * therefore still reported here; failures during the background graph construction are not - in
-     * embedded mode that includes the vectorizer being called there to score neighbours.
+     * therefore still reported here; failures during the background graph construction are not. That
+     * construction reads the vectors from the index's vector file and does not call the vectorizer.
      *
      * @param name          the name of the index
      * @param configuration the index configuration (dimension, similarity function, etc.)
@@ -91,27 +91,28 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * <p>
      * <b>That holds for an on-disk index too, whatever the configuration changed to, and without
      * deleting anything by hand.</b> {@link #removeIndex(String)} leaves the index directory's
-     * {@code .graph} and {@code .meta} files in place - it only closes the index and drops the
-     * registry entry - but the index that
-     * {@link #add(String, VectorIndexConfiguration, Vectorizer)} creates never adopts them. It is a
-     * new instance, so its structural modification counter starts at zero, while any {@code .meta}
-     * that was ever written carries at least one. The load is refused on that witness before the
-     * recorded settings are even reached, and the graph is rebuilt from the vectors in the parent
-     * map.
+     * manifest and segment files in place - it only closes the index and drops the registry entry -
+     * but the index that {@link #add(String, VectorIndexConfiguration, Vectorizer)} creates never
+     * adopts them. It is a new instance, so its structural modification counter starts at zero,
+     * while any manifest that was ever written carries at least one. The load is refused on that witness before the
+     * recorded settings are even reached, and the new index builds its graph from the vectors its
+     * back-fill takes from the entities of the parent map.
      * <p>
      * The recorded settings decide the other path, where an index comes back through storage with
      * its counter intact so the content witnesses agree. What is recorded is the format version, the
      * dimension, three content witnesses, and the settings that decide what the graph contains - the
      * vector storage mode, the approximate scoring mode, and the quantization counts those two
-     * encode with. A divergence in any of them rejects the graph and rebuilds it rather than serving
-     * it under a configuration it was not written for.
+     * encode with, per segment. A divergence in the content witnesses rejects the index and rebuilds
+     * it; a segment whose settings diverge is searched exactly, never through quantized data it was
+     * not written for, and rewritten by a background merge, or at the latest by the next explicit
+     * {@link VectorIndex#persistToDisk()}.
      * <p>
      * The two counts are compared in <i>effective</i> form, which makes them narrower than the modes
      * they belong to. An automatic count and the value it resolves to describe the same graph and so
      * compare equal, and a count that the recorded format does not encode with is not compared at
      * all - changing {@code pqSubspaces} while the scoring mode is
      * {@link ApproximateScoring#NONE}, or {@code nvqSubvectors} while storage is
-     * {@link VectorStorage#INLINE}, changes nothing in the file and triggers no rebuild.
+     * {@link VectorStorage#INLINE}, changes nothing in the file and triggers no rewrite.
      * <p>
      * What is <b>not</b> recorded is everything that shapes the graph without changing what a reader
      * must know to interpret it: {@code maxDegree}, {@code beamWidth}, {@code alpha},
@@ -152,9 +153,11 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * Removes the vector index registered under the given name, dropping it and its data.
      * <p>
      * The index is {@link VectorIndex#close() closed} first to release its background, search and
-     * (if any) disk resources. Vector data held inside the object graph is reclaimed by the storage's
-     * garbage collection on the next housekeeping cycle after the surrounding {@link GigaMap} is
-     * stored; index artifacts kept in an external, application-managed directory are not deleted.
+     * (if any) disk resources. The vectors are not in the object graph but in the index's vector file:
+     * a temporary one (an in-memory index without a kept directory) is deleted with the close, while
+     * the files kept in a configured directory or location - the vector file and any graph segments -
+     * are not deleted. The index's own record is reclaimed by the storage's garbage collection after the
+     * surrounding {@link GigaMap} is stored.
      *
      * @param name the name of the index to remove
      * @return {@code true} if an index with that name existed and was removed, {@code false} otherwise
@@ -163,8 +166,10 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
     public boolean removeIndex(String name);
 
     /**
-     * Changes where an existing on-disk index keeps its files, <b>effective from the next time the index
-     * is loaded</b>. The running index keeps using the directory it was opened in.
+     * Changes where an existing index that keeps index files ({@link VectorIndex#keepsIndexFiles()}: an
+     * on-disk index, or an in-memory one with a computed vectorizer and a configured directory or
+     * location) keeps them, <b>effective from the next time the index is loaded</b>. The running index
+     * keeps using the directory it was opened in.
      * <p>
      * The index's configuration is replaced by a copy that differs only in its location
      * ({@link VectorIndexConfiguration#withIndexLocation(IndexLocation)}); nothing else of the index
@@ -174,13 +179,22 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
      * Typical migration to a {@link IndexLocation#Named(String) named location} without a rebuild: change
      * to {@code Named("x")}, store, and bind {@code "x"} to the index's current directory for the next
      * start. From then on, the binding decides where the index lives. If the name is bound to a
-     * directory without the index files instead, the graph is rebuilt there from the stored vectors.
+     * directory without the index files instead, the vector file is rebuilt there from the entities, one
+     * vectorizer call per entity, and the graph from it.
+     * <p>
+     * An in-memory index with a computed vectorizer and no location yet keeps no index files: its vectors are
+     * in a temporary file. For it the change is <b>effective at once</b>: the vectors move into a vector file
+     * at the new location without a vectorizer call, the graph is rebuilt from that file at the next access,
+     * and from the next store of the parent {@link GigaMap} on, every start finds them there. This is also
+     * how an index of this kind loaded from a 4.x storage keeps the vectors its 4.x vector store held; until
+     * then, storing it is refused (see {@link VectorIndex.Default#DROP_LEGACY_VECTORS_PROPERTY}).
      *
      * @param name     the name of the index
      * @param location the new location
      * @throws IllegalArgumentException if there is no index of that name
-     * @throws IllegalStateException    if the index is in-memory, or the parent {@link GigaMap} is not
-     *                                  mutable
+     * @throws IllegalStateException    if the index is an in-memory one with an embedded vectorizer, which
+     *                                  keeps no index files (see {@link VectorIndex#keepsIndexFiles()}), or the
+     *                                  parent {@link GigaMap} is not mutable
      */
     public void changeIndexLocation(String name, IndexLocation location);
 
@@ -304,6 +318,55 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         }
 
         /**
+         * Runs an operation that needs the lock {@link VectorIndex.Internal#internalRemoveAll()} takes besides the
+         * parent-map monitor, which the caller holds, the way the parent map runs removeAll and reindex: it tries
+         * the lock without waiting and, while it is held elsewhere, waits on the monitor, which lets the holder
+         * finish. New searches are kept out between the tries, but not while open readers are waited for, whose
+         * threads may search.
+         *
+         * @param operation description of the operation, used to build the error message
+         * @param body      the operation
+         */
+        private void runExclusive(final String operation, final Runnable body)
+        {
+            boolean locked = false;
+            try
+            {
+                while(true)
+                {
+                    this.internalCancelExclusive();
+                    this.ensureMutable(operation);
+                    if(this.internalTryLockExclusive())
+                    {
+                        locked = true;
+                        break;
+                    }
+                    this.parentMap().wait(1);
+                }
+            }
+            catch(final InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting to " + operation + ".", e);
+            }
+            finally
+            {
+                if(!locked)
+                {
+                    this.internalCancelExclusive();
+                }
+            }
+            try
+            {
+                body.run();
+            }
+            finally
+            {
+                this.internalUnlockExclusive();
+            }
+        }
+
+        /**
          * Guards structural mutations against a parent {@link GigaMap} that is currently not mutable, applying
          * the same classification an entity write applies (see
          * {@link GigaMap.Internal#internalEnsureMutability()}): an explicit read-only mark, an in-progress
@@ -349,7 +412,17 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         @Override
         public void internalPrepareIndicesUpdate(final E replacedEntity)
         {
-            // Vector indices don't need preparation for updates
+            // Before the update logic mutates the entity in place, see internalPrepareMutation.
+            this.internalPrepareMutation();
+        }
+
+        @Override
+        public void internalPrepareMutation()
+        {
+            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            {
+                index.internalPrepareMutation();
+            }
         }
 
         @Override
@@ -384,6 +457,15 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         }
 
         @Override
+        public void internalPrepareStore(final Storer storer)
+        {
+            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            {
+                index.internalPrepareStore(storer);
+            }
+        }
+
+        @Override
         public void internalRemoveAll()
         {
             for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
@@ -395,7 +477,9 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
 
         /**
          * Rebuilds each index on its own, unlike the group default, whose fan-out per entity lets one throwing
-         * vectorizer truncate every index of the group. A failing index stays as it was and does not keep the
+         * vectorizer truncate every index of the group. An index whose vectorizer throws stays as it was, since
+         * every vector is validated before anything is dropped; a failure after that (an insert, an I/O error)
+         * leaves the index partly rebuilt, and the reindex has to be repeated. A failing index does not keep the
          * others from being rebuilt; the first failure is rethrown at the end, later ones are suppressed.
          */
         @Override
@@ -533,7 +617,7 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                 vectorizer
             );
 
-            final List<VectorEntry> backfilled;
+            final int[] backfilled;
             try
             {
                 backfilled = index.internalBackfill();
@@ -598,7 +682,7 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             final VectorIndexConfiguration configuration
         )
         {
-            if(configuration == null || !configuration.onDisk() || !index.configuration().onDisk())
+            if(configuration == null || configuration.indexLocation() == null || !index.keepsIndexFiles())
             {
                 return;
             }
@@ -612,6 +696,38 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                     index.name(), stored, passed
                 );
             }
+        }
+
+        /**
+         * Flags the path from the map to an index that changed its own state outside a mutation, so the next
+         * store reaches it: the index marked itself; its group and the map's index groups must follow, or the
+         * next store skips the index record. Under the parent map's monitor.
+         */
+        void internalReportIndexStateChange()
+        {
+            // The flag makes the next store write every index of the group, and a sibling still carrying its 4.x
+            // vector store refuses to be written: import those too. A sibling clears its own legacy mark before it
+            // reports here again, so this ends.
+            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            {
+                if(index instanceof final VectorIndex.Default<E> sibling)
+                {
+                    try
+                    {
+                        sibling.importLegacyLayout();
+                    }
+                    catch(final RuntimeException e)
+                    {
+                        // Not the reporting index's failure: it carries on. The sibling keeps its 4.x vector store,
+                        // retries at its own first access, and refuses to be stored until then.
+                        LOG.warn("Could not import the 4.x vectors of vector index '{}' together with a sibling; it"
+                            + " imports them at its own first access, and the map cannot be stored before",
+                            sibling.name(), e);
+                    }
+                }
+            }
+            this.markStateChangeChildren();
+            this.parent.internalReportIndexGroupStateChange(this);
         }
 
         @Override
@@ -630,11 +746,37 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                     throw new IllegalArgumentException("No vector index named \"" + name + "\".");
                 }
                 final VectorIndexConfiguration current = index.configuration();
-                if(!current.onDisk())
+                if(!index.keepsIndexFiles())
                 {
-                    throw new IllegalStateException(
-                        "Vector index \"" + name + "\" is an in-memory index and has no index location."
-                    );
+                    if(index.vectorizer().isEmbedded())
+                    {
+                        throw new IllegalStateException("Vector index \"" + name + "\" has an embedded vectorizer and"
+                            + " keeps no index files: its vectors are in the entities.");
+                    }
+                    // Its first location, effective at once: a restart would otherwise find no vector file there.
+                    this.runExclusive("give vector index \"" + name + "\" its first location", () ->
+                    {
+                        // The wait for the lock may have released the monitor: the index is looked up again.
+                        final VectorIndex.Internal<E> locked = this.internalGet(name);
+                        if(locked != index)
+                        {
+                            throw new IllegalStateException("Vector index \"" + name + "\" was removed or replaced"
+                                + " while its location was being changed.");
+                        }
+                        if(!locked.keepsIndexFiles())
+                        {
+                            locked.internalAssignFirstLocation(locked.configuration().withIndexLocation(location));
+                            LOG.info("Vector index '{}': keeps its vectors at {} from now on.", name, location);
+                        }
+                        else if(!location.equals(locked.configuration().indexLocation()))
+                        {
+                            // given a location meanwhile: an ordinary change, effective from the next load
+                            locked.internalReplaceConfiguration(locked.configuration().withIndexLocation(location));
+                        }
+                    });
+                    this.markStateChangeChildren();
+                    this.parent.internalReportIndexGroupStateChange(this);
+                    return;
                 }
                 if(location.equals(current.indexLocation()))
                 {
@@ -679,10 +821,10 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                     return false;
                 }
             }
-            // Close the index outside the parentMap monitor: index.close() acquires the builder write-lock,
-            // while a background persist holds that lock and waits for the parentMap monitor — holding the
-            // monitor across close() would dead-lock. Drop the index from the registry only after close()
-            // succeeds, so a failing close leaves it registered (and re-closeable) rather than
+            // Close the index outside the parentMap monitor: index.close() waits for the background tasks, a
+            // merge and a flush in flight, which may need that monitor — holding it across close() would
+            // dead-lock, and close() rejects a caller that holds it. Drop the index from the registry only
+            // after close() succeeds, so a failing close leaves it registered (and re-closeable) rather than
             // detached-but-unclosed.
             index.close();
             synchronized(this.parentMap())
@@ -712,9 +854,30 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             {
                 toClose = BulkList.New(this.vectorIndices.values());
             }
+            // Every index is closed, also after one failed: the first failure is thrown once all were tried, the
+            // others attached to it.
+            RuntimeException failure = null;
             for(final VectorIndex.Internal<E> index : toClose)
             {
-                index.close();
+                try
+                {
+                    index.close();
+                }
+                catch(final RuntimeException e)
+                {
+                    if(failure == null)
+                    {
+                        failure = e;
+                    }
+                    else
+                    {
+                        failure.addSuppressed(e);
+                    }
+                }
+            }
+            if(failure != null)
+            {
+                throw failure;
             }
         }
 
@@ -756,7 +919,7 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         /**
          * Validates that an index name is safe for use as a filesystem filename prefix.
          * <p>
-         * The name is used to create files like {@code {name}.graph} and {@code {name}.meta},
+         * The name is used to create files like {@code {name}.manifest} and {@code {name}.seg-0.graph},
          * so it must be a valid filename on all supported operating systems.
          * <p>
          * Uses Java NIO's {@link java.nio.file.Path} for platform-specific validation.

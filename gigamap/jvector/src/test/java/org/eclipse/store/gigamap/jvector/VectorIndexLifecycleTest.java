@@ -24,12 +24,24 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Random;
+import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -74,6 +86,15 @@ class VectorIndexLifecycleTest
 		public boolean isEmbedded()
 		{
 			return true;
+		}
+	}
+
+	static final class ComputedVectorizer extends Vectorizer<Doc>
+	{
+		@Override
+		public float[] vectorize(final Doc entity)
+		{
+			return entity.embedding;
 		}
 	}
 
@@ -340,6 +361,73 @@ class VectorIndexLifecycleTest
 	}
 
 	/**
+	 * An on-disk index that a restart loads and that is removed without ever being used leaves its directory
+	 * byte for byte as it was. The load opens the index's vector file before anyone can tell whether the index
+	 * will be used, so the close of an index that wrote nothing must not rewrite it: a copied store whose
+	 * persisted index directory still names the original deployment's directory removes exactly such an index when it
+	 * re-registers it under its own directory.
+	 */
+	@Test
+	void removeIndex_untouchedAfterReload_leavesItsDirectoryByteForByte(@TempDir final Path dir) throws IOException
+	{
+		final Path storeDir = dir.resolve("store");
+		final Path indexDir = dir.resolve("index");
+		final VectorIndexConfiguration configuration = VectorIndexConfiguration.builder()
+			.dimension(3)
+			.similarityFunction(VectorSimilarityFunction.COSINE)
+			.onDisk(true)
+			.indexDirectory(indexDir)
+			.build();
+		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(GigaMap.New(), storeDir))
+		{
+			final GigaMap<Doc>     map   = rootOf(storage);
+			final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+				.add("emb", configuration, new ComputedVectorizer());
+			addDocs(map);
+			index.persistToDisk();
+			storage.storeRoot();
+			index.close();
+		}
+		final Map<String, String> before = digests(indexDir);
+		assertFalse(before.isEmpty(), "the fixture needs files to compare");
+
+		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storeDir))
+		{
+			assertTrue(rootOf(storage).index().get(VectorIndices.Category()).removeIndex("emb"));
+		}
+
+		assertEquals(before, digests(indexDir), "an index loaded and removed unused must not write its files");
+	}
+
+	private static Map<String, String> digests(final Path directory) throws IOException
+	{
+		final Map<String, String> digests = new TreeMap<>();
+		try(final Stream<Path> files = Files.list(directory))
+		{
+			for(final Path file : (Iterable<Path>)files::iterator)
+			{
+				if(Files.isRegularFile(file))
+				{
+					digests.put(file.getFileName().toString(), Arrays.toString(sha256(Files.readAllBytes(file))));
+				}
+			}
+		}
+		return digests;
+	}
+
+	private static byte[] sha256(final byte[] bytes)
+	{
+		try
+		{
+			return MessageDigest.getInstance("SHA-256").digest(bytes);
+		}
+		catch(final NoSuchAlgorithmException e)
+		{
+			throw new IllegalStateException("SHA-256 is required of every JVM", e);
+		}
+	}
+
+	/**
 	 * Registering the index <b>after</b> the entities exist - the natural ordering when a vector index is
 	 * added to an existing dataset - and then reloading: the back-filled graph has to survive persistence,
 	 * and the deferred post-load rebuild must not index the entities a second time (internal #123).
@@ -368,5 +456,99 @@ class VectorIndexLifecycleTest
 			assertEquals(3, map.size());
 			assertEquals(3, vi.get("emb").search(new float[]{1.0f, 0.0f, 0.0f}, 3).size());
 		}
+	}
+
+	/**
+	 * The restart after a clean close loads what the shutdown persist flushed: the segment of the
+	 * explicit persist and the one the shutdown wrote from the in-memory graph, without rebuilding
+	 * anything from the store. Covered with and without a background task manager, whose shutdown runs
+	 * the persist on its executor rather than on the closing thread.
+	 */
+	@ParameterizedTest(name = "embedded={0}, background={1}")
+	@CsvSource({"true, false", "true, true", "false, false", "false, true"})
+	void close_thenRestart_loadsSegmentsWithoutRebuild(
+		final boolean       embedded  ,
+		final boolean       background,
+		@TempDir final Path dir
+	)
+	{
+		final int                dimension = 16;
+		final Path               indexDir  = dir.resolve("index");
+		final Path               storeDir  = dir.resolve("store");
+		final Random             random    = new Random(77);
+		final Map<Long, float[]> vectors   = new LinkedHashMap<>();
+		final VectorIndexConfiguration.Builder builder = VectorIndexConfiguration.builder()
+			.dimension(dimension)
+			.similarityFunction(VectorSimilarityFunction.COSINE)
+			.onDisk(true)
+			.indexDirectory(indexDir)
+			.persistOnShutdown(true);
+		if(background)
+		{
+			// A background task manager whose interval never comes within the test.
+			builder.persistenceIntervalMs(3_600_000L);
+		}
+		final VectorIndexConfiguration configuration = builder.build();
+
+		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(GigaMap.New(), storeDir))
+		{
+			final GigaMap<Doc>     map   = rootOf(storage);
+			final VectorIndex<Doc> index = map.index().register(VectorIndices.Category()).add(
+				"emb",
+				configuration,
+				embedded ? new EmbeddingVectorizer() : new ComputedVectorizer()
+			);
+			addRandom(map, random, dimension, 200, vectors);
+			index.persistToDisk();
+			addRandom(map, random, dimension, 100, vectors);
+			storage.storeRoot();
+			index.close();
+		}
+
+		try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storeDir))
+		{
+			final VectorIndex.Default<Doc> index = (VectorIndex.Default<Doc>)rootOf(storage).index()
+				.get(VectorIndices.Category())
+				.get("emb");
+			for(final Map.Entry<Long, float[]> entry : vectors.entrySet())
+			{
+				if(entry.getKey() % 25 == 0)
+				{
+					assertEquals(entry.getKey(), index.search(entry.getValue(), 1).iterator().next().entityId(),
+						"every entity, of either segment, must be found by its own vector");
+				}
+			}
+			assertEquals(0, index.inMemoryGraphNodeCount(), "the restart must load the segments, not rebuild");
+			assertEquals(2, index.sourceSet().segments().size(), "the explicit and the shutdown persist");
+			index.close();
+		}
+	}
+
+	private static void addRandom(
+		final GigaMap<Doc>       map      ,
+		final Random             random   ,
+		final int                dimension,
+		final int                count    ,
+		final Map<Long, float[]> vectors
+	)
+	{
+		for(int i = 0; i < count; i++)
+		{
+			final float[] vector = new float[dimension];
+			for(int d = 0; d < dimension; d++)
+			{
+				vector[d] = random.nextFloat() * 2f - 1f;
+			}
+			vectors.put(map.add(new Doc(vector)), vector);
+		}
+	}
+
+	/**
+	 * The root as the typed map: the storage manager is not generic over the root.
+	 */
+	@SuppressWarnings("unchecked")
+	private static GigaMap<Doc> rootOf(final EmbeddedStorageManager storage)
+	{
+		return (GigaMap<Doc>)storage.root();
 	}
 }

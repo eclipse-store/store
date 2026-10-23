@@ -23,6 +23,7 @@ import io.github.jbellis.jvector.graph.RandomAccessVectorValues;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndex;
 import io.github.jbellis.jvector.graph.disk.OnDiskGraphIndexWriter;
 import io.github.jbellis.jvector.graph.disk.OnDiskParallelGraphIndexWriter;
+import io.github.jbellis.jvector.graph.disk.OrdinalMapper;
 import io.github.jbellis.jvector.graph.disk.feature.Feature;
 import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
 import io.github.jbellis.jvector.graph.disk.feature.FusedPQ;
@@ -34,238 +35,321 @@ import io.github.jbellis.jvector.quantization.ProductQuantization;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.Closeable;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
+import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 /**
- * Manages on-disk storage for a VectorIndex.
+ * Manages the on-disk storage of a VectorIndex: a set of immutable segments committed through a
+ * {@link SegmentManifest}.
  * <p>
- * This manager handles:
+ * This manager handles the files, and holds no segment itself:
  * <ul>
- *   <li>Loading graph indices from disk</li>
- *   <li>Writing graph indices to disk with optional FusedPQ compression</li>
- *   <li>Metadata file management for version and configuration verification</li>
- *   <li>Resource cleanup (file handles, memory-mapped buffers)</li>
+ *   <li>loading the segments a manifest lists, and deriving the owners from their deletion
+ *       sets;</li>
+ *   <li>writing a graph as a new segment with dense local ordinals, opening it, and committing a
+ *       manifest that lists it;</li>
+ *   <li>deleting files no manifest lists, left behind by a crash, a superseded commit or an abandoned
+ *       flush, except those of segments still being written or still open.</li>
  * </ul>
+ * The index owns the opened segments and closes them by reference count (see {@link IndexSource}).
+ * See {@link SegmentFiles} for the file names.
+ * <p>
+ * Precondition: one process writes an index directory. There is no lock file, and a load deletes
+ * every file of its layout that its manifest does not list, so a second process loading the same
+ * directory would delete segment files the first has written but not committed yet.
  */
-interface DiskIndexManager extends Closeable
+interface DiskIndexManager
 {
     /**
-     * Graph file format version for compatibility checking.
+     * On-disk format version, recorded in the manifest.
      * <p>
      * History:
      * <ul>
-     *   <li>{@code 1} — version, dimension, vectorCount.</li>
-     *   <li>{@code 2} — adds highestEntityId to detect count-collision corruption
+     *   <li>{@code 1} - version, dimension, vectorCount.</li>
+     *   <li>{@code 2} - adds highestEntityId to detect count-collision corruption
      *       (equal numbers of additions and removals between persists).</li>
-     *   <li>{@code 3} — adds structuralModCount, a persisted counter bumped on every
-     *       graph-affecting mutation (including vec↔null transitions, which leave count
+     *   <li>{@code 3} - adds structuralModCount, a persisted counter bumped on every
+     *       graph-affecting mutation (including vec-null transitions, which leave count
      *       and highestEntityId unchanged). Catches the crash-restart window where the
      *       store advanced past the on-disk graph but the two proxies stayed equal.</li>
-     *   <li>{@code 4} — adds a {@code boolean} recording whether
+     *   <li>{@code 4} - adds a {@code boolean} recording whether
      *       {@link VectorIndexConfiguration#enablePqCompression()} was on when the graph was
-     *       written. That setting changes what the graph contains but appears nowhere else in
-     *       the file, so without it flipping the flag over an existing directory went
-     *       undetected and the old graph was reused. The bump also retires graphs written while
-     *       the flag was inert, which were uncompressed despite being configured for PQ.</li>
-     *   <li>{@code 5} - replaces that {@code boolean} with two {@code int} codes recording
+     *       written.</li>
+     *   <li>{@code 5} - replaces that {@code boolean} with the codes of
      *       {@link VectorIndexConfiguration#vectorStorage()} and
-     *       {@link VectorIndexConfiguration#approximateScoring()}. The boolean could express only
-     *       one of the two dimensions the format now has, so it could not distinguish a graph
-     *       holding quantized vectors from one holding full-precision ones. Two further
-     *       {@code int}s record the effective {@link VectorIndexConfiguration#pqSubspaces()} and
-     *       {@link VectorIndexConfiguration#nvqSubvectors()}, which shape the encoded blocks
-     *       within a mode rather than selecting between modes.</li>
+     *       {@link VectorIndexConfiguration#approximateScoring()} plus the effective
+     *       {@link VectorIndexConfiguration#pqSubspaces()} and
+     *       {@link VectorIndexConfiguration#nvqSubvectors()}.</li>
+     *   <li>{@code 6} - replaces the single {@code <name>.graph} / {@code <name>.meta} /
+     *       {@code <name>.pqv} file set by segments with dense local ordinals and a manifest that
+     *       records the witnesses once and the format and deletions per segment.</li>
+     *   <li>{@code 7} - the same layout. Bumped so that segments written before graph nodes left
+     *       unreachable by parallel inserts or purges were reconnected are rebuilt
+     *       once, with the repair, instead of keeping their unreachable nodes until a merge that
+     *       may never come for the largest segment.</li>
      * </ul>
      * The codes are {@link VectorStorage#code()} and {@link ApproximateScoring#code()}, which are
      * deliberately not ordinals: an existing constant's code never changes and a new one is
      * appended, so inserting a constant cannot silently reinterpret an already written file. A code
-     * this build does not know resolves to {@code null} and is treated as a mismatch, so a file
-     * written by a newer version is rejected and rebuilt rather than misread. That is also why
-     * adding a future scoring or storage mode needs no further version bump.
-     * Bumping this constant invalidates existing on-disk indices: {@code tryLoad} rejects the
-     * {@code .meta} and the graph is rebuilt from the GigaMap-stored source vectors, so no data is
-     * lost.
+     * this build does not know rejects the manifest, so a file written by a newer version is rebuilt
+     * rather than misread.
      * <p>
-     * That rebuild is in memory. The stale files are replaced only by a persist that actually runs,
-     * and none is triggered by the rejection itself: background persistence fires only once its
-     * change counter reaches the configured minimum, the background shutdown persist requires that
-     * counter to be non-zero, and the direct shutdown persist skips a clean incremental index. So an
-     * index that is mutated after the upgrade migrates on its next persist and pays the cold start
-     * once, while a purely read-only one keeps the old files and rebuilds again on every restart
-     * until something calls {@code persistToDisk()}. The same applies to a PQ-enabled index picking
-     * up compression for the first time.
+     * Bumping this constant invalidates existing on-disk indices: {@code tryLoad} rejects a manifest
+     * of another version, deleting the segments it lists, and the graph is rebuilt from the
+     * vector file, so no data is lost. The step to 6 changed the file names as
+     * well, so the files of version 5 and earlier are found by no manifest at all and are ignored:
+     * the graph is built from the vector file, and the next persist writes the new layout.
      */
-    final static int GRAPH_FILE_VERSION = 5;
+    static final int GRAPH_FILE_VERSION = 7;
 
     /**
-     * File extension for graph files.
-     */
-    final static String GRAPH_FILE_EXT = ".graph";
-
-    /**
-     * File extension for metadata files.
-     */
-    final static String META_FILE_EXT = ".meta";
-
-    /**
-     * File extension for the sidecar holding the PQ codes of an
-     * {@link ApproximateScoring#PQ_IN_MEMORY} index.
-     * <p>
-     * A third file rather than a graph feature, because the whole point of that mode is to keep the
-     * codes out of the graph: fusing them duplicates each one {@code maxDegree} times, while this
-     * holds one flat array that is read into heap on load.
-     */
-    /**
-     * Marks the generation witness appended to a {@code .pqv} by {@code writePqSidecar}, so a file
-     * without one - written before the witness existed, or truncated - is told apart from a file
-     * whose witness simply disagrees.
-     */
-    final static int PQV_WITNESS_MAGIC = 0x5051_5657;
-
-    /** Size of that trailer: the magic plus the {@code structuralModCount} it carries. */
-    final static int PQV_WITNESS_BYTES = Integer.BYTES + Long.BYTES;
-
-    final static String PQV_FILE_EXT = ".pqv";
-
-    /**
-     * Extension appended to a live file's name while it is being written. The graph and meta are
-     * written to {@code <name><ext>.tmp} and then atomically renamed onto the live path, so an
-     * interrupted write (e.g. {@code shutdownNow()} mid-persist) can never leave a torn live file.
-     */
-    final static String TEMP_FILE_EXT = ".tmp";
-
-    /**
-     * Returns whether a disk index is loaded and ready.
-     *
-     * @return true if loaded
-     */
-    public boolean isLoaded();
-
-    /**
-     * Returns the on-disk graph index, or null if not loaded.
-     *
-     * @return the disk index
-     */
-    public OnDiskGraphIndex getDiskIndex();
-
-    /**
-     * Returns the PQ codebook embedded in the currently loaded graph, or {@code null} if no index is
-     * loaded or the loaded graph carries no {@link FeatureId#FUSED_PQ} feature.
-     * <p>
-     * The {@code .graph} file is self-describing: {@link FusedPQ} writes the codebook into its header
-     * and restores it on load, so a reloaded index can recover the exact codebook its fused codes were
-     * encoded with. That matters - re-training would produce a <i>different</i> codebook, which would
-     * score the existing codes as noise.
-     *
-     * @return the embedded codebook, or {@code null} if the loaded graph is not PQ-compressed
-     */
-    public ProductQuantization loadedProductQuantization();
-
-    /**
-     * Returns the NVQ quantizer embedded in the currently loaded graph, or {@code null} if no index
-     * is loaded or the loaded graph carries no {@link FeatureId#NVQ_VECTORS} feature.
-     * <p>
-     * As with the PQ codebook the {@code .graph} file is self-describing, but the reason for
-     * recovering it differs. Search never needs it: the loaded {@code NVQ} feature scores through
-     * its own quantizer. It is recovered so the index reports itself compressed immediately on load
-     * rather than only after the next persist, and so that persist does not have to recompute a mean
-     * it already has. Unlike PQ, a differently trained quantizer would be harmless here, because
-     * every persist rewrites the whole graph together with the quantizer in its header.
-     *
-     * @return the embedded quantizer, or {@code null} if the loaded graph stores full-precision vectors
-     */
-    public NVQuantization loadedNVQuantization();
-
-    /**
-     * Returns the PQ codes loaded from the sidecar, or {@code null} unless this index is configured
-     * for {@link ApproximateScoring#PQ_IN_MEMORY} and a sidecar was loaded.
-     * <p>
-     * Unlike the graph's own features these are heap-resident for as long as the index is open,
-     * costing {@code pqSubspaces} bytes for every ordinal up to the highest in use. That is the
-     * trade this mode makes: the graph stays small and the codes are paid for in memory instead.
-     *
-     * @return the loaded codes, or {@code null} if this index does not use them
-     */
-    public PQVectors loadedPqVectors();
-
-    /**
-     * Attempts to load the index from disk, validating the {@code .meta} witnesses against the
-     * current live store state. This is the load-time self-heal check: a graph the store has
-     * advanced past is rejected so it gets rebuilt from the source vectors.
-     *
-     * @return true if successfully loaded, false otherwise
-     */
-    public boolean tryLoad();
-
-    /**
-     * Returns whether a {@code .graph}/{@code .meta} pair is present on disk, regardless of
-     * whether it is usable.
+     * Returns whether a manifest is present on disk, regardless of whether it is usable.
      * <p>
      * Distinguishes "nothing persisted yet" from "a persisted index was rejected", which a
-     * {@code false} from {@link #tryLoad()} alone does not.
+     * {@code null} from {@link #load(MetaState, OwnerTable)} alone does not. Must be asked before the
+     * load, which deletes what it cannot use.
      *
-     * @return {@code true} if both files exist
+     * @return {@code true} if a persisted index is present
      */
     public boolean indexFilesExist();
 
     /**
-     * Attempts to load the index from disk, validating the {@code .meta} witnesses against
-     * {@code expected} instead of the live store state.
+     * Loads the index the manifest describes, validating the manifest's witnesses against
+     * {@code expected}: an index the store has advanced past is rejected so it gets rebuilt from the
+     * source vectors.
      * <p>
-     * Used to reload an index this process has just written, where the graph on disk is known to
-     * correspond to {@code expected} and the live store may legitimately have advanced past it in
-     * the meantime. Comparing against the live state there would reject a perfectly usable file.
+     * The segments take the slots {@code 0..n-1} of {@code owners}, in manifest order, and the owners
+     * are derived from their deletion sets. The caller owns the returned segments, none of which is
+     * retained yet; a rejected load leaves nothing open.
+     * <p>
+     * Deletes every file of the layout the manifest does not list, except the protected sequences
+     * (see {@link SegmentSequences}). A manifest that is read but rejected for its witnesses, its
+     * dimension or a segment that fails to open keeps the files it lists until a persist replaces
+     * them; one rejected for its witnesses or its dimension is retired besides, so that no later load
+     * accepts it (see {@link Default#retireRejectedManifest}). A manifest that cannot be read at all keeps
+     * every file, since the failure may be transient. Only an invalid manifest (truncated, corrupt, of
+     * another version) costs its segments, since nothing it names can be trusted any more.
      *
-     * @param expected the witnesses the {@code .meta} is required to carry
-     * @return true if successfully loaded, false otherwise
+     * @param expected the witnesses the manifest is required to carry
+     * @param owners   an empty owner table to take the slots from and derive the owners into
+     * @return the loaded index, or {@code null} if there is none or it was rejected
      */
-    public boolean tryLoad(MetaState expected);
+    public default LoadedIndex load(
+        final MetaState  expected,
+        final OwnerTable owners
+    )
+    {
+        return this.load(expected, owners, true);
+    }
 
     /**
-     * Writes the in-memory index to disk.
+     * {@link #load(MetaState, OwnerTable)}, retiring a manifest it rejects only if {@code retireRejected}. A
+     * load within a session that compares against counters the session has advanced (the reload after a
+     * {@code removeAll}) passes {@code false}: the files it rejects still match the stored record until the
+     * next store commits, and the next session's load compares against that record and retires them if they
+     * do not.
      *
-     * @param index     the in-memory graph index
-     * @param ravv      random access vector values for writing vectors
-     * @param pqManager  the PQ compression manager (may be null if approximate scoring is disabled)
-     * @param nvqManager the NVQ compression manager (may be null if the graph stores full precision)
-     * @param metaState  the {@code .meta} witness values captured together with {@code index}
-     *                   under the {@code parentMap} monitor (see {@link MetaState})
+     * @param expected       the witnesses the manifest is required to carry
+     * @param owners         an empty owner table to take the slots from and derive the owners into
+     * @param retireRejected whether a manifest rejected for its witnesses or its dimension is retired
+     * @return the loaded index, or {@code null} if there is none or it was rejected
+     */
+    public LoadedIndex load(
+        MetaState  expected,
+        OwnerTable owners,
+        boolean    retireRejected
+    );
+
+    /**
+     * Returns whether the index the manifest describes loads against {@code expected}, closing what
+     * it opened again. For tests and diagnostics.
+     *
+     * @param expected the witnesses the manifest is required to carry
+     * @return whether it loads
+     */
+    public default boolean tryLoad(final MetaState expected)
+    {
+        final LoadedIndex loaded = this.load(expected, OwnerTable.New());
+        if(loaded == null)
+        {
+            return false;
+        }
+        loaded.segments().forEach(DiskSegment::close);
+        return true;
+    }
+
+    /**
+     * Writes an in-memory graph as the files of a new segment and syncs them, without committing
+     * it: no manifest lists the segment yet. A failure deletes what was written.
+     *
+     * @param graph    the graph to write, cleaned up and not empty
+     * @param ravv     the vectors by global ordinal
+     * @param pq       the PQ codebook to write the segment's codes with, or {@code null}
+     * @param nvq      the NVQ quantizer to store the vectors with, or {@code null}
+     * @param sequence the segment's sequence, reserved for it
+     * @return the manifest entry of the segment, with no deletions
      * @throws IOException if writing fails
      */
-    public void writeIndex(
-        OnHeapGraphIndex         index     ,
-        RandomAccessVectorValues ravv      ,
-        PQCompressionManager     pqManager ,
-        NVQCompressionManager    nvqManager,
-        MetaState                metaState
+    public SegmentManifest.Segment writeSegment(
+        OnHeapGraphIndex         graph   ,
+        RandomAccessVectorValues ravv    ,
+        ProductQuantization      pq      ,
+        NVQuantization           nvq     ,
+        long                     sequence
     ) throws IOException;
 
     /**
-     * Removes the persisted {@code .graph} and {@code .meta} files, if present.
+     * Opens the files of a written segment.
+     *
+     * @param entry     the segment's manifest entry; its deletions become the segment's committed
+     *                  ones
+     * @param lease     the slot lease the segment holds, retained by this call
+     * @param flagged   whether the segment no longer matches the index
+     * @param logLength how many entries of the slot's leave log the entry's deletions cover
+     * @return the segment, not retained yet
+     * @throws IOException if a file cannot be read or does not match the entry
+     */
+    public DiskSegment openSegment(
+        SegmentManifest.Segment entry    ,
+        OwnerTable.Lease        lease    ,
+        boolean                 flagged  ,
+        int                     logLength
+    ) throws IOException;
+
+    /**
+     * Commits a manifest listing {@code listed} with {@code witness}: temp file, sync, atomic move,
+     * directory sync. The files of the listed segments must be written and synced. Calls the commit
+     * stage hook at every {@link CommitStage}.
+     *
+     * @param witness the witnesses sampled together with the content the manifest describes
+     * @param listed  the segments the index consists of, ascending by sequence
+     * @throws IOException if the commit fails; then the previous manifest is still in place, unless
+     *                     the failure came after the move
+     */
+    public void commit(
+        MetaState                     witness,
+        List<SegmentManifest.Segment> listed
+    ) throws IOException;
+
+    /**
+     * Deletes the files of every segment in the directory that is not in {@code keep} and not
+     * protected (see {@link SegmentSequences}), and the manifest's temp file. Never throws; a failed
+     * deletion is logged and retried by the next cleanup.
+     *
+     * @param keep the sequences the committed manifest lists
+     */
+    public void reapUnlistedFiles(Set<Long> keep);
+
+    /**
+     * Deletes the files of one segment, written but never committed. Never throws.
+     *
+     * @param sequence the segment's sequence
+     */
+    public void deleteSegmentFiles(long sequence);
+
+    /**
+     * Removes the persisted manifest and every segment file that is not protected, if present.
      * <p>
-     * Used when the index holds no vectors any more and therefore has nothing to persist: the
-     * files left over from an earlier, non-empty state describe content that no longer exists.
-     * Correctness does not depend on this removal - {@link #tryLoad(MetaState)} rejects a stale
-     * pair through its witness comparison - it only keeps dead files from occupying disk space.
+     * Used when the index holds no vectors any more and therefore has nothing to persist: the files
+     * left over from an earlier, non-empty state describe content that no longer exists.
+     * Correctness does not depend on this removal - {@link #load(MetaState, OwnerTable)} rejects a
+     * stale manifest through its witness comparison - it only keeps dead files from occupying disk
+     * space. Opens and closes nothing: open segments keep their files until they are closed.
      * <p>
      * Never throws: a failed deletion is logged and leaves a harmless stale file behind, which the
-     * next successful write replaces. This is called from the persist path, including on shutdown,
-     * where a cleanup failure must not mask or replace the outcome of the persist itself.
+     * next load deletes. This is called from the persist path, including on shutdown, where a cleanup
+     * failure must not mask or replace the outcome of the persist itself.
      */
     public void deleteIndexFiles();
 
     /**
-     * Closes disk-related resources.
+     * Returns the PQ codebook a segment's codes were encoded with, from its {@link FeatureId#FUSED_PQ}
+     * feature or its {@code .pqv}, or {@code null} if it carries none.
+     *
+     * @param segment the segment
+     * @return the codebook, or {@code null}
      */
-    public void close();
+    public static ProductQuantization codebookOf(final DiskSegment segment)
+    {
+        return Default.productQuantizationOf(segment.graph(), segment.pqVectors());
+    }
+
+
+    /**
+     * Thrown by {@link #commit} for a failure after the new manifest has replaced the old one: the
+     * commit took effect, only its durability is not proven, so the caller must treat the segments it
+     * lists as committed.
+     */
+    public static final class CommitIncompleteException extends IOException
+    {
+        private static final long serialVersionUID = 1L;
+
+        CommitIncompleteException(final Throwable cause)
+        {
+            super("The manifest was replaced, but the commit did not complete: " + cause, cause);
+        }
+    }
+
+
+    /**
+     * What a successful {@link #load(MetaState, OwnerTable)} hands over.
+     *
+     * @param segments the segments in slots {@code 0..n-1}, ascending by sequence, none retained
+     * @param codebook the PQ codebook of the newest segment written for the configured format that
+     *                 carries one, or {@code null}; segments encoded with another one, or with none
+     *                 while this exists, are flagged
+     * @param nvq      the NVQ quantizer of the newest unflagged segment that stores quantized
+     *                 vectors, or {@code null}
+     */
+    public record LoadedIndex(
+        List<DiskSegment>   segments,
+        ProductQuantization codebook,
+        NVQuantization      nvq
+    )
+    {
+        /**
+         * @return whether a segment is flagged for a rewrite
+         */
+        public boolean hasFlaggedSegments()
+        {
+            return this.segments.stream().anyMatch(DiskSegment::flaggedForMerge);
+        }
+    }
+
+
+    /**
+     * The points of the commit sequence in {@link #commit}, in order. A crash at any of them must
+     * leave a loadable index: the old one before {@link #MANIFEST_MOVED}, the new one from it on.
+     */
+    public enum CommitStage
+    {
+        /** The new segments' files are written and synced, the manifest is untouched. */
+        SEGMENTS_WRITTEN,
+
+        /** The new manifest is written and synced to its temp file. */
+        MANIFEST_TEMP_WRITTEN,
+
+        /** The new manifest has replaced the old one, the directory is not synced yet. */
+        MANIFEST_MOVED,
+
+        /** The directory is synced; the files of segments no longer listed are still there. */
+        DIRECTORY_SYNCED
+    }
 
 
     /**
@@ -297,30 +381,52 @@ interface DiskIndexManager extends Closeable
 
         /**
          * Returns a monotonically increasing count of graph-affecting mutations
-         * (add / remove / vec↔null transition). Unlike {@link #getExpectedVectorCount()}
-         * and {@link #getHighestEntityId()}, this value changes on a vec↔null transition,
-         * so comparing the store-recovered value against the one stamped into the disk
-         * {@code .meta} detects the crash-restart window where a stale on-disk graph would
-         * otherwise be accepted (a nulled entity still returned, a new embedding missing).
+         * (add / remove / vec-null transition). Unlike {@link #getExpectedVectorCount()}
+         * and {@link #getHighestEntityId()}, this value changes on a vec-null transition,
+         * so comparing the store-recovered value against the one stamped into the manifest
+         * detects the crash-restart window where a stale on-disk index would otherwise be
+         * accepted (a nulled entity still returned, a new embedding missing).
          *
          * @return the persisted structural-change counter
          */
         public long getStructuralModCount();
+
+        /**
+         * Test-only: called by {@link Default#commit} at each {@link CommitStage}, read at every
+         * stage so that a hook set after the manager was created still applies. A hook that throws
+         * simulates a crash at that point.
+         *
+         * @return the hook, {@code null} in production
+         */
+        public default Consumer<CommitStage> commitStageTestHook()
+        {
+            return null;
+        }
+
+        /**
+         * Test-only: run by a cleanup of unlisted files right before it lists the index directory.
+         *
+         * @return the hook, {@code null} in production
+         */
+        public default Runnable reapListingTestHook()
+        {
+            return null;
+        }
     }
 
 
     /**
-     * Immutable snapshot of the three {@code .meta} witness values.
+     * Immutable snapshot of the three witness values a manifest carries.
      * <p>
-     * These describe the <em>written graph</em>, so they must be sampled at the same instant the
-     * in-memory graph is captured — inside {@code synchronized(parentMap)} in persist Phase 1 — and
-     * then stamped verbatim into the {@code .meta}. Reading them live during Phase 2 (after the
-     * monitor is released) would let a {@code vec↔null} mutation landing mid-write advance
-     * {@link IndexStateProvider#getStructuralModCount() structuralModCount} before the metadata is
+     * These describe the <em>written index</em>, so they must be sampled at the same instant the
+     * in-memory graph is captured - inside {@code synchronized(parentMap)} in persist Phase 1 - and
+     * then stamped verbatim into the manifest. Reading them live during Phase 2 (after the monitor is
+     * released) would let a {@code vec-null} mutation landing mid-write advance
+     * {@link IndexStateProvider#getStructuralModCount() structuralModCount} before the manifest is
      * written, stamping a post-mutation counter over a pre-mutation graph. A crash before the next
-     * persist would then leave the store counter equal to the {@code .meta} counter, so the stale
-     * graph would be wrongly accepted on restart (the nulled entity reappearing in search).
-     * Capturing all three keeps the {@code .meta} internally consistent with the captured graph.
+     * persist would then leave the store counter equal to the manifest counter, so the stale graph
+     * would be wrongly accepted on restart (the nulled entity reappearing in search). Capturing all
+     * three keeps the manifest internally consistent with the captured graph.
      */
     public static final class MetaState
     {
@@ -341,7 +447,7 @@ interface DiskIndexManager extends Closeable
 
         /**
          * Returns whether all three witnesses equal those of {@code other}, i.e. whether
-         * {@link DiskIndexManager#tryLoad(MetaState)} would accept a {@code .meta} stamped with
+         * {@link DiskIndexManager#tryLoad(MetaState)} would accept a manifest stamped with
          * {@code other} when this state is expected.
          *
          * @param other the witnesses to compare with
@@ -354,403 +460,784 @@ interface DiskIndexManager extends Closeable
                 && this.structuralModCount  == other.structuralModCount
             ;
         }
+
+        /**
+         * The witness of a manifest a load rejected and retired. It matches no index state: an empty map has a
+         * {@code highestEntityId} of {@code -1}, but the vector count and the mod count are never negative, and
+         * a match needs all three.
+         */
+        static final MetaState RETIRED = new MetaState(-1L, -1L, -1L);
+
+        boolean isRetired()
+        {
+            return this.matches(RETIRED);
+        }
+
+        @Override
+        public String toString()
+        {
+            return "MetaState[expectedVectorCount=" + this.expectedVectorCount + ", highestEntityId="
+                + this.highestEntityId + ", structuralModCount=" + this.structuralModCount + "]";
+        }
     }
 
 
     /**
      * Default implementation of DiskIndexManager.
+     * <p>
+     * Holds no mutable state of its own besides the shared {@link SegmentSequences}. Writing and
+     * committing happen one flush at a time, under the index's flush permit.
      */
     public static class Default implements DiskIndexManager
     {
         private static final Logger LOG = LoggerFactory.getLogger(DiskIndexManager.class);
 
-        private final IndexStateProvider provider            ;
-        private final String             name                ;
-        private final Path               indexDirectory      ;
-        private final int                dimension           ;
-        private final GraphFormat        format              ;
-        private final boolean            parallelOnDiskWrite ;
+        /**
+         * Marks the witness appended to a {@code .pqv} by {@code writePqVectors}, so a file without
+         * one - truncated, or of another format - is told apart from one whose witness disagrees.
+         */
+        static final int PQV_WITNESS_MAGIC = 0x5051_5657;
 
-        private OnDiskGraphIndex diskIndex     ;
-        private ReaderSupplier   readerSupplier;
-        private PQVectors        pqVectors     ;
-        private boolean          loaded        ;
+        /** Size of that witness: the magic plus the segment sequence it carries. */
+        static final int PQV_WITNESS_BYTES = Integer.BYTES + Long.BYTES;
+
+        /**
+         * Size of the CRC32 that closes a {@code .pqv}, over everything before it. Checked before
+         * {@code PQVectors.load} sees the file, since that sizes its allocations from the counts in it.
+         */
+        static final int PQV_CRC_BYTES = Long.BYTES;
+
+        private final IndexStateProvider provider           ;
+        private final String             name               ;
+        private final Path               indexDirectory     ;
+        private final int                dimension          ;
+        private final GraphFormat        format             ;
+        private final boolean            parallelOnDiskWrite;
+        private final SegmentSequences   sequences          ;
 
         Default(
-            final IndexStateProvider provider            ,
-            final String             name                ,
-            final Path               indexDirectory      ,
-            final int                dimension           ,
-            final GraphFormat        format              ,
+            final IndexStateProvider provider           ,
+            final String             name               ,
+            final Path               indexDirectory     ,
+            final int                dimension          ,
+            final GraphFormat        format             ,
             final boolean            parallelOnDiskWrite
         )
         {
-            this.provider             = provider            ;
-            this.name                 = name                ;
-            this.indexDirectory       = indexDirectory      ;
-            this.dimension            = dimension           ;
-            this.format               = format              ;
-            this.parallelOnDiskWrite  = parallelOnDiskWrite ;
+            this(provider, name, indexDirectory, dimension, format, parallelOnDiskWrite, new SegmentSequences());
         }
 
-        @Override
-        public boolean isLoaded()
+        Default(
+            final IndexStateProvider provider           ,
+            final String             name               ,
+            final Path               indexDirectory     ,
+            final int                dimension          ,
+            final GraphFormat        format             ,
+            final boolean            parallelOnDiskWrite,
+            final SegmentSequences   sequences
+        )
         {
-            return this.loaded;
-        }
-
-        @Override
-        public OnDiskGraphIndex getDiskIndex()
-        {
-            return this.diskIndex;
+            this.provider            = provider           ;
+            this.name                = name               ;
+            this.indexDirectory      = indexDirectory     ;
+            this.dimension           = dimension          ;
+            this.format              = format             ;
+            this.parallelOnDiskWrite = parallelOnDiskWrite;
+            this.sequences           = sequences          ;
         }
 
         @Override
         public boolean indexFilesExist()
         {
             return this.indexDirectory != null
-                && Files.exists(this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT))
-                && Files.exists(this.indexDirectory.resolve(this.name + META_FILE_EXT))
+                && Files.exists(this.manifestPath())
             ;
         }
 
-        @Override
-        public ProductQuantization loadedProductQuantization()
+        static ProductQuantization productQuantizationOf(
+            final OnDiskGraphIndex graph    ,
+            final PQVectors        pqVectors
+        )
         {
-            if(this.diskIndex == null)
-            {
-                return null;
-            }
-            final PQVectors loadedPqVectors = this.pqVectors;
-            if(loadedPqVectors != null)
+            if(pqVectors != null)
             {
                 // PQ_IN_MEMORY writes no fused feature, so the graph header carries no codebook. The
-                // sidecar embeds its own, which PQVectors.load has already restored.
-                return loadedPqVectors.getCompressor();
+                // .pqv embeds its own, which PQVectors.load has already restored.
+                return pqVectors.getCompressor();
             }
-
-            return this.diskIndex.getFeatures().get(FeatureId.FUSED_PQ) instanceof FusedPQ fusedPQ
+            return graph.getFeatures().get(FeatureId.FUSED_PQ) instanceof final FusedPQ fusedPQ
                 ? fusedPQ.getPQ()
                 : null
             ;
         }
 
         @Override
-        public NVQuantization loadedNVQuantization()
-        {
-            if(this.diskIndex == null)
-            {
-                return null;
-            }
-            return this.diskIndex.getFeatures().get(FeatureId.NVQ_VECTORS) instanceof NVQ nvqFeature
-                ? nvqFeature.getNVQuantization()
-                : null
-            ;
-        }
-
-        @Override
-        public PQVectors loadedPqVectors()
-        {
-            return this.pqVectors;
-        }
-
-        @Override
-        public boolean tryLoad()
-        {
-            return this.tryLoad(new MetaState(
-                this.provider.getExpectedVectorCount(),
-                this.provider.getHighestEntityId()    ,
-                this.provider.getStructuralModCount()
-            ));
-        }
-
-        @Override
-        public boolean tryLoad(final MetaState expected)
+        public LoadedIndex load(
+            final MetaState  expected,
+            final OwnerTable owners,
+            final boolean    retireRejected
+        )
         {
             if(this.indexDirectory == null)
             {
-                return false;
+                return null;
             }
 
-            final Path graphPath = this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT);
-            final Path metaPath = this.indexDirectory.resolve(this.name + META_FILE_EXT);
-
-            if(!Files.exists(graphPath) || !Files.exists(metaPath))
+            final Path manifestPath = this.manifestPath();
+            if(!Files.exists(manifestPath))
             {
-                LOG.debug("Disk index files not found for '{}'", this.name);
-                return false;
+                LOG.debug("No disk index manifest found for '{}'", this.name);
+                this.sequences.committed(Set.of());
+                this.reapUnlistedFiles(Set.of());
+                return null;
             }
 
+            final SegmentManifest manifest;
             try
             {
-                // Verify metadata matches current configuration
-                if(!this.verifyMetadata(metaPath, expected))
-                {
-                    LOG.info("Disk index metadata mismatch for '{}', will rebuild", this.name);
-                    return false;
-                }
-
-                // Load the on-disk graph index. The storage and fused-PQ features are embedded in
-                // the graph file itself and come back with it.
-                this.readerSupplier = ReaderSupplierFactory.open(graphPath);
-                this.diskIndex = OnDiskGraphIndex.load(this.readerSupplier);
-
-                // The in-memory PQ codes are not, so they are loaded separately. A sidecar that has
-                // gone missing is a rejection rather than a degrade: the meta says this index
-                // traverses on PQ codes, and silently serving it exactly instead would make the
-                // configuration a lie. Returning false rebuilds from the store, which restores both.
-                //
-                // Absence is not always loss, though. PQ training needs MIN_VECTORS_FOR_PQ_TRAINING
-                // embeddings, and below that the persist writes no codebook and so no sidecar, while
-                // the meta still records the CONFIGURED scoring mode - as it must, since recording
-                // what the write achieved instead would reject its own output and rebuild forever.
-                // Treating that as loss would do the same by a different route: an index under the
-                // threshold would rebuild on every restart for as long as it stayed small. So the
-                // count witness, which is already verified above, decides which case this is.
-                if(this.format.usesInMemoryPq())
-                {
-                    final Path pqvPath = this.indexDirectory.resolve(this.name + PQV_FILE_EXT);
-                    if(!Files.exists(pqvPath))
-                    {
-                        // The graph's own node count, not expectedVectorCount. The latter counts
-                        // entities, and in embedded mode an entity without an embedding is counted
-                        // but not indexed - so a map of 300 entities holding 100 vectors reads as
-                        // 300 here while PQ training saw 100 and declined. Using it would restore
-                        // the rebuild-every-restart loop for exactly the corpus shape that provoked
-                        // training to decline in the first place. The graph is already open at this
-                        // point and its node count is what was actually written.
-                        final int indexedVectors = this.diskIndex.size(0);
-                        if(indexedVectors < PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING)
-                        {
-                            // Too small to have trained: there are no codes to be missing. Traversal
-                            // falls back to exact scoring, exactly as a FusedPQ graph whose training
-                            // declined does, and the next persist past the threshold writes both.
-                            LOG.debug("No PQ sidecar for '{}' and only {} indexed vectors, below the"
-                                + " {} needed to train - loading without compressed scoring",
-                                this.name, indexedVectors,
-                                PQCompressionManager.MIN_VECTORS_FOR_PQ_TRAINING);
-                        }
-                        else
-                        {
-                            LOG.info("PQ sidecar missing for '{}', will rebuild", this.name);
-                            this.close();
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        final PQVectors loadedCodes = this.readPqSidecar(pqvPath, expected.structuralModCount);
-                        if(loadedCodes == null || !this.sidecarFitsTheGraph(loadedCodes, expected))
-                        {
-                            this.close();
-                            return false;
-                        }
-                        this.pqVectors = loadedCodes;
-                        LOG.info("Loaded PQ sidecar for '{}': {} vectors, {} bytes resident",
-                            this.name, this.pqVectors.count(), this.pqVectors.ramBytesUsed());
-                    }
-                }
-
-                this.loaded = true;
-                LOG.info("Loaded disk index '{}' with {} nodes", this.name, this.diskIndex.size(0));
-
-                return true;
+                manifest = SegmentManifest.read(manifestPath);
             }
-            catch(final Exception e)
+            catch(final SegmentManifest.InvalidManifestException e)
             {
-                LOG.warn("Failed to load disk index for '{}': {}", this.name, e.getMessage());
-                this.close();
-                return false;
+                // Nothing the manifest names can be trusted without it, so its segments go too. The
+                // manifest itself stays until a persist replaces it, so the index still counts as
+                // present and that persist gets scheduled.
+                LOG.info("Disk index manifest of '{}' is unusable, will rebuild: {}", this.name, e.getMessage());
+                this.sequences.committed(Set.of());
+                this.reapUnlistedFiles(Set.of());
+                return null;
+            }
+            catch(final IOException e)
+            {
+                // The file could not be read at all, which may be transient (a sharing violation, a
+                // scanner holding it): reject the load but keep every file, since the manifest may be
+                // perfectly valid and is what decides which of them still matter.
+                LOG.warn("Could not read the disk index manifest of '{}', will rebuild: {}", this.name, e.toString());
+                return null;
+            }
+
+            final Set<Long> listed = new HashSet<>();
+            manifest.segments().forEach(segment -> listed.add(segment.sequence()));
+            this.sequences.committed(listed);
+            this.reapUnlistedFiles(listed);
+
+            if(manifest.witness().isRetired())
+            {
+                LOG.info("Disk index of '{}' was rejected by an earlier load and not replaced since, will rebuild",
+                    this.name);
+                return null;
+            }
+            if(manifest.dimension() != this.dimension)
+            {
+                LOG.info("Disk index of '{}' has dimension {}, configured {}, will rebuild",
+                    this.name, manifest.dimension(), this.dimension);
+                if(retireRejected)
+                {
+                    this.retireRejectedManifest(manifest);
+                }
+                return null;
+            }
+            if(!manifest.witness().matches(expected))
+            {
+                // The store advanced past the on-disk index since it was written (e.g. a vec-null
+                // transition committed via storeRoot() but not yet persistToDisk()). Reject it so
+                // it is rebuilt from the current source vectors.
+                LOG.info("Disk index of '{}' is stale ({}, store {}), will rebuild",
+                    this.name, manifest.witness(), expected);
+                if(retireRejected)
+                {
+                    this.retireRejectedManifest(manifest);
+                }
+                return null;
+            }
+
+            final List<LoadedFiles> files    = new ArrayList<>(manifest.segments().size());
+            final List<DiskSegment> opened   = new ArrayList<>(manifest.segments().size());
+            boolean                 complete = false;
+            try
+            {
+                final GraphFormat configured = SegmentManifest.effectiveFormat(this.format, this.dimension);
+                for(final SegmentManifest.Segment segment : manifest.segments())
+                {
+                    files.add(this.openSegmentFiles(segment));
+                }
+
+                // The codebook every segment's codes have to be encoded with: the newest one among
+                // the segments written for the configured format. A segment encoded with another
+                // can still be searched, exactly, but its codes cannot be scored against the others.
+                ProductQuantization codebook = null;
+                for(int i = files.size() - 1; i >= 0 && codebook == null; i--)
+                {
+                    if(files.get(i).segment().format().equals(configured))
+                    {
+                        codebook = productQuantizationOf(files.get(i).graph(), files.get(i).pqVectors());
+                    }
+                }
+
+                for(int slot = 0; slot < files.size(); slot++)
+                {
+                    final LoadedFiles         loaded          = files.get(slot);
+                    final ProductQuantization pq              = productQuantizationOf(
+                        loaded.graph(),
+                        loaded.pqVectors()
+                    );
+                    final boolean             otherCodebook   = pq != null && !pq.equals(codebook);
+                    // Written before the codebook was trained: it carries no codes the index could
+                    // traverse, so it would be searched exactly for good unless it is rewritten.
+                    final boolean             missingCodebook = pq == null && codebook != null
+                        && configured.usesPq();
+                    final boolean             mismatch        = otherCodebook || missingCodebook
+                        || !loaded.segment().format().equals(configured);
+                    if(mismatch)
+                    {
+                        LOG.info("Segment {} of '{}' was written for {} (configured {}){}, flagged for merge",
+                            loaded.segment().sequence(), this.name, loaded.segment().format(), configured,
+                            otherCodebook ? " with another codebook" : missingCodebook ? " without the codebook" : "");
+                    }
+                    opened.add(this.newSegment(loaded, owners.allocate(slot), mismatch, 0));
+                }
+                deriveOwners(manifest.segments(), opened, owners);
+
+                NVQuantization nvq = null;
+                for(int i = opened.size() - 1; i >= 0 && nvq == null; i--)
+                {
+                    if(!opened.get(i).flaggedForMerge()
+                        && opened.get(i).graph().getFeatures().get(FeatureId.NVQ_VECTORS) instanceof final NVQ found)
+                    {
+                        nvq = found.getNVQuantization();
+                    }
+                }
+                final ProductQuantization usable = opened.stream()
+                    .filter(segment -> !segment.flaggedForMerge())
+                    .anyMatch(segment -> productQuantizationOf(segment.graph(), segment.pqVectors()) != null)
+                    ? codebook
+                    : null
+                ;
+
+                complete = true;
+                LOG.info("Loaded disk index '{}' with {} segments and {} live nodes",
+                    this.name, opened.size(), countLive(manifest.segments()));
+                return new LoadedIndex(List.copyOf(opened), usable, nvq);
+            }
+            catch(final IOException | RuntimeException e)
+            {
+                LOG.warn("Failed to load disk index for '{}'", this.name, e);
+                return null;
+            }
+            finally
+            {
+                if(!complete)
+                {
+                    // Also on an Error (an AssertionError from jVector under -ea), which the catch
+                    // does not take. The segments own the files they were created from; the rest are
+                    // still loose.
+                    opened.forEach(DiskSegment::close);
+                    files.subList(opened.size(), files.size()).forEach(LoadedFiles::close);
+                }
+            }
+        }
+
+        private DiskSegment newSegment(
+            final LoadedFiles      loaded   ,
+            final OwnerTable.Lease lease    ,
+            final boolean          flagged  ,
+            final int              logLength
+        )
+        {
+            final long sequence = loaded.segment().sequence();
+            this.sequences.opened(sequence);
+            try
+            {
+                return DiskSegment.New(
+                    sequence,
+                    lease,
+                    loaded.segment().format(),
+                    flagged,
+                    loaded.localToGlobal(),
+                    loaded.graph(),
+                    loaded.readerSupplier(),
+                    loaded.pqVectors(),
+                    loaded.segment().deletedLocals(),
+                    logLength,
+                    () -> this.segmentClosed(sequence)
+                );
+            }
+            catch(final RuntimeException e)
+            {
+                this.sequences.closed(sequence);
+                lease.release();
+                throw e;
+            }
+        }
+
+        private static long countLive(final List<SegmentManifest.Segment> segments)
+        {
+            return segments.stream()
+                .mapToLong(segment -> segment.nodeCount() - segment.deletedCount())
+                .sum()
+            ;
+        }
+
+        /**
+         * Derives the owners from the deletion sets: each segment owns every entity of a local
+         * ordinal it has not deleted. Segments are applied in ascending sequence, so if two claim the
+         * same entity - which the commit protocol never produces - the newer one wins.
+         */
+        private void deriveOwners(
+            final List<SegmentManifest.Segment> entries ,
+            final List<DiskSegment>             segments,
+            final OwnerTable                    owners
+        )
+        {
+            long conflicts = 0;
+            for(int i = 0; i < segments.size(); i++)
+            {
+                final int   slot          = segments.get(i).slot();
+                final int[] localToGlobal = segments.get(i).localToGlobal();
+                final int[] deleted       = entries.get(i).deletedLocals();
+                int         nextDeleted   = 0;
+                for(int local = 0; local < localToGlobal.length; local++)
+                {
+                    if(nextDeleted < deleted.length && deleted[nextDeleted] == local)
+                    {
+                        nextDeleted++;
+                        continue;
+                    }
+                    // Straight into the owners, not through the table: nothing has left anything yet.
+                    if(owners.owners().set(localToGlobal[local], slot) != SegmentOwners.NONE)
+                    {
+                        conflicts++;
+                    }
+                }
+            }
+            if(conflicts > 0)
+            {
+                LOG.warn("{} entities of '{}' are live in more than one segment, the newest copy is used",
+                    conflicts, this.name);
             }
         }
 
         /**
-         * Verifies that the metadata file matches the current configuration and the expected
-         * witness values.
+         * The open files of one segment, before it is decided whether the segment is flagged.
          */
-        private boolean verifyMetadata(final Path metaPath, final MetaState expected) throws IOException
+        /** A file of the layout a cleanup found unlisted, with the segment sequence it carries, if any. */
+        private record UnlistedFile(Path path, OptionalLong sequence) {}
+
+        private record LoadedFiles(
+            SegmentManifest.Segment segment       ,
+            OnDiskGraphIndex        graph         ,
+            ReaderSupplier          readerSupplier,
+            int[]                   localToGlobal ,
+            PQVectors               pqVectors
+        )
         {
-            try(final DataInputStream dis = new DataInputStream(new FileInputStream(metaPath.toFile())))
+            void close()
             {
-                final int version = dis.readInt();
-                if(version != GRAPH_FILE_VERSION)
+                try
                 {
-                    LOG.debug("Metadata version mismatch: expected {}, got {}", GRAPH_FILE_VERSION, version);
-                    return false;
+                    this.graph.close();
                 }
-
-                final int fileDimension = dis.readInt();
-                if(fileDimension != this.dimension)
+                catch(final IOException e)
                 {
-                    LOG.debug("Dimension mismatch: expected {}, got {}", this.dimension, fileDimension);
-                    return false;
+                    LOG.warn("Error closing graph of segment {}: {}", this.segment.sequence(), e.getMessage());
                 }
-
-                final long vectorCount = dis.readLong();
-                if(vectorCount != expected.expectedVectorCount)
+                try
                 {
-                    LOG.debug("Vector count mismatch: expected {}, got {}", expected.expectedVectorCount, vectorCount);
-                    return false;
+                    this.readerSupplier.close();
                 }
-
-                final long highestEntityId = dis.readLong();
-                if(highestEntityId != expected.highestEntityId)
+                catch(final IOException e)
                 {
-                    LOG.debug("Highest entity id mismatch: expected {}, got {}", expected.highestEntityId, highestEntityId);
-                    return false;
+                    LOG.warn("Error closing reader of segment {}: {}", this.segment.sequence(), e.getMessage());
                 }
+            }
+        }
 
-                final long structuralModCount = dis.readLong();
-                if(structuralModCount != expected.structuralModCount)
+        private LoadedFiles openSegmentFiles(final SegmentManifest.Segment segment) throws IOException
+        {
+            final long sequence = segment.sequence();
+            final int[] localToGlobal = SegmentFiles.readOrdinalMap(
+                this.indexDirectory.resolve(SegmentFiles.ordinalMapFileName(this.name, sequence)),
+                segment.nodeCount()
+            );
+
+            PQVectors pqVectors = null;
+            if(segment.hasPqVectors())
+            {
+                pqVectors = this.readPqVectors(
+                    this.indexDirectory.resolve(SegmentFiles.pqVectorsFileName(this.name, sequence)),
+                    segment
+                );
+            }
+
+            final ReaderSupplier readerSupplier = ReaderSupplierFactory.open(
+                this.indexDirectory.resolve(SegmentFiles.graphFileName(this.name, sequence))
+            );
+            try
+            {
+                final OnDiskGraphIndex graph;
+                try
                 {
-                    // The store advanced past the on-disk graph since it was written (e.g. a
-                    // vec↔null transition committed via storeRoot() but not yet persistToDisk()).
-                    // Reject the disk graph so it is rebuilt from the current source vectors.
-                    LOG.debug("Structural mod count mismatch: expected {}, got {}", expected.structuralModCount, structuralModCount);
-                    return false;
+                    graph = OnDiskGraphIndex.load(readerSupplier);
                 }
-
-                // fromCode returns null for a code this build does not know, which is what a file
-                // written by a newer version carrying a constant we lack looks like. Treating that
-                // as a mismatch means a newer file is rejected and rebuilt, never misread as some
-                // other constant - which is the whole reason these are explicit codes rather than
-                // ordinals.
-                final VectorStorage fileStorage = VectorStorage.fromCode(dis.readInt());
-                if(fileStorage != this.format.storage())
+                catch(final OutOfMemoryError | AssertionError e)
                 {
-                    // The file's configuration is verified rather than assumed. Note this is not
-                    // what protects the removeIndex()/add() path - a new index starts at
-                    // structuralModCount 0 against a persisted >= 1, so that load is already refused
-                    // above. What reaches here is a file whose witnesses do match but whose format
-                    // does not, the concrete case being a downgrade: same index, same store, same
-                    // counter, written by a build that knew a mode this one does not.
-                    LOG.info("Vector storage setting changed for '{}' (file={}, configured={}), rebuilding",
-                        this.name, fileStorage, this.format.storage());
-                    return false;
+                    // jVector reads the upper layers at open and sizes their arrays from the file, checked only by
+                    // an assert: a damaged count is one impossible allocation, nothing is held. As an Error it would
+                    // fail the storage's start, on every restart; rejected, the segment costs a graph rebuild.
+                    throw new IOException("Segment " + sequence + " graph file is damaged", e);
                 }
-
-                final ApproximateScoring fileScoring = ApproximateScoring.fromCode(dis.readInt());
-                if(fileScoring != this.format.scoring())
+                if(graph.size(0) != segment.nodeCount())
                 {
-                    LOG.info("Approximate scoring setting changed for '{}' (file={}, configured={}), rebuilding",
-                        this.name, fileScoring, this.format.scoring());
-                    return false;
+                    graph.close();
+                    throw new IOException("Segment " + sequence + " graph holds " + graph.size(0)
+                        + " nodes, the manifest records " + segment.nodeCount());
                 }
-
-                final int filePqSubspaces = dis.readInt();
-                final int pqSubspaces     = this.format.effectivePqSubspaces(this.dimension);
-                if(filePqSubspaces != pqSubspaces)
+                return new LoadedFiles(segment, graph, readerSupplier, localToGlobal, pqVectors);
+            }
+            catch(final IOException | RuntimeException e)
+            {
+                try
                 {
-                    LOG.info("PQ subspace count changed for '{}' (file={}, configured={}), rebuilding",
-                        this.name, filePqSubspaces, pqSubspaces);
-                    return false;
+                    readerSupplier.close();
                 }
-
-                final int fileNvqSubvectors = dis.readInt();
-                final int nvqSubvectors     = this.format.effectiveNvqSubvectors();
-                if(fileNvqSubvectors != nvqSubvectors)
+                catch(final IOException closeFailure)
                 {
-                    LOG.info("NVQ subvector count changed for '{}' (file={}, configured={}), rebuilding",
-                        this.name, fileNvqSubvectors, nvqSubvectors);
-                    return false;
+                    e.addSuppressed(closeFailure);
                 }
-
-                return true;
+                throw e;
             }
         }
 
         @Override
-        public void writeIndex(
-            final OnHeapGraphIndex         index     ,
-            final RandomAccessVectorValues ravv      ,
-            final PQCompressionManager     pqManager ,
-            final NVQCompressionManager    nvqManager,
-            final MetaState                metaState
+        public DiskSegment openSegment(
+            final SegmentManifest.Segment entry    ,
+            final OwnerTable.Lease        lease    ,
+            final boolean                 flagged  ,
+            final int                     logLength
         ) throws IOException
         {
-            Files.createDirectories(this.indexDirectory);
-
-            final Path graphPath    = this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT);
-            final Path metaPath      = this.indexDirectory.resolve(this.name + META_FILE_EXT );
-            final Path graphTempPath = this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT + TEMP_FILE_EXT);
-            final Path metaTempPath  = this.indexDirectory.resolve(this.name + META_FILE_EXT  + TEMP_FILE_EXT);
-            final Path pqvPath       = this.indexDirectory.resolve(this.name + PQV_FILE_EXT );
-            final Path pqvTempPath   = this.indexDirectory.resolve(this.name + PQV_FILE_EXT  + TEMP_FILE_EXT);
-
-            // Write both files to temp paths first, then atomically rename them into place. This way an
-            // interrupted write (e.g. shutdownNow() mid-persist) leaves at most a stale temp file — never
-            // a torn live graph or meta. The temp files are cleaned up in the finally block.
+            final LoadedFiles files = this.openSegmentFiles(entry);
             try
             {
-                // A manager is only non-null when its dimension is configured on, and only reports
-                // trained once it actually holds a quantizer - so these two locals are exactly the
-                // features this write can produce. A configured-but-untrained manager writes the
-                // graph without its feature; the meta still records the configured mode, and the
-                // query path gates on the loaded graph's own feature set rather than on the meta.
-                final ProductQuantization pq = pqManager != null && pqManager.isTrained()
-                    ? pqManager.getPQ()
-                    : null;
-                final NVQuantization nvq = nvqManager != null && nvqManager.isTrained()
-                    ? nvqManager.getNVQ()
-                    : null;
+                return this.newSegment(files, lease.retain(), flagged, logLength);
+            }
+            catch(final RuntimeException e)
+            {
+                files.close();
+                throw e;
+            }
+        }
 
-                // Where the codebook goes depends on the scoring mode: fused into the graph, or into
-                // the sidecar. Only one of these is ever non-null.
-                final ProductQuantization fusedPq    = this.format.usesFusedPq()    ? pq : null;
-                final ProductQuantization sidecarPq  = this.format.usesInMemoryPq() ? pq : null;
+        /**
+         * Deletes the files of a segment that its last holder closed if the manifest no longer lists
+         * it. The commit that dropped it found it still open, held by a search, so the cleanup after
+         * that commit kept its files; without this they would stay until the next flush or start.
+         */
+        private void segmentClosed(final long sequence)
+        {
+            if(this.sequences.closed(sequence) && this.sequences.isUnlisted(sequence))
+            {
+                this.deleteSegmentFiles(sequence);
+            }
+        }
 
-                if(sidecarPq != null)
-                {
-                    this.writePqSidecar(ravv, sidecarPq, pqvTempPath, metaState.structuralModCount);
-                }
+        @Override
+        public void reapUnlistedFiles(final Set<Long> keep)
+        {
+            this.deleteUnlistedFiles(keep);
+        }
 
-                if(fusedPq == null && nvq == null)
+        /**
+         * Deletes every file of the layout in the index directory that does not belong to a segment in
+         * {@code listed} and is not protected: segments a crash left uncommitted or a commit superseded,
+         * and the manifest's temp file. The manifest itself is never deleted here, and neither is any
+         * file outside the layout, such as the files of another index sharing the directory or of the
+         * single-file layout of earlier versions, which persisted data need not survive.
+         * <p>
+         * The protection of a segment file is decided when it is deleted, not before the listing: a merge
+         * reserves, writes and opens its segment without the flush permit, possibly after the listing
+         * began, and must find its files in place. The manifest's temp file is written only by a commit,
+         * which holds the flush permit like every cleanup that runs while the index is live.
+         * <p>
+         * Keeps going after a failed delete, which is logged; the next load tries again.
+         */
+        private void deleteUnlistedFiles(final Set<Long> listed)
+        {
+            if(this.indexDirectory == null || !Files.isDirectory(this.indexDirectory))
+            {
+                return;
+            }
+            final Runnable hook = this.provider.reapListingTestHook();
+            if(hook != null)
+            {
+                hook.run();
+            }
+            final Pattern            pattern  = SegmentFiles.layoutFilePattern(this.name);
+            final List<UnlistedFile> unlisted = new ArrayList<>();
+            try(final Stream<Path> files = Files.list(this.indexDirectory))
+            {
+                for(final Path file : (Iterable<Path>)files::iterator)
                 {
-                    // Fast path for the plain, feature-less graph. Kept separate so the overwhelmingly
-                    // common configuration keeps producing byte-identical files to the ones written
-                    // before the format became configurable.
-                    writePlainIndex(index, ravv, graphTempPath);
+                    final String  fileName = file.getFileName().toString();
+                    final Matcher matcher  = pattern.matcher(fileName);
+                    if(matcher.matches())
+                    {
+                        final OptionalLong sequence = SegmentFiles.sequenceOf(matcher);
+                        if(sequence.isEmpty() || !listed.contains(sequence.getAsLong()))
+                        {
+                            unlisted.add(new UnlistedFile(file, sequence));
+                        }
+                    }
                 }
-                else
+            }
+            catch(final IOException | RuntimeException e)
+            {
+                LOG.warn("Could not list index directory '{}' for leftover files: {}",
+                    this.indexDirectory, e.getMessage());
+                return;
+            }
+            int deleted = 0;
+            for(final UnlistedFile file : unlisted)
+            {
+                final boolean gone = file.sequence().isEmpty()
+                    ? SegmentFiles.deleteQuietly(file.path())
+                    : this.sequences.deleteIfUnprotected(file.sequence().getAsLong(), file.path())
+                ;
+                if(gone)
                 {
-                    this.writeIndexWithFeatures(index, ravv, fusedPq, nvq, graphTempPath);
+                    deleted++;
                 }
+            }
+            if(deleted > 0)
+            {
+                LOG.info("Deleted {} leftover files of disk index '{}'", deleted, this.name);
+            }
+        }
 
-                // Write metadata using the witnesses captured with the graph in Phase 1 (see MetaState):
-                // NOT re-read live here, since Phase 2 runs with the parentMap monitor released.
-                this.writeMetadata(metaTempPath, metaState);
+        /**
+         * Rewrites a manifest the load just rejected, durably, with the {@link MetaState#RETIRED} witness in place of
+         * its own. A rejected manifest left as it was could be accepted by a later load whose index reached the same
+         * three witness counters by another history (an index re-added with another vectorizer, removes or updates
+         * that diverged after a crash), and its graph and deletion sets would then be served. The counters only grow
+         * within a session, so a store can only meet a stale manifest's counters again in a later session, whose load
+         * sees the mismatch first: retired at the first rejection, a manifest can never be accepted.
+         * <p>
+         * Everything else stays as it was: the manifest still lists its segments, so they are kept (and their
+         * sequences never handed out again) until the persist that replaces the manifest supersedes them, and the
+         * index still counts as having files to replace (see {@link #indexFilesExist()}), so the next session
+         * schedules that persist. If the rewrite cannot be written, the rejected manifest stays as before.
+         *
+         * @param manifest the manifest the load rejected
+         */
+        private void retireRejectedManifest(final SegmentManifest manifest)
+        {
+            final Path manifestPath = this.manifestPath();
+            final Path manifestTemp = SegmentFiles.tempPathOf(manifestPath);
+            try
+            {
+                try
+                {
+                    new SegmentManifest(manifest.dimension(), MetaState.RETIRED, manifest.segments()).write(manifestTemp);
+                    SegmentFiles.atomicMove(manifestTemp, manifestPath);
+                }
+                finally
+                {
+                    SegmentFiles.deleteQuietly(manifestTemp);
+                }
+            }
+            catch(final IOException | RuntimeException e)
+            {
+                LOG.error("Could not retire the rejected disk index manifest of '{}'; it stays until the next persist"
+                    + " replaces it, and a load before that could accept it", this.name, e);
+                return;
+            }
+            try
+            {
+                SegmentFiles.syncDirectory(this.indexDirectory);
+            }
+            catch(final IOException | RuntimeException e)
+            {
+                LOG.warn("Retired the rejected disk index manifest of '{}', but could not sync its directory: a power"
+                    + " loss before the next persist may bring the rejected manifest back", this.name, e);
+            }
+        }
 
-                // Commit: sidecar, then graph, then meta LAST. The meta is the validity stamp that
-                // verifyMetadata reads first on load, so it must only become visible once everything
-                // it describes is in place. A crash at any earlier point leaves a stale meta, which
-                // verifyMetadata rejects and self-heals from the store.
-                if(sidecarPq != null)
+        @Override
+        public void deleteSegmentFiles(final long sequence)
+        {
+            final Path directory = this.indexDirectory;
+            SegmentFiles.deleteQuietly(directory.resolve(SegmentFiles.graphFileName(this.name, sequence)));
+            SegmentFiles.deleteQuietly(directory.resolve(SegmentFiles.ordinalMapFileName(this.name, sequence)));
+            SegmentFiles.deleteQuietly(directory.resolve(SegmentFiles.pqVectorsFileName(this.name, sequence)));
+        }
+
+        private void ensureDirectory() throws IOException
+        {
+            if(!Files.isDirectory(this.indexDirectory))
+            {
+                Files.createDirectories(this.indexDirectory);
+                // The directory's own entry is durable only once its parent is synced; without it a
+                // power loss right after the first persist could lose the whole index directory.
+                final Path parent = this.indexDirectory.toAbsolutePath().getParent();
+                if(parent != null)
                 {
-                    this.atomicMove(pqvTempPath, pqvPath);
+                    SegmentFiles.syncDirectory(parent);
                 }
-                else
-                {
-                    // No codebook this time - training declined, or this mode writes none. Any
-                    // sidecar from an earlier generation describes vectors this graph no longer
-                    // holds, and leaving it would have the next load pick it up beside the new
-                    // graph. Removing it before the graph becomes visible keeps the pair consistent
-                    // at every point a crash can stop at.
-                    this.deleteQuietly(pqvPath);
-                }
-                this.atomicMove(graphTempPath, graphPath);
-                this.atomicMove(metaTempPath, metaPath);
+            }
+        }
+
+        @Override
+        public void commit(
+            final MetaState                     witness,
+            final List<SegmentManifest.Segment> listed
+        ) throws IOException
+        {
+            this.ensureDirectory();
+            this.reachedStage(CommitStage.SEGMENTS_WRITTEN);
+
+            final SegmentManifest manifest     = new SegmentManifest(this.dimension, witness, listed);
+            final Path            manifestPath = this.manifestPath();
+            final Path            manifestTemp = SegmentFiles.tempPathOf(manifestPath);
+            try
+            {
+                manifest.write(manifestTemp);
+                this.reachedStage(CommitStage.MANIFEST_TEMP_WRITTEN);
+                SegmentFiles.atomicMove(manifestTemp, manifestPath);
+                final Set<Long> listedSequences = new HashSet<>();
+                listed.forEach(segment -> listedSequences.add(segment.sequence()));
+                this.sequences.committed(listedSequences);
             }
             finally
             {
-                // Remove any temp file left behind by a failed or interrupted write. Swallow cleanup
-                // errors so they cannot mask an in-flight write/move exception (which carries the real
-                // root cause); a leftover temp file is harmless and overwritten on the next persist.
-                this.deleteQuietly(graphTempPath);
-                this.deleteQuietly(metaTempPath);
-                this.deleteQuietly(pqvTempPath);
+                SegmentFiles.deleteQuietly(manifestTemp);
+            }
+            try
+            {
+                this.reachedStage(CommitStage.MANIFEST_MOVED);
+
+                SegmentFiles.syncDirectory(this.indexDirectory);
+                this.reachedStage(CommitStage.DIRECTORY_SYNCED);
+            }
+            catch(final IOException | RuntimeException e)
+            {
+                throw new CommitIncompleteException(e);
             }
 
-            LOG.info("Persisted index '{}' to disk with {} vectors", this.name, index.size(0));
+            LOG.info("Persisted index '{}' to disk: {} segments, {} live nodes",
+                this.name, listed.size(), countLive(listed));
+        }
+
+        private void reachedStage(final CommitStage stage)
+        {
+            final Consumer<CommitStage> hook = this.provider.commitStageTestHook();
+            if(hook != null)
+            {
+                hook.accept(stage);
+            }
+        }
+
+        @Override
+        public SegmentManifest.Segment writeSegment(
+            final OnHeapGraphIndex         graph   ,
+            final RandomAccessVectorValues ravv    ,
+            final ProductQuantization      pq      ,
+            final NVQuantization           nvq     ,
+            final long                     sequence
+        ) throws IOException
+        {
+            this.ensureDirectory();
+            final List<Path> written  = new ArrayList<>(3);
+            boolean          complete = false;
+            try
+            {
+                final SegmentManifest.Segment entry = this.writeSegmentFiles(graph, ravv, pq, nvq, sequence, written);
+                complete = true;
+                return entry;
+            }
+            finally
+            {
+                if(!complete)
+                {
+                    // Not referenced by any manifest, so nothing loses them. Removed here only to
+                    // free the space early; the next cleanup would delete them as well.
+                    written.forEach(SegmentFiles::deleteQuietly);
+                }
+            }
+        }
+
+        /**
+         * Writes one segment's files and syncs them, adding each path to {@code written} before it is
+         * created so the caller can remove what a failure leaves.
+         */
+        private SegmentManifest.Segment writeSegmentFiles(
+            final OnHeapGraphIndex         index   ,
+            final RandomAccessVectorValues ravv    ,
+            final ProductQuantization      pq      ,
+            final NVQuantization           nvq     ,
+            final long                     sequence,
+            final List<Path>               written
+        ) throws IOException
+        {
+            final Path graphPath = this.indexDirectory.resolve(SegmentFiles.graphFileName(this.name, sequence));
+            final Path l2gPath   = this.indexDirectory.resolve(SegmentFiles.ordinalMapFileName(this.name, sequence));
+            final Path pqvPath   = this.indexDirectory.resolve(SegmentFiles.pqVectorsFileName(this.name, sequence));
+
+            // The caller passes exactly the quantizers this write can use: captured once per flush, so
+            // every segment of a flush is encoded with the same codebook even if training finishes
+            // meanwhile. Without one, the graph is written without its feature; the manifest still
+            // records the configured format, and the query path gates on the loaded graph's own
+            // feature set rather than on the manifest.
+            // Where the codebook goes depends on the scoring mode: fused into the graph, or into the
+            // .pqv. Only one of these is ever non-null.
+            final ProductQuantization fusedPq   = this.format.usesFusedPq()    ? pq : null;
+            final ProductQuantization sidecarPq = this.format.usesInMemoryPq() ? pq : null;
+
+            final DenseOrdinalMapper       mapper      = DenseOrdinalMapper.of(index);
+            final int[]                    l2g         = mapper.localToGlobal();
+            final RandomAccessVectorValues localValues = new SegmentVectorValues(ravv, l2g);
+
+            // Encoded by local ordinal, so the codes take memory for the segment's nodes only, not
+            // for every id below the highest one it holds.
+            final PQVectors localCodes = pq != null && (fusedPq != null || sidecarPq != null)
+                ? (PQVectors)pq.encodeAll(localValues)
+                : null;
+
+            written.add(l2gPath);
+            SegmentFiles.writeOrdinalMap(l2gPath, l2g);
+            SegmentFiles.force(l2gPath);
+
+            if(sidecarPq != null)
+            {
+                written.add(pqvPath);
+                this.writePqVectors(localCodes, pqvPath, sequence);
+                SegmentFiles.force(pqvPath);
+            }
+
+            written.add(graphPath);
+            if(fusedPq == null && nvq == null)
+            {
+                // Fast path for the plain, feature-less graph.
+                writePlainIndex(index, ravv, mapper, graphPath);
+            }
+            else
+            {
+                this.writeIndexWithFeatures(
+                    index, ravv, mapper, fusedPq != null ? localCodes : null, fusedPq, nvq, graphPath
+                );
+            }
+            SegmentFiles.force(graphPath);
+
+            // The files are in place, but their directory entries are durable only once the directory
+            // is: before the manifest that names them can be.
+            SegmentFiles.syncDirectory(this.indexDirectory);
+
+            return new SegmentManifest.Segment(
+                sequence,
+                l2g.length,
+                SegmentManifest.effectiveFormat(this.format, this.dimension),
+                sidecarPq != null,
+                new int[0]
+            );
         }
 
         @Override
@@ -761,204 +1248,114 @@ interface DiskIndexManager extends Closeable
                 return;
             }
 
-            // Release the reader before unlinking: on Windows an open mapping makes the delete fail.
-            // A no-op unless a disk index is currently loaded.
-            this.close();
-
-            final boolean graphDeleted = this.deleteQuietly(this.indexDirectory.resolve(this.name + GRAPH_FILE_EXT));
-            final boolean metaDeleted  = this.deleteQuietly(this.indexDirectory.resolve(this.name + META_FILE_EXT ));
-            this.deleteQuietly(this.indexDirectory.resolve(this.name + PQV_FILE_EXT));
+            // The manifest first: without it every other file is a leftover, so a crash in the middle
+            // of this leaves nothing that could be mistaken for an index.
+            final boolean manifestDeleted = SegmentFiles.deleteQuietly(this.manifestPath());
+            if(Files.exists(this.manifestPath()))
+            {
+                // Its segments must stay while it does: a manifest naming deleted files would be found
+                // again on the next load, and its sequences are not reserved by any file any more.
+                LOG.warn("Could not remove the disk index manifest of '{}', keeping its segment files", this.name);
+                return;
+            }
+            this.sequences.committed(Set.of());
+            this.reapUnlistedFiles(Set.of());
 
             // Stays silent for the common case of an index that never wrote anything, so that an
             // empty index does not log on every persist.
-            if(graphDeleted || metaDeleted)
+            if(manifestDeleted)
             {
                 LOG.info("Removed on-disk index '{}': it holds no vectors any more", this.name);
             }
         }
 
-        /**
-         * Deletes a file if present, logging (never throwing) on failure. Used from the cleanup
-         * {@code finally} of {@link #writeIndex}, where a thrown cleanup error would mask the real
-         * write/move failure, and from {@link #deleteIndexFiles()}.
-         *
-         * @param path the file to delete
-         * @return {@code true} if the file existed and was deleted
-         */
-        private boolean deleteQuietly(final Path path)
+        private Path manifestPath()
         {
-            try
-            {
-                return Files.deleteIfExists(path);
-            }
-            catch(final IOException e)
-            {
-                LOG.warn("Failed to delete file '{}': {}", path, e.getMessage());
-                return false;
-            }
+            return this.indexDirectory.resolve(SegmentFiles.manifestFileName(this.name));
         }
 
         /**
-         * Moves {@code source} onto {@code target}, atomically where the file system supports it,
-         * replacing any existing target.
-         * <p>
-         * Falls back to a plain replace-existing move when the atomic move is rejected. This is not
-         * just {@link java.nio.file.AtomicMoveNotSupportedException}: Windows throws
-         * {@link java.nio.file.AccessDeniedException} when asked to atomically replace an existing
-         * target. The {@code source} is a fully-written
-         * temp file, so the only cost of the non-atomic fallback is a narrow crash window in which the
-         * live file is missing — which the load-time self-heal simply rebuilds from the store.
-         */
-        private void atomicMove(final Path source, final Path target) throws IOException
-        {
-            try
-            {
-                Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            }
-            catch(final IOException atomicFailure)
-            {
-                LOG.debug("Atomic move rejected for '{}' ({}), falling back to non-atomic replace",
-                    target, atomicFailure.getClass().getSimpleName());
-                try
-                {
-                    Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-                }
-                catch(final IOException nonAtomicFailure)
-                {
-                    nonAtomicFailure.addSuppressed(atomicFailure);
-                    throw nonAtomicFailure;
-                }
-            }
-        }
-
-        /**
-         * Encodes every graph ordinal against the codebook and writes the result to the sidecar.
-         * <p>
-         * The encoding is identical to the one the fused path performs; only where it lands differs.
-         * {@code encodeAll} sizes its output from {@code ravv.size()}, which for the ordinal-spaced
-         * view is the highest used id plus one, so the resulting array is indexed by graph ordinal -
-         * and therefore by source entity id - exactly as the fused codes are.
+         * Writes a segment's PQ codes, by local ordinal, followed by a witness of the segment they
+         * belong to.
          * <p>
          * Written through {@code PQVectors.write}, whose counterpart is {@code PQVectors.load}. Note
-         * that {@code writeSidecarHeader} is <b>not</b> the method for this despite its name: it
-         * emits the codebook and counts only, for a caller that streams the chunks itself.
+         * that {@code writeSidecarHeader} is <b>not</b> the method for this despite its name: it emits
+         * the codebook and counts only, for a caller that streams the chunks itself.
          *
-         * @param ravv    the ordinal-spaced vectors, aligned with the graph's node ids
-         * @param pq      the trained codebook
-         * @param pqvPath the (temporary) path to write to
+         * @param codes    the codes, by local ordinal
+         * @param pqvPath  the path to write to
+         * @param sequence the segment's sequence, for the witness
          * @throws IOException if writing fails
          */
-        private void writePqSidecar(
-            final RandomAccessVectorValues ravv              ,
-            final ProductQuantization      pq                ,
-            final Path                     pqvPath           ,
-            final long                     structuralModCount
+        private void writePqVectors(
+            final PQVectors codes   ,
+            final Path      pqvPath ,
+            final long      sequence
         ) throws IOException
         {
-            final PQVectors pqVectors = (PQVectors)pq.encodeAll(ravv);
-
             try(final SimpleWriter writer = new SimpleWriter(pqvPath))
             {
-                pqVectors.write(writer, OnDiskGraphIndex.CURRENT_VERSION);
+                codes.write(writer, OnDiskGraphIndex.CURRENT_VERSION);
 
-                // Stamp the generation this sidecar belongs to, after JVector's payload so its
-                // format is untouched and a reader that only wants the codes still works. The graph
-                // and the meta carry the same counter, so a sidecar that outlived its graph - left
-                // by a persist that wrote no codebook, or by a crash between the two renames - is
-                // recognisable rather than merely plausible.
+                // After jVector's payload so its format is untouched. The sequence makes a file that
+                // was renamed or copied in from another segment recognisable rather than merely
+                // plausible.
                 writer.writeInt(PQV_WITNESS_MAGIC);
-                writer.writeLong(structuralModCount);
+                writer.writeLong(sequence);
             }
+            SegmentFiles.appendCrc32(pqvPath);
 
-            LOG.info("Wrote PQ sidecar for '{}': {} vectors, {} bytes per code, {} bytes resident when loaded",
-                this.name, pqVectors.count(), pqVectors.getCompressedSize(), pqVectors.ramBytesUsed());
+            LOG.info("Wrote PQ codes of '{}' segment {}: {} vectors, {} bytes per code, {} bytes resident when loaded",
+                this.name, sequence, codes.count(), codes.getCompressedSize(), codes.ramBytesUsed());
         }
 
         /**
-         * Checks that a loaded sidecar describes the graph it was loaded beside.
+         * Reads a segment's PQ codes back into heap and checks they describe the segment.
          * <p>
-         * The witnesses in the metadata cover the cases that arise from a torn or interrupted write,
-         * since the metadata is committed last and a changed {@code pqSubspaces} is itself a
-         * witness. What they do not cover is a sidecar that survived from somewhere else - copied
-         * in, restored from a different backup generation, or truncated by something outside this
-         * code - and reaching the score function with one is worse than rejecting it: a code array
-         * shorter than the graph's ordinal space fails on a lookup rather than at load.
-         * <p>
-         * Note the limit of this. Shape is checkable, content is not: a sidecar of exactly the right
-         * dimensions holding codes for different vectors passes here and degrades traversal
-         * silently, which is precisely what
-         * {@code VectorIndexDiskTest.testPqInMemoryCodesActuallyDriveTraversal} relies on to prove
-         * the codes are consulted at all. Detecting that would need a checksum the format does not
-         * carry.
+         * Shape is checkable, content is not: a file of exactly the right dimensions holding codes for
+         * different vectors passes here and degrades traversal silently, which is precisely what
+         * {@code VectorIndexDiskTest.testPqInMemoryCodesActuallyDriveTraversal} relies on to prove the
+         * codes are consulted at all.
          *
-         * @param codes    the sidecar just read
-         * @param expected the witnesses this load was verified against
-         * @return whether the sidecar can be used
+         * @param pqvPath the file
+         * @param segment the manifest entry of the segment
+         * @return the codes
+         * @throws IOException if the file is unreadable or does not describe the segment
          */
-        private boolean sidecarFitsTheGraph(final PQVectors codes, final MetaState expected)
+        private PQVectors readPqVectors(
+            final Path                    pqvPath,
+            final SegmentManifest.Segment segment
+        ) throws IOException
         {
-            final int configuredSubspaces = this.format.effectivePqSubspaces(this.dimension);
-            if(codes.getCompressedSize() != configuredSubspaces)
-            {
-                LOG.info("PQ sidecar for '{}' encodes {} bytes per vector, configured for {},"
-                    + " rebuilding", this.name, codes.getCompressedSize(), configuredSubspaces);
-                return false;
-            }
-
-            // Ordinals are source entity ids, so the codes have to span up to the highest one in use
-            // or a search can ask for a code that is not there.
-            final long requiredOrdinals = expected.highestEntityId + 1;
-            if(codes.count() < requiredOrdinals)
-            {
-                LOG.info("PQ sidecar for '{}' covers {} ordinals, graph needs {}, rebuilding",
-                    this.name, codes.count(), requiredOrdinals);
-                return false;
-            }
-
-            return true;
-        }
-
-        /**
-         * Reads the PQ sidecar back into heap.
-         *
-         * @param pqvPath the sidecar path
-         * @return the loaded codes
-         * @throws IOException if the file is missing or unreadable
-         */
-        private PQVectors readPqSidecar(final Path pqvPath, final long expectedModCount) throws IOException
-        {
-            final long trailerStart = Files.size(pqvPath) - PQV_WITNESS_BYTES;
+            final long trailerStart = Files.size(pqvPath) - PQV_CRC_BYTES - PQV_WITNESS_BYTES;
             if(trailerStart < 0)
             {
-                LOG.info("PQ sidecar for '{}' is too short to carry its generation witness, rebuilding",
-                    this.name);
-                return null;
+                throw new IOException("PQ codes " + pqvPath + " are too short to carry their witness");
             }
+            // Before jVector reads anything: PQVectors.load allocates by the counts in the file, so one
+            // flipped bit there would be an OutOfMemoryError, which halts the JVM on every restart.
+            SegmentFiles.verifyCrc32(pqvPath);
 
             try(final ReaderSupplier supplier = ReaderSupplierFactory.open(pqvPath);
                 final RandomAccessReader reader = supplier.get())
             {
-                final PQVectors codes = PQVectors.load(reader);
-
                 reader.seek(trailerStart);
-                if(reader.readInt() != PQV_WITNESS_MAGIC)
+                if(reader.readInt() != PQV_WITNESS_MAGIC || reader.readLong() != segment.sequence())
                 {
-                    LOG.info("PQ sidecar for '{}' carries no generation witness, rebuilding", this.name);
-                    return null;
+                    throw new IOException("PQ codes " + pqvPath + " do not belong to segment " + segment.sequence());
                 }
-
-                final long sidecarModCount = reader.readLong();
-                if(sidecarModCount != expectedModCount)
+                reader.seek(0);
+                final PQVectors codes = PQVectors.load(reader);
+                if(codes.getCompressedSize() != segment.format().pqSubspaces())
                 {
-                    // The graph beside it was written by a different persist. Most often a persist
-                    // whose training declined, which writes no sidecar and leaves the previous one
-                    // behind; the codes then describe vectors the graph no longer holds, and using
-                    // them would degrade traversal with nothing to show for it.
-                    LOG.info("PQ sidecar for '{}' belongs to generation {}, graph to {}, rebuilding",
-                        this.name, sidecarModCount, expectedModCount);
-                    return null;
+                    throw new IOException("PQ codes " + pqvPath + " encode " + codes.getCompressedSize()
+                        + " bytes per vector, the segment records " + segment.format().pqSubspaces());
                 }
-
+                if(codes.count() != segment.nodeCount())
+                {
+                    throw new IOException("PQ codes " + pqvPath + " cover " + codes.count()
+                        + " vectors, the segment holds " + segment.nodeCount());
+                }
                 return codes;
             }
         }
@@ -967,25 +1364,25 @@ interface DiskIndexManager extends Closeable
          * Writes the plain, feature-less graph: full-precision inline vectors only.
          * <p>
          * This is the sequence of jvector's {@code OnDiskGraphIndex.write(graph, vectors, map, path)},
-         * which produces the same bytes, taken apart only because that convenience method accepts
-         * just a {@code Map} of ordinals. Passing an {@link IdentityOrdinalMapper} instead keeps
-         * on-disk node ids equal to the graph ordinals (= source entity ids) without materializing
-         * a boxed map entry per node on every persist. Package-private for the test that holds the
-         * two byte-identical.
+         * which produces the same bytes, taken apart only because that convenience method accepts just
+         * a {@code Map} of ordinals and the mapper here avoids a boxed entry per node. Package-private
+         * for the test that holds the two byte-identical.
          *
          * @param index     the in-memory graph to write
-         * @param ravv      the ordinal-spaced vectors, aligned with the graph's node ids
-         * @param graphPath the (temporary) path to write to
+         * @param ravv      the vectors by global ordinal
+         * @param mapper    the global-to-local mapping to write with
+         * @param graphPath the path to write to
          * @throws IOException if writing fails
          */
         static void writePlainIndex(
             final OnHeapGraphIndex         index    ,
             final RandomAccessVectorValues ravv     ,
+            final OrdinalMapper            mapper   ,
             final Path                     graphPath
         ) throws IOException
         {
             try(final OnDiskGraphIndexWriter writer = new OnDiskGraphIndexWriter.Builder(index, graphPath)
-                .withMapper(new IdentityOrdinalMapper(index))
+                .withMapper(mapper)
                 .with(new InlineVectors(ravv.dimension()))
                 .build())
             {
@@ -997,24 +1394,29 @@ interface DiskIndexManager extends Closeable
         }
 
         /**
-         * Writes the index through {@code OnDiskGraphIndexWriter}, carrying whichever features the
+         * Writes the graph through {@code OnDiskGraphIndexWriter}, carrying whichever features the
          * trained quantizers call for.
          * <p>
-         * Exactly one vector-storage feature is always written - JVector's writer requires one and
+         * Exactly one vector-storage feature is always written - jVector's writer requires one and
          * derives the graph header's dimension from it - plus {@code FusedPQ} when a codebook exists.
+         * jVector asks the feature suppliers for the global ordinal of each node and its neighbours.
          *
-         * @param index     the in-memory graph to write
-         * @param ravv      the ordinal-spaced vectors, aligned with the graph's node ids
-         * @param pq        the PQ codebook, or {@code null} to write no fused codes
-         * @param nvq       the NVQ quantizer, or {@code null} to write full-precision inline vectors
-         * @param graphPath the (temporary) path to write to
+         * @param index      the in-memory graph to write
+         * @param ravv       the vectors by global ordinal
+         * @param mapper     the global-to-local mapping to write with
+         * @param localCodes the PQ codes by local ordinal, or {@code null} to write no fused codes
+         * @param pq         the codebook of {@code localCodes}, or {@code null}
+         * @param nvq        the NVQ quantizer, or {@code null} to write full-precision inline vectors
+         * @param graphPath  the path to write to
          * @throws IOException if writing fails
          */
         private void writeIndexWithFeatures(
-            final OnHeapGraphIndex         index    ,
-            final RandomAccessVectorValues ravv     ,
-            final ProductQuantization      pq       ,
-            final NVQuantization           nvq      ,
+            final OnHeapGraphIndex         index     ,
+            final RandomAccessVectorValues ravv      ,
+            final DenseOrdinalMapper       mapper    ,
+            final PQVectors                localCodes,
+            final ProductQuantization      pq        ,
+            final NVQuantization           nvq       ,
             final Path                     graphPath
         ) throws IOException
         {
@@ -1042,40 +1444,29 @@ interface DiskIndexManager extends Closeable
                 );
             }
 
-            // encodeAll returns CompressedVectors; FusedPQ.State needs the PQVectors subtype.
-            final PQVectors pqVectors = pq != null
-                ? (PQVectors)pq.encodeAll(ravv)
-                : null;
-
-            // Get a view for FusedPQ state creation. Try-with-resources guarantees the view is
-            // closed even if ordinal mapping or the writer throws (the view is heap-only, so a
-            // leak on the throwing path would otherwise go unnoticed).
+            // Get a view for FusedPQ state creation. Try-with-resources guarantees the view is closed
+            // even if the writer throws (the view is heap-only, so a leak on the throwing path would
+            // otherwise go unnoticed).
             try(final var view = index.getView())
             {
-                if(pq != null)
+                if(localCodes != null)
                 {
                     // Take the degree from the graph, not from the configured maxDegree: FusedPQ.load
                     // rebuilds the feature as new FusedPQ(header.layerInfo.get(0).degree, ...), i.e.
                     // the reader sizes its fused block from the graph header. Sourcing the writer's
-                    // degree from the same place makes writer/reader agreement structural instead of
-                    // relying on the configured maxDegree happening to match the degree the builder
-                    // actually used.
+                    // degree from the same place makes writer/reader agreement structural.
                     features.add(new FusedPQ(index.getDegree(0), pq));
                     suppliers.put(FeatureId.FUSED_PQ, nodeId ->
-                        new FusedPQ.State(view, pqVectors, nodeId)
+                        new FusedPQ.State(view, global -> localCodes.get(mapper.oldToNew(global)), nodeId)
                     );
                 }
-
-                // Preserve graph ordinals on disk (identity, not the default sequentialRenumbering)
-                // so on-disk node ids stay equal to the source entity ids the integration keys on.
-                final IdentityOrdinalMapper ordinalMapper = new IdentityOrdinalMapper(index);
 
                 if(this.parallelOnDiskWrite)
                 {
                     final OnDiskParallelGraphIndexWriter.Builder builder =
                         new OnDiskParallelGraphIndexWriter.Builder(index, graphPath);
                     builder.withParallelDirectBuffers(true);
-                    builder.withMapper(ordinalMapper);
+                    builder.withMapper(mapper);
                     features.forEach(builder::with);
 
                     try(final OnDiskParallelGraphIndexWriter writer = builder.build())
@@ -1087,7 +1478,7 @@ interface DiskIndexManager extends Closeable
                 {
                     final OnDiskGraphIndexWriter.Builder builder =
                         new OnDiskGraphIndexWriter.Builder(index, graphPath);
-                    builder.withMapper(ordinalMapper);
+                    builder.withMapper(mapper);
                     features.forEach(builder::with);
 
                     try(final OnDiskGraphIndexWriter writer = builder.build())
@@ -1100,81 +1491,10 @@ interface DiskIndexManager extends Closeable
             LOG.info("Wrote index '{}' with storage={} scoring={} ({} nodes, parallel={})",
                 this.name,
                 nvq != null ? "NVQ" : "INLINE",
-                pq != null ? "FUSED_PQ" : "NONE",
+                localCodes != null ? "FUSED_PQ" : "NONE",
                 index.size(0),
                 this.parallelOnDiskWrite
             );
-        }
-
-        /**
-         * Writes the metadata file.
-         */
-        private void writeMetadata(final Path metaPath, final MetaState metaState) throws IOException
-        {
-            try(final DataOutputStream dos = new DataOutputStream(new FileOutputStream(metaPath.toFile())))
-            {
-                dos.writeInt(GRAPH_FILE_VERSION);
-                dos.writeInt(this.dimension);
-                dos.writeLong(metaState.expectedVectorCount);
-                dos.writeLong(metaState.highestEntityId);
-                dos.writeLong(metaState.structuralModCount);
-                // The format settings are configuration rather than content witnesses, but they have
-                // to be recorded: nothing else in the file reveals which features the graph was built
-                // with, so a loader without them has to assume its own configuration describes the
-                // file. See verifyMetadata for which case actually reaches that comparison - it is
-                // not the removeIndex()/add() one, which the counter witness refuses first.
-                //
-                // The CONFIGURED values are written, not the ones the write actually achieved. If
-                // training declines, the graph is written without the feature while the meta still
-                // claims it, which the query path handles by gating on the loaded graph's own
-                // feature set. Recording what was achieved instead would loop: config says NVQ, file
-                // says INLINE, verify rejects, rebuild, training declines again, forever.
-                dos.writeInt(this.format.storage().code());
-                dos.writeInt(this.format.scoring().code());
-
-                // The subspace and subvector counts shape the encoded blocks, and neither is
-                // recoverable by comparing configuration alone: a quantizer is adopted from the
-                // loaded graph rather than retrained, so a changed count would otherwise be
-                // silently ignored - the old quantizer kept, and every later persist writing the
-                // old shape. Recorded in effective form, with the sentinel resolved and a count
-                // that this format does not encode with written as zero, so that two
-                // configurations producing the same graph do not force a pointless rebuild.
-                dos.writeInt(this.format.effectivePqSubspaces(this.dimension));
-                dos.writeInt(this.format.effectiveNvqSubvectors());
-            }
-        }
-
-        @Override
-        public void close()
-        {
-            if(this.diskIndex != null)
-            {
-                try
-                {
-                    this.diskIndex.close();
-                }
-                catch(final IOException e)
-                {
-                    LOG.warn("Error closing disk index: {}", e.getMessage());
-                }
-                this.diskIndex = null;
-            }
-            if(this.readerSupplier != null)
-            {
-                try
-                {
-                    this.readerSupplier.close();
-                }
-                catch(final IOException e)
-                {
-                    LOG.warn("Error closing reader supplier: {}", e.getMessage());
-                }
-                this.readerSupplier = null;
-            }
-            // Heap, not a mapping, so there is nothing to close - but dropping the reference is what
-            // releases it, and this mode's whole cost is that it holds one byte array per ordinal.
-            this.pqVectors = null;
-            this.loaded    = false;
         }
 
     }
