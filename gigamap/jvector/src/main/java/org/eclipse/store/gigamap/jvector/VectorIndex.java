@@ -2884,7 +2884,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(entity != null)
             {
                 key    = this.vectorizer.vectorKey(entity);
-                vector = this.vectorizer.vectorize(entity);
+                vector = this.ownVector(this.vectorizer.vectorize(entity));
                 if(vector != null)
                 {
                     try
@@ -3305,7 +3305,18 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         private float[] vectorize(final E entity)
         {
-            return this.validateVector(this.vectorizer.vectorize(entity));
+            return this.validateVector(this.ownVector(this.vectorizer.vectorize(entity)));
+        }
+
+        /**
+         * A computed vectorizer's result, copied: a vectorizer that reuses one buffer could otherwise change a
+         * vector the index still holds, e.g. the vectors a reindex collects before it writes them. Copied before
+         * the validation, so the vector validated is the one written. An embedded vectorizer's result is the
+         * entity's own array and is not copied.
+         */
+        private float[] ownVector(final float[] vector)
+        {
+            return vector != null && !this.vectorizer.isEmbedded() ? vector.clone() : vector;
         }
 
         private List<float[]> vectorize(final List<? extends E> entities)
