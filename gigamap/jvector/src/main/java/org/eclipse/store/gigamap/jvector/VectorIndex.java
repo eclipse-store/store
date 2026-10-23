@@ -535,6 +535,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * Extracts the query vector from the given entity, rejecting both a null entity and a null
      * result: an entity without an embedding has no meaningful similarity and cannot be used as
      * a query.
+     * <p>
+     * A computed vectorizer's result is copied: the search's first access can recover the index, which calls
+     * the same vectorizer on this thread and would overwrite a reused buffer before the query is scored.
      *
      * @param queryEntity the query entity; must not be null
      * @return the non-null query vector
@@ -546,7 +549,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             throw new IllegalArgumentException("Query entity must not be null");
         }
-        final float[] queryVector = this.vectorizer().vectorize(queryEntity);
+        final Vectorizer<? super E> vectorizer  = this.vectorizer();
+        final float[]               queryVector = vectorizer.vectorize(queryEntity);
         if(queryVector == null)
         {
             throw new IllegalArgumentException(
@@ -554,7 +558,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     + "Entities without embeddings cannot be used as similarity queries."
             );
         }
-        return queryVector;
+        return vectorizer.isEmbedded() ? queryVector : queryVector.clone();
     }
 
     /**

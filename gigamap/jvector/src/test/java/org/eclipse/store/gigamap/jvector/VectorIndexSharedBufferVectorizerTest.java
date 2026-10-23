@@ -270,6 +270,35 @@ class VectorIndexSharedBufferVectorizerTest
     }
 
     @Test
+    void restart_firstSearchByEntity_scoresTheQueryEntitysVector(@TempDir final Path tempDir)
+    {
+        // The search vectorizes the query entity, then its first access recovers the vectors, which calls the
+        // same vectorizer on the same thread for every entity: a per-thread buffer does not help here.
+        final Path storageDir = tempDir.resolve("storage");
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc> map = GigaMap.New();
+            storage.setRoot(map);
+            register(map, Mode.IN_MEMORY_SYNC, null);
+            map.addAll(docs(9));
+            storage.storeRoot();
+        }
+
+        SharedBufferVectorizer.CALLS.set(0);
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            @SuppressWarnings("unchecked")
+            final GigaMap<Doc>     map   = (GigaMap<Doc>)storage.root();
+            final VectorIndex<Doc> index = index(map);
+            final long             query = 0;
+            assertEquals(query, index.search(map.get(query), 1).toList().get(0).entityId(),
+                "the search must score the query entity's vector, not the last one the recovery vectorized");
+            assertTrue(SharedBufferVectorizer.CALLS.get() > 1,
+                "the search must have run the recovery, else this test checks nothing");
+        }
+    }
+
+    @Test
     void vectorizerResult_isNotHeldByTheIndex(@TempDir final Path tempDir)
     {
         // The other half of a shared buffer: a caller changing the returned array afterwards changes nothing. The
