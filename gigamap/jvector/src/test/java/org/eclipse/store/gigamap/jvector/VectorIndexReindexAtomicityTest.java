@@ -236,7 +236,7 @@ class VectorIndexReindexAtomicityTest
 
     /**
      * The same with an embedded failing index, whose reindex validates the vectors first and reads them from the
-     * entities again while re-adding, instead of keeping a copy of every vector.
+     * entities again while rewriting them, instead of keeping a copy of every vector.
      */
     @Test
     void failingEmbeddedVectorizerLeavesItsIndexAndRebuildsTheSibling()

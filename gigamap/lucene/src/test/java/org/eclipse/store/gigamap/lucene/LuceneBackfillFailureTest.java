@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.store.Directory;
@@ -37,7 +38,8 @@ import org.junit.jupiter.api.io.TempDir;
  * a failed registration, whose group is discarded, nor a failed {@link GigaMap#reindex()}, whose partial
  * rebuild must not be committed by the next write.
  * <p>
- * The failure is transient: the populator throws for one entity only while {@link #FAIL} is set.
+ * The failure is transient: the populator throws for one entity only while {@link #FAIL} is set, after
+ * passing it {@link #POISON_PASSES} times.
  */
 class LuceneBackfillFailureTest
 {
@@ -45,6 +47,10 @@ class LuceneBackfillFailureTest
 	private static final int POISON = 5;
 
 	static final AtomicBoolean FAIL = new AtomicBoolean();
+
+	// populate calls for the poisoned entity that still succeed while armed: a reindex populates every entity
+	// once before it drops anything
+	static final AtomicInteger POISON_PASSES = new AtomicInteger();
 
 	@TempDir
 	Path temp;
@@ -64,7 +70,7 @@ class LuceneBackfillFailureTest
 		@Override
 		public void populate(final Document document, final Article entity)
 		{
-			if(FAIL.get() && entity.no == POISON)
+			if(FAIL.get() && entity.no == POISON && POISON_PASSES.getAndDecrement() <= 0)
 			{
 				throw new IllegalStateException("simulated populator failure for entity " + entity.no);
 			}
@@ -109,6 +115,7 @@ class LuceneBackfillFailureTest
 	void reset()
 	{
 		FAIL.set(false);
+		POISON_PASSES.set(0);
 	}
 
 	@Test
@@ -139,6 +146,7 @@ class LuceneBackfillFailureTest
 
 		try(final LuceneIndex<Article> index = map.index().register(LuceneIndex.Category(context)))
 		{
+			POISON_PASSES.set(1);
 			FAIL.set(true);
 			assertThrows(IllegalStateException.class, map::reindex);
 			FAIL.set(false);

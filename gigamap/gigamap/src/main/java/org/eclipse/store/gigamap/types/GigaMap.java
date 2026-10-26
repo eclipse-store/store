@@ -676,20 +676,24 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * unique-constraint violation is <em>not</em> such a failure - the rebuild completed and merely produced
 	 * colliding data, so it is reported as described above.
 	 * <p>
-	 * A vector index computes and validates every entity's vector before it drops anything, so a {@code Vectorizer}
+	 * A vector index computes and validates every entity's vector before it changes anything, so a {@code Vectorizer}
 	 * throwing for one entity leaves that index as it was, and the other vector indices are still rebuilt. A computed
 	 * index keeps the vectors of that pass and stores them while rebuilding; an embedded one reads them from the
-	 * entities again, so it holds no copy. Only a failure
-	 * during the rebuild that follows can leave it partial: in embedded mode the rebuild calls the vectorizer again,
-	 * for each entity and for its neighbours while scoring, so a vectorizer that fails only then, an
-	 * {@link OutOfMemoryError}, an I/O error of the vector file or a failure inside the graph library does. Such an
-	 * index stays partial until the next successful call of this method, and a following {@link #store()} makes that
-	 * survive a restart: the index's vector file, in embedded and computed mode alike, then holds only the vectors
-	 * re-added before the failure, and it is loaded as it is.
-	 * A Lucene index discards a failed rebuild and rebuilds itself on its next use in this session; until that
-	 * succeeds, its queries fail, and with {@code LuceneContext.autoCommit} {@code false} so does storing the
-	 * map. That mark does not survive a restart: afterwards the index serves its last commit, without the
-	 * changes the failed rebuild was to apply, until this method succeeds.
+	 * entities again, so it holds no copy. The rebuild then discards the graph, rewrites the vectors in place and
+	 * builds the graph anew from them. A failure in that rebuild - an embedded vectorizer failing only on its second
+	 * call, an {@link OutOfMemoryError}, an I/O error of the vector file, a failure inside the graph library - lets
+	 * every entity keep its vector, the new one or the one it had before, and nothing else has one; the graph is
+	 * then rebuilt on the next use of the index. Call this method again to complete the reindex. A {@code close()}
+	 * of the index during the rebuild can make it fail that way too, and so does a vectorizer that searches its own
+	 * index while the vectors are rewritten: that search is rejected. A closed vector index fails the call before
+	 * anything of it is changed.
+	 * A Lucene index populates every entity's document before it drops anything, so its {@code DocumentPopulator}
+	 * is called twice per entity, and one throwing for an entity leaves that index as it was. A later failure (a
+	 * populator failing only on its second call, the analyzer, an I/O error) discards the rebuild, and the index
+	 * rebuilds itself on its next use in this session; until that succeeds, its queries fail, and with
+	 * {@code LuceneContext.autoCommit} {@code false} so does storing the map. That mark does not survive a
+	 * restart: afterwards the index serves its last commit, without the changes the failed rebuild was to apply,
+	 * until this method succeeds.
 	 * <p>
 	 * <b>Concurrency:</b> as for {@link #removeAll()}, this method never waits for an index group's own locks
 	 * while holding the monitor, but waits on the monitor instead, which interrupts a caller's

@@ -16,6 +16,7 @@ package org.eclipse.store.gigamap.lucene;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
 import org.apache.lucene.document.Field.Store;
 import org.apache.lucene.document.LongField;
 import org.apache.lucene.index.*;
@@ -543,6 +544,15 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
+					if(clearFirst)
+					{
+						// Before anything is dropped: a populator that throws for one entity leaves the index as
+						// it was, instead of a discarded writer that every later access rebuilds and fails on.
+						this.gigaMap.iterateIndexed((entityId, entity) ->
+							closeUnindexed(this.toDocument(entityId, entity))
+						);
+					}
+
 					// this rebuilds from the map anyway, so no rebuild on open is needed, but only once it
 					// has succeeded: a failure below must leave the index checked or rebuilt on the next open
 					final boolean checkFiles = this.checkFilesOnOpen;
@@ -603,6 +613,22 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			catch(final IOException e)
 			{
 				throw new IORuntimeException(e);
+			}
+		}
+
+		/**
+		 * Closes the readers and token streams of a document that is discarded without being indexed: the
+		 * {@link IndexWriter} closes them once it has indexed a document, so a populator may open them, e.g. on a
+		 * file. A failure to close is ignored, the document is not used anyway.
+		 */
+		private static void closeUnindexed(final Document document)
+		{
+			for(final IndexableField field : document)
+			{
+				IOUtils.closeWhileHandlingException(
+					field.readerValue(),
+					field instanceof final Field f ? f.tokenStreamValue() : null
+				);
 			}
 		}
 
