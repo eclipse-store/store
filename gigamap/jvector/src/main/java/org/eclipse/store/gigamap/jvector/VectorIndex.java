@@ -731,6 +731,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
      * vectors, exactly as after a fresh store load (internal #87). Callers must not
      * rely on query-serving until such an access has run.
      *
+     * <h4>Derived vector files</h4>
+     * An index with {@link #keepsIndexFiles()} {@code false} derives its temporary vector file from the
+     * entities. This call marks that file stale too: the next access clears its slots and recovers the
+     * current vectors before rebuilding the graph. Both clearing and vectorization are deferred, so repeated
+     * invalidations without an access do neither. The persisted vector count is preserved for recovery's
+     * content check: regenerating a cache must not advance the persisted change counter. An index that keeps
+     * its vector file leaves that file unchanged; the caller replaces those vectors itself.
+     *
      * <h4>Locking</h4>
      * The teardown runs under the builder write lock, mirroring
      * {@code internalRemoveAll}: concurrent searches, persistence, and background
@@ -1197,6 +1205,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Whether the repairs the vector file needed at its open are done (see ensureVectorsRecovered). They
         // read entities, a nested load, so they cannot run in complete().
         private transient volatile boolean    vectorsRecovered;
+        // Whether a derived vector file has to be emptied before its next recovery: set by
+        // invalidateGraph() for an index that keeps no files, consumed by ensureVectorsRecovered().
+        private transient volatile boolean    derivedVectorsReplaced;
 
         // Managers (transient - recreated on load)
         private transient DiskIndexManager      diskManager          ;
@@ -2603,6 +2614,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 if(this.vectorsRecovered || file == null)
                 {
                     return;
+                }
+                if(this.derivedVectorsReplaced)
+                {
+                    // Preserve the imported count, or recovery would advance the writer's change witness.
+                    this.clearVectorSlots(file);
+                    this.derivedVectorsReplaced = false;
                 }
                 final GigaMap<VectorEntry> legacy = this.legacyVectorStore;
                 if(legacy != null)
@@ -4696,9 +4713,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Makes every slot of the vector file absent. Under the write lock and the parent monitor.
+         * Makes every slot absent without changing the logical count. Under the parent monitor, before
+         * recovery or as part of removeAll.
          */
-        private void removeAllVectors(final VectorFile file)
+        private void clearVectorSlots(final VectorFile file)
         {
             file.forEachSlot(ordinal ->
             {
@@ -4708,7 +4726,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 return true;
             });
-            this.vectorCount = 0L;
+        }
+
+        /**
+         * Makes every slot of the vector file absent and drops the vector count. Under the write lock and the
+         * parent monitor.
+         */
+        private void removeAllVectors(final VectorFile file)
+        {
+            this.clearVectorSlots(file);
+            this.derivedVectorsReplaced = false;
+            this.vectorCount            = 0L;
         }
 
         /**
@@ -4758,6 +4786,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     this.index.close();
                     this.index = null;
+                }
+
+                // Retiring only the graph would rebuild it from stale node-local vectors after an import.
+                final VectorFile file = this.vectorFile;
+                if(file != null && !this.keepsIndexFiles())
+                {
+                    this.derivedVectorsReplaced = true;
+                    this.vectorsRecovered         = false;
                 }
 
                 // Clear the rebuild guard LAST: the next search/optimize/mutation

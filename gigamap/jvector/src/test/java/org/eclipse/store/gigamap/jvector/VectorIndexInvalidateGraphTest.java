@@ -48,9 +48,12 @@ class VectorIndexInvalidateGraphTest
 
     static class EntityVectorizer extends Vectorizer<Entity>
     {
+        final AtomicInteger calls = new AtomicInteger();
+
         @Override
         public float[] vectorize(final Entity entity)
         {
+            this.calls.incrementAndGet();
             return entity.vector;
         }
     }
@@ -113,6 +116,38 @@ class VectorIndexInvalidateGraphTest
         assertEquals(idC, index.search(new float[]{1, 0, 0, 0}, 1).stream()
                 .findFirst().orElseThrow().entityId(),
             "the retired graph's answer must not be replayed after invalidation");
+    }
+
+    /** External imports replace entities without updating the temporary vector file or its search graph. */
+    @Test
+    void externalEntityChangesRecoverLazilyWithoutChangingThePersistedWitness()
+    {
+        final GigaMap<Entity> map = GigaMap.New();
+        try(final VectorIndex<Entity> index = newIndex(map))
+        {
+            final Entity entity = new Entity(new float[]{1, 0, 0, 0});
+            final long id = map.add(entity);
+            map.add(new Entity(new float[]{0, 1, 0, 0}));
+            index.search(entity.vector, 1);
+            final EntityVectorizer vectorizer = (EntityVectorizer)index.vectorizer();
+            final long witness = ((VectorIndex.Default<Entity>)index).getStructuralModCount();
+
+            for(final float[] replacement : new float[][]{{0, 0, 1, 0}, {-1, 0, 0, 0}})
+            {
+                entity.vector = replacement;
+                final int calls = vectorizer.calls.get();
+                index.invalidateGraph();
+                index.invalidateGraph();
+                assertEquals(calls, vectorizer.calls.get(), "invalidation must not vectorize entities");
+                assertEquals(witness, ((VectorIndex.Default<Entity>)index).getStructuralModCount());
+
+                assertArrayEquals(replacement, index.getVector(id));
+                assertEquals(id, index.search(replacement, 1).toList().getFirst().entityId());
+                assertEquals(calls + 2, vectorizer.calls.get(), "each entity is recovered once on access");
+                assertEquals(witness, ((VectorIndex.Default<Entity>)index).getStructuralModCount(),
+                    "recovery must not hide the next imported change");
+            }
+        }
     }
 
     @Test

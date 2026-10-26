@@ -565,7 +565,9 @@ Only a throwing vectorizer leaves the index as it was. A failure after the clear
 2. Close the builder and the graph, which retires the HNSW graph the index was answering from.
 3. Clear `graphRebuilt`, so the next `ensureIndexInitialized()` rebuilds from the vector file exactly as after a start (6.5).
 
-The vector file, the segments of an on-disk index, the PQ codebook, the background managers and the counters all survive. An on-disk index rejects the call: its graph is served from segments this seam does not retire, and the vectors-versus-segments repair is a load-time concern, not an external state change.
+The vector file, the segments of an on-disk index, the PQ codebook, the background managers and the counters all survive — except that the vector file is emptied when the index keeps no files (see below). An on-disk index rejects the call: its graph is served from segments this seam does not retire, and the vectors-versus-segments repair is a load-time concern, not an external state change.
+
+**A derived vector file is emptied — by the next recovery.** An index that keeps no files has a temporary vector file, which holds a derivation of the entities rather than state the caller replaces. Its slots would otherwise keep answering for the state the file was opened with, and the graph rebuilt from them would be built on stale vectors. So the call flags the file and clears the recovery guard, and the access after it empties the file and re-runs the recovery — a full rebuild for such a file, from the current entities. Both halves stay off the caller's apply path, which for a replication layer runs once per applied batch: no slot walk, no vectorization. The clearing may not zero the vector count: the recovery compares the count it ends with against that field, and a zeroed one would make the recovery bump `structuralModCount`, shifting this node's persisted witness away from the writer's until the next import overwrites it, so the change after that would look unchanged. An index that keeps its files is left untouched, as are the segments of an on-disk index, which the call rejects.
 
 ---
 
