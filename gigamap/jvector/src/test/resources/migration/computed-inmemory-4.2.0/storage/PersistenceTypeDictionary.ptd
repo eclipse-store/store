@@ -1,0 +1,649 @@
+0000000000000000001 byte{
+	primitive 8 bit integer signed,
+}
+0000000000000000002 boolean{
+	primitive 8 bit boolean,
+}
+0000000000000000003 short{
+	primitive 16 bit integer signed,
+}
+0000000000000000004 char{
+	primitive 16 bit integer unicode,
+}
+0000000000000000005 int{
+	primitive 32 bit integer signed,
+}
+0000000000000000006 float{
+	primitive 32 bit decimal IEEE754,
+}
+0000000000000000007 long{
+	primitive 64 bit integer signed,
+}
+0000000000000000008 double{
+	primitive 64 bit decimal IEEE754,
+}
+0000000000000000010 java.lang.Object{}
+0000000000000000011 java.lang.Byte{
+	byte value,
+}
+0000000000000000012 java.lang.Boolean{
+	boolean value,
+}
+0000000000000000013 java.lang.Short{
+	short value,
+}
+0000000000000000014 java.lang.Character{
+	char value,
+}
+0000000000000000015 java.lang.Integer{
+	int value,
+}
+0000000000000000016 java.lang.Float{
+	float value,
+}
+0000000000000000017 java.lang.Long{
+	long value,
+}
+0000000000000000018 java.lang.Double{
+	double value,
+}
+0000000000000000019 java.lang.Void{}
+0000000000000000020 java.lang.Class{
+	long value,
+}
+0000000000000000030 java.lang.String{
+	[char] value,
+}
+0000000000000000032 java.lang.StringBuffer{
+	long   capacity,
+	[char] value   ,
+}
+0000000000000000033 java.lang.StringBuilder{
+	long   capacity,
+	[char] value   ,
+}
+0000000000000000034 java.io.File{
+	[char] path,
+}
+0000000000000000035 java.util.Date{
+	long timestamp,
+}
+0000000000000000037 java.math.BigInteger{
+	[byte] value,
+}
+0000000000000000038 java.math.BigDecimal{
+	[char] value,
+}
+0000000000000000043 java.util.ArrayList{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000000044 java.util.HashSet{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000000046 java.util.HashMap{
+	[list] elements(
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000000000048 java.util.Hashtable{
+	[list] elements(
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000000000049 java.util.ArrayDeque{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000000050 java.util.IdentityHashMap{
+	[list] elements(
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000000000051 java.util.LinkedHashMap{
+	[list] elements(
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000000000052 java.util.LinkedHashSet{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000000054 java.util.LinkedList{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000000056 java.util.PriorityQueue{
+	java.util.Comparator comparator,
+	[list]               elements  (
+		java.lang.Object element,
+	),
+}
+0000000000000000057 java.util.TreeMap{
+	java.util.Comparator comparator,
+	[list]               elements  (
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000000000058 java.util.TreeSet{
+	java.util.Comparator comparator,
+	[list]               elements  (
+		java.lang.Object element,
+	),
+}
+0000000000000000059 java.util.Vector{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000000060 java.util.Stack{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000000061 java.util.Properties{
+	[list] elements(
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000000000062 java.util.concurrent.ConcurrentHashMap{
+	[list] elements(
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000000000063 java.util.concurrent.ConcurrentLinkedDeque{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000000064 java.util.concurrent.ConcurrentLinkedQueue{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000000065 java.util.concurrent.ConcurrentSkipListMap{
+	java.util.Comparator comparator,
+	[list]               elements  (
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000000000066 java.util.concurrent.ConcurrentSkipListSet{
+	java.util.Comparator comparator,
+	[list]               elements  (
+		java.lang.Object element,
+	),
+}
+0000000000000000068 java.util.Locale{
+	[char] languageTag,
+}
+0000000000000000101 [B{
+	[list] elements(
+		byte element,
+	),
+}
+0000000000000000102 [Z{
+	[list] elements(
+		boolean element,
+	),
+}
+0000000000000000103 [S{
+	[list] elements(
+		short element,
+	),
+}
+0000000000000000104 [C{
+	[list] elements(
+		char element,
+	),
+}
+0000000000000000105 [I{
+	[list] elements(
+		int element,
+	),
+}
+0000000000000000106 [F{
+	[list] elements(
+		float element,
+	),
+}
+0000000000000000107 [J{
+	[list] elements(
+		long element,
+	),
+}
+0000000000000000108 [D{
+	[list] elements(
+		double element,
+	),
+}
+0000000000000000110 [Ljava.lang.Object;{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000000010000 org.eclipse.serializer.reference.Lazy$Default{
+	java.lang.Object subject,
+}
+0000000000001000001 java.time.Period{
+	int years ,
+	int months,
+	int days  ,
+}
+0000000000001000002 java.util.Currency{
+	[char] currencyCode,
+}
+0000000000001000003 java.util.regex.Pattern{
+	int    flags  ,
+	[char] pattern,
+}
+0000000000001000004 java.net.InetAddress{
+	[char] address,
+}
+0000000000001000005 java.net.Inet4Address{
+	[char] address,
+}
+0000000000001000006 java.net.Inet6Address{
+	[char] address,
+}
+0000000000001000007 java.nio.file.Path{
+	[char] uri,
+}
+0000000000001000008 java.net.InetSocketAddress{
+	java.lang.String     hostname,
+	java.net.InetAddress address ,
+	int                  port    ,
+}
+0000000000001000010 java.net.URI{
+	[char] address,
+}
+0000000000001000011 java.net.URL{
+	[char] address,
+}
+0000000000001000012 java.time.ZoneOffset{
+	int totalSeconds,
+}
+0000000000001000014 java.sql.Date{
+	long timestamp,
+}
+0000000000001000015 java.sql.Time{
+	long timestamp,
+}
+0000000000001000016 java.sql.Timestamp{
+	long date ,
+	int  nanos,
+}
+0000000000001000017 java.util.OptionalInt{
+	boolean isPresent,
+	int     value    ,
+}
+0000000000001000018 java.util.OptionalLong{
+	boolean isPresent,
+	long    value    ,
+}
+0000000000001000019 java.util.OptionalDouble{
+	boolean isPresent,
+	double  value    ,
+}
+0000000000001000020 java.util.BitSet{
+	int     wordsInUse  ,
+	boolean sizeIsSticky,
+	[list]  words       (
+		long word,
+	),
+}
+0000000000001000021 java.time.LocalDate{
+	int   year ,
+	short month,
+	short day  ,
+}
+0000000000001000022 java.time.YearMonth{
+	int year ,
+	int month,
+}
+0000000000001000023 java.time.MonthDay{
+	int month,
+	int day  ,
+}
+0000000000001000024 java.util.Collections$UnmodifiableNavigableSet$EmptyNavigableSet{}
+0000000000001000029 java.util.Collections$UnmodifiableNavigableMap$EmptyNavigableMap{}
+0000000000001000033 java.util.Collections$ReverseComparator{}
+0000000000001000034 java.util.WeakHashMap{
+	[list] elements(
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000001000035 java.util.concurrent.CopyOnWriteArrayList{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000001000036 java.util.concurrent.CopyOnWriteArraySet{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000001000037 java.util.Comparators$NaturalOrderComparator{
+	enum INSTANCE,
+}
+0000000000001000038 java.util.ImmutableCollections$List12{
+	java.lang.Object e0,
+	java.lang.Object e1,
+}
+0000000000001000041 java.util.ImmutableCollections$Set12{
+	java.lang.Object e0,
+	java.lang.Object e1,
+}
+0000000000001000043 java.util.Optional{
+	java.lang.Object java.util.Optional#value,
+}
+0000000000001000044 org.eclipse.serializer.collections.BulkList{
+	long   capacity,
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000001000049 org.eclipse.serializer.collections.LimitList{
+	long   capacity,
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000001000050 org.eclipse.serializer.collections.ConstList{
+	[list] elements(
+		java.lang.Object element,
+	),
+}
+0000000000001000051 org.eclipse.serializer.collections.EqConstList{
+	org.eclipse.serializer.equality.Equalator equalator,
+	[list]                                    elements (
+		java.lang.Object element,
+	),
+}
+0000000000001000052 org.eclipse.serializer.collections.EqBulkList{
+	org.eclipse.serializer.hashing.HashEqualator hashEqualator,
+	long                                         capacity     ,
+	[list]                                       elements     (
+		java.lang.Object element,
+	),
+}
+0000000000001000053 org.eclipse.serializer.collections.HashEnum{
+	float  hashDensity,
+	[list] elements   (
+		java.lang.Object element,
+	),
+}
+0000000000001000055 org.eclipse.serializer.collections.ConstHashEnum{
+	float  hashDensity,
+	[list] elements   (
+		java.lang.Object element,
+	),
+}
+0000000000001000056 org.eclipse.serializer.collections.EqHashEnum{
+	org.eclipse.serializer.hashing.HashEqualator hashEqualator,
+	float                                        hashDensity  ,
+	[list]                                       elements     (
+		java.lang.Object element,
+	),
+}
+0000000000001000057 org.eclipse.serializer.collections.EqConstHashEnum{
+	org.eclipse.serializer.hashing.HashEqualator hashEqualator,
+	float                                        hashDensity  ,
+	[list]                                       elements     (
+		java.lang.Object element,
+	),
+}
+0000000000001000058 org.eclipse.serializer.collections.HashTable{
+	org.eclipse.serializer.collections.HashTable$Keys   keys       ,
+	org.eclipse.serializer.collections.HashTable$Values values     ,
+	float                                               hashDensity,
+	[list]                                              elements   (
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000001000060 org.eclipse.serializer.collections.ConstHashTable{
+	org.eclipse.serializer.collections.ConstHashTable$Keys   keys       ,
+	org.eclipse.serializer.collections.ConstHashTable$Values values     ,
+	float                                                    hashDensity,
+	[list]                                                   elements   (
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000001000061 org.eclipse.serializer.collections.EqHashTable{
+	org.eclipse.serializer.hashing.HashEqualator          hashEqualator,
+	org.eclipse.serializer.collections.EqHashTable$Keys   keys         ,
+	org.eclipse.serializer.collections.EqHashTable$Values values       ,
+	float                                                 hashDensity  ,
+	[list]                                                elements     (
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000001000062 org.eclipse.serializer.collections.EqConstHashTable{
+	org.eclipse.serializer.hashing.HashEqualator               hashEqualator,
+	org.eclipse.serializer.collections.EqConstHashTable$Keys   keys         ,
+	org.eclipse.serializer.collections.EqConstHashTable$Values values       ,
+	float                                                      hashDensity  ,
+	[list]                                                     elements     (
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000001000063 org.eclipse.serializer.collections.Singleton{
+	java.lang.Object element,
+}
+0000000000001000064 org.eclipse.serializer.util.Substituter$Default{
+	org.eclipse.serializer.hashing.HashEqualator hashEqualator,
+	float                                        hashDensity  ,
+	[list]                                       elements     (
+		java.lang.Object element,
+	),
+}
+0000000000001000065 org.eclipse.serializer.collections.lazy.LazyArrayList{
+	int                                                         maxSegmentSize,
+	int                                                         size          ,
+	org.eclipse.serializer.collections.lazy.LazySegmentUnloader unloader      ,
+	[list]                                                      segments      (
+		int                                                      offset,
+		int                                                      size  ,
+		org.eclipse.serializer.reference.ControlledLazyReference data  ,
+	),
+}
+0000000000001000066 org.eclipse.serializer.collections.lazy.LazyHashMap{
+	int                                                         maxSegmentSize,
+	int                                                         size          ,
+	org.eclipse.serializer.collections.lazy.LazySegmentUnloader unloader      ,
+	[list]                                                      segments      (
+		int                                                                             min ,
+		int                                                                             max ,
+		int                                                                             size,
+		org.eclipse.serializer.collections.lazy.LazyHashMap$LazyHashMapSegmentEntryList data,
+	),
+}
+0000000000001000067 org.eclipse.serializer.collections.lazy.LazyHashMap$LazyHashMapSegmentEntryList{
+	[list] segments(
+		int              hash ,
+		java.lang.Object key  ,
+		java.lang.Object value,
+	),
+}
+0000000000001000068 org.eclipse.serializer.collections.lazy.LazyHashSet{
+	org.eclipse.serializer.collections.lazy.LazyHashMap map,
+}
+0000000000001000069 org.eclipse.serializer.reference.ControlledLazyReference$Default{
+	java.lang.Object subject,
+}
+0000000000001000070 java.util.Collections$SetFromMap{
+	java.util.Map map,
+}
+0000000000001000071 org.eclipse.serializer.persistence.types.PersistenceRoots$Default{
+	[list] instances  (
+		java.lang.Object instance,
+	),
+	[list] identifiers(
+		[char] identifier,
+	),
+}
+0000000000001000072 org.eclipse.serializer.persistence.types.PersistenceRootReference$Default{
+	java.lang.Object root,
+}
+0000000000001000073 org.eclipse.serializer.hashing.XHashing$SingletonValueHashEqualator{}
+0000000000001000074 org.eclipse.serializer.hashing.XHashing$SingletonIdentityHashEqualator{}
+0000000000001000075 org.eclipse.serializer.hashing.XHashing$SingletonKeyValueIdentityHashEqualator{}
+0000000000001000076 org.eclipse.serializer.collections.Empty{}
+0000000000001000077 org.eclipse.serializer.collections.EmptyTable{
+	org.eclipse.serializer.collections.EmptyTable$Keys   org.eclipse.serializer.collections.EmptyTable#keys  ,
+	org.eclipse.serializer.collections.EmptyTable$Values org.eclipse.serializer.collections.EmptyTable#values,
+}
+0000000000001000078 org.eclipse.serializer.collections.EmptyTable$Keys{
+	org.eclipse.serializer.collections.EmptyTable org.eclipse.serializer.collections.EmptyTable$Keys#this$0,
+}
+0000000000001000079 org.eclipse.serializer.collections.EmptyTable$Values{
+	org.eclipse.serializer.collections.EmptyTable org.eclipse.serializer.collections.EmptyTable$Values#this$0,
+}
+0000000000001000080 java.util.Collections$EmptyList{}
+0000000000001000081 java.util.Collections$EmptySet{}
+0000000000001000082 java.util.Collections$EmptyMap{}
+0000000000001000083 org.eclipse.store.gigamap.types.GigaMap$Default{
+	org.eclipse.store.gigamap.types.GigaLevel3              level3                     ,
+	org.eclipse.store.gigamap.types.GigaIndices$Default     indices                    ,
+	org.eclipse.store.gigamap.types.GigaConstraints$Default constraints                ,
+	org.eclipse.serializer.equality.Equalator               equalator                  ,
+	int                                                     level1LengthExponent       ,
+	int                                                     level2LengthExponent       ,
+	int                                                     level3MinimumLengthExponent,
+	int                                                     level3MaximumLengthExponent,
+	long                                                    size                       ,
+	long                                                    currentId                  ,
+}
+0000000000001000084 org.eclipse.store.gigamap.types.GigaLevel3{
+	[list] segments(
+		org.eclipse.serializer.reference.Lazy segment,
+	),
+}
+0000000000001000086 org.eclipse.store.gigamap.types.GigaIndices$Default{
+	org.eclipse.store.gigamap.types.GigaMap parent     ,
+	[list]                                  indexGroups(
+		org.eclipse.store.gigamap.types.IndexGroup indexGroup,
+	),
+}
+0000000000001000087 org.eclipse.store.gigamap.types.GigaConstraints$Default{
+	org.eclipse.store.gigamap.types.BitmapIndices             uniqueConstraints,
+	org.eclipse.store.gigamap.types.CustomConstraints$Default customConstraints,
+}
+0000000000001000088 org.eclipse.store.gigamap.types.GigaMap$DefaultEqualator{}
+0000000000001000089 org.eclipse.store.gigamap.types.BitmapIndices$Default{
+	org.eclipse.store.gigamap.types.GigaMap                 parent           ,
+	org.eclipse.serializer.collections.EqHashTable          bitmapIndices    ,
+	org.eclipse.serializer.collections.types.XImmutableEnum identityIndices  ,
+	org.eclipse.serializer.collections.types.XImmutableEnum uniqueConstraints,
+}
+0000000000001000090 org.eclipse.store.gigamap.jvector.VectorIndices$Default{
+	org.eclipse.store.gigamap.types.GigaMap        parent       ,
+	org.eclipse.serializer.collections.EqHashTable vectorIndices,
+}
+0000000000001000091 org.eclipse.store.gigamap.types.CustomConstraints$Default{
+	org.eclipse.store.gigamap.types.GigaMap        parent  ,
+	org.eclipse.serializer.collections.EqHashTable elements,
+}
+0000000000001000092 org.eclipse.store.gigamap.types.GigaLevel2{
+	[list] segments(
+		org.eclipse.serializer.reference.Lazy segment,
+	),
+}
+0000000000001000093 org.eclipse.store.gigamap.jvector.VectorIndex$Default{
+	org.eclipse.store.gigamap.jvector.VectorIndices            parent            ,
+	java.lang.String                                           name              ,
+	org.eclipse.store.gigamap.jvector.VectorIndexConfiguration configuration     ,
+	org.eclipse.store.gigamap.jvector.Vectorizer               vectorizer        ,
+	org.eclipse.store.gigamap.types.GigaMap                    vectorStore       ,
+	long                                                       structuralModCount,
+}
+0000000000001000094 org.eclipse.serializer.collections.EqHashTable$Keys{
+	org.eclipse.serializer.collections.EqHashTable org.eclipse.serializer.collections.EqHashTable$Keys#this$0,
+}
+0000000000001000095 org.eclipse.serializer.collections.EqHashTable$Values{
+	org.eclipse.serializer.collections.EqHashTable org.eclipse.serializer.collections.EqHashTable$Values#this$0,
+}
+0000000000001000096 org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default{
+	org.eclipse.store.gigamap.jvector.VectorSimilarityFunction org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#similarityFunction            ,
+	java.lang.String                                           org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#indexDirectory                ,
+	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#dimension                     ,
+	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#maxDegree                     ,
+	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#beamWidth                     ,
+	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#minSearchBeamWidth            ,
+	float                                                      org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#neighborOverflow              ,
+	float                                                      org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#alpha                         ,
+	boolean                                                    org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#onDisk                        ,
+	boolean                                                    org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#enablePqCompression           ,
+	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#pqSubspaces                   ,
+	long                                                       org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#persistenceIntervalMs         ,
+	boolean                                                    org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#persistOnShutdown             ,
+	long                                                       org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#shutdownPersistTimeoutMillis  ,
+	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#minChangesBetweenPersists     ,
+	long                                                       org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#optimizationIntervalMs        ,
+	int                                                        org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#minChangesBetweenOptimizations,
+	boolean                                                    org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#optimizeOnShutdown            ,
+	boolean                                                    org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#parallelOnDiskWrite           ,
+	boolean                                                    org.eclipse.store.gigamap.jvector.VectorIndexConfiguration$Default#eventualIndexing              ,
+}
+0000000000001000097 org.eclipse.store.gigamap.jvector.VectorSimilarityFunction{
+	enum EUCLIDEAN,
+	enum DOT_PRODUCT,
+	enum COSINE,
+	java.lang.String java.lang.Enum#name   ,
+	int              java.lang.Enum#ordinal,
+	int              java.lang.Enum#hash   ,
+}
+0000000000001000098 org.eclipse.store.gigamap.jvector.migration.MigrationComputedVectorizer{}
+0000000000001000100 org.eclipse.store.gigamap.types.GigaLevel1{
+	[list] entities(
+		java.lang.Object entity,
+	),
+}
+0000000000001000101 org.eclipse.store.gigamap.jvector.migration.MigrationDoc{
+	[F  org.eclipse.store.gigamap.jvector.migration.MigrationDoc#vector,
+	int org.eclipse.store.gigamap.jvector.migration.MigrationDoc#no    ,
+}
+0000000000001000102 org.eclipse.store.gigamap.types.BinaryBitmapIndex{
+	org.eclipse.store.gigamap.types.BitmapIndices parent ,
+	java.lang.String                              name   ,
+	org.eclipse.store.gigamap.types.BinaryIndexer indexer,
+	[list]                                        entries(
+		org.eclipse.store.gigamap.types.BitmapEntry entry,
+	),
+}
+0000000000001000105 org.eclipse.store.gigamap.types.BitmapEntry{
+	org.eclipse.store.gigamap.types.BitmapLevel3 level3  ,
+	int                                          position,
+}
+0000000000001000106 org.eclipse.store.gigamap.jvector.VectorEntry$1{}
+0000000000001000111 org.eclipse.store.gigamap.types.BitmapLevel3{
+	[list] segments(
+		org.eclipse.store.gigamap.types.BitmapLevel2 segment,
+	),
+}
+0000000000001000112 org.eclipse.store.gigamap.jvector.VectorEntry{
+	[F   org.eclipse.store.gigamap.jvector.VectorEntry#vector        ,
+	long org.eclipse.store.gigamap.jvector.VectorEntry#sourceEntityId,
+}
+0000000000001000113 org.eclipse.store.gigamap.types.BitmapLevel2{
+	int    version,
+	[byte] data   ,
+}

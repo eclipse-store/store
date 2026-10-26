@@ -22,11 +22,10 @@ import java.util.List;
  * Supplies the sample a quantizer is trained from, without exposing GigaMap details to the
  * compression managers.
  * <p>
- * Implemented by {@link VectorIndex.Default}, which is the only thing that knows whether the
- * vectors live on the entities themselves or in a separate vector store. Shared by
+ * Implemented by {@link VectorIndex.Default}, which samples its vector file. Shared by
  * {@link PQCompressionManager} and {@link NVQCompressionManager} so that a single collection can
- * feed both: the collection walks the whole GigaMap and, in embedded mode, calls the user's
- * {@code Vectorizer} once per entity, which is far too expensive to do twice per persist.
+ * feed both: the collection reads the whole vector file, which is too expensive to do twice per
+ * persist.
  */
 interface TrainingVectorProvider
 {

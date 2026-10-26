@@ -20,7 +20,7 @@ import java.util.function.IntFunction;
 
 /**
  * Per-query cache from a graph ordinal to its resolved vector, used by the caching vector values
- * ({@link GigaMapBackedVectorValues.Caching}, {@link EntityBackedVectorValues.Caching}).
+ * ({@link MappedVectorValues.Caching}).
  * <p>
  * A search scores up to several thousand distinct nodes, and a fresh cache is built for every
  * query. A boxed {@code Map<Integer, VectorFloat<?>>} pays an {@code Integer} and a map node per

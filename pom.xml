@@ -40,7 +40,10 @@
         <maven.compiler.compilerId>javac</maven.compiler.compilerId>
         <java.version>17</java.version>
         <maven.version.minimum>3.8.1</maven.version.minimum>
-        <maven.java.version.minimum>17</maven.java.version.minimum>
+        <maven.java.version.minimum>25</maven.java.version.minimum>
+        <!-- javac from JDK 23 on runs annotation processors found on the class path only when asked to;
+             examples/layered-entities relies on that discovery -->
+        <maven.compiler.proc>full</maven.compiler.proc>
         <org.eclipse.jdt.ecj.version>3.29.0</org.eclipse.jdt.ecj.version>
         <license.inceptionYear>2023</license.inceptionYear>
         <license.licenseName>epl_only_v2</license.licenseName>

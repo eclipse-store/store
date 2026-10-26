@@ -29,12 +29,12 @@ import java.util.List;
  * <p>
  * The counterpart to {@link PQCompressionManager} on the storage dimension: where that one owns a
  * codebook used to <i>score</i> candidates during traversal, this one owns the quantizer used to
- * <i>store</i> each vector in the graph. It trains a quantizer, or adopts one recovered from an
- * on-disk graph, and hands it to {@link DiskIndexManager#writeIndex} so the graph can be written
+ * <i>store</i> each vector in the graph. It trains a quantizer, or adopts one recovered from the
+ * loaded segments, and hands it to {@link DiskIndexManager#writeSegment} so a segment can be written
  * with an {@code NVQ} feature in place of full-precision inline vectors.
  * <p>
- * It takes no part in searching. An NVQ graph is self-describing - the quantizer lives in its
- * header - so the query path scores through the loaded graph's own view rather than through any
+ * It takes no part in searching. An NVQ segment is self-describing - the quantizer lives in its
+ * graph header - so the query path scores through the segment's own view rather than through any
  * state held here.
  *
  * <h2>Why this is not simply PQCompressionManager with a different quantizer</h2>
@@ -44,7 +44,7 @@ import java.util.List;
  *       for 256 centroids per subspace. NVQ needs a mean, which one vector suffices to compute, so
  *       its {@link #MIN_VECTORS_FOR_NVQ_TRAINING} of 16 is a sanity floor rather than a
  *       mathematical requirement. It is still a floor: {@code trainFrom} returns without training
- *       below it, and an embedded index with enough entities but too few embeddings gets there.
+ *       below it, and an index with few embeddings gets there.
  *       The witness that stops PQ retrying on every idle persist therefore has a counterpart here
  *       after all - it is simply reached less often, and it covers this decline as well as an
  *       exception, which is worth knowing before removing either.</li>
@@ -52,12 +52,12 @@ import java.util.List;
  *       collection and its training are split so the GigaMap monitor can be dropped in between. One
  *       pass of vector addition is microseconds, so this manager takes the sample it is given and
  *       has no collection phase of its own. The orchestrator collects once and feeds both managers,
- *       which matters because collecting walks the whole GigaMap and, in embedded mode, calls the
- *       user's {@code Vectorizer} once per entity.</li>
- *   <li><b>Retraining is harmless.</b> A new PQ codebook would not match the codes already fused
- *       into an existing graph, so PQ is trained once for the life of the on-disk index. NVQ vectors
- *       are rewritten wholesale on every persist, each time with the quantizer in that same file's
- *       header, so a quantizer trained now and one trained later are equally valid. Adoption on load
+ *       which matters because collecting reads the whole vector file.</li>
+ *   <li><b>Retraining is harmless.</b> A new PQ codebook would not match the codes of the segments
+ *       already written, so PQ is trained once and a segment with another codebook is rewritten. An
+ *       NVQ segment is searched only with the quantizer in its own header, so segments written with
+ *       different quantizers coexist, and a quantizer trained now and one trained later are equally
+ *       valid. Adoption on load
  *       is therefore an optimisation - it saves a mean pass and makes the index report itself
  *       compressed immediately - rather than a correctness requirement.</li>
  * </ul>

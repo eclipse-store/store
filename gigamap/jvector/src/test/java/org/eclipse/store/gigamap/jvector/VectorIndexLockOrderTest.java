@@ -23,6 +23,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -58,8 +59,8 @@ class VectorIndexLockOrderTest
     }
 
     /**
-     * Embedded vectorizer whose calls on one designated thread can be paused, so that thread can be held inside a
-     * search's scoring (holding the read lock).
+     * Embedded vectorizer through which one designated thread can be paused inside a search, holding the read
+     * lock (see {@link #scoring()}).
      */
     static class PausableVectorizer extends Vectorizer<Doc>
     {
@@ -70,6 +71,15 @@ class VectorIndexLockOrderTest
 
         @Override
         public float[] vectorize(final Doc entity)
+        {
+            return entity.vector;
+        }
+
+        /**
+         * Run by every search of the index once it holds the read lock (see {@code searchTestHook}): searches
+         * read their vectors from the vector file and no longer call the vectorizer while scoring.
+         */
+        void scoring()
         {
             if(Thread.currentThread() == this.pauseThread)
             {
@@ -83,7 +93,6 @@ class VectorIndexLockOrderTest
                 this.onCall = null;
                 call.run();
             }
-            return entity.vector;
         }
 
         @Override
@@ -116,7 +125,10 @@ class VectorIndexLockOrderTest
         {
             builder.onDisk(true).indexDirectory(indexDir);
         }
-        return map.index().register(VectorIndices.Category()).add("vec", builder.build(), vectorizer);
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("vec", builder.build(), vectorizer);
+        ((VectorIndex.Default<Doc>)index).searchTestHook = vectorizer::scoring;
+        return index;
     }
 
     private static float[] query()
@@ -179,6 +191,23 @@ class VectorIndexLockOrderTest
      * A thread that has already finished never waited: the interleaving the test builds is then not in place,
      * so that fails instead of letting the test go on without it.
      */
+    /**
+     * Waits until {@code thread} waits for the map's open readers. GigaMap waits for them without a timeout
+     * ({@code ensureMutability}), while it retries the index locks with a timed wait, so the untimed wait inside
+     * {@code ensureMutability} tells the two phases apart.
+     */
+    private static void awaitWaitingForReaders(final Thread thread) throws InterruptedException
+    {
+        final long deadline = System.currentTimeMillis() + TIMEOUT_MS;
+        while(thread.getState() != Thread.State.WAITING
+            || Arrays.stream(thread.getStackTrace()).noneMatch(e -> e.getMethodName().equals("ensureMutability")))
+        {
+            assertTrue(thread.isAlive(), thread.getName() + " finished before it waited for the readers");
+            assertTrue(System.currentTimeMillis() < deadline, thread.getName() + " never waited for the readers");
+            Thread.sleep(5);
+        }
+    }
+
     private static void awaitWaiting(final Thread thread) throws InterruptedException
     {
         final long deadline = System.currentTimeMillis() + TIMEOUT_MS;
@@ -231,40 +260,48 @@ class VectorIndexLockOrderTest
     }
 
     /**
-     * Cycle 1: a persist holds the write lock in Phase 2, whose workers read entities via GigaMap.get, while
-     * reindex() runs. reindex() holds the monitor and must not wait for the write lock.
+     * Cycle 1: a flush writes with no lock held while reindex() runs. reindex() holds the monitor and must
+     * not wait for the flush, which in turn must not commit the generation reindex() replaced: it notices and
+     * commits nothing, and the next persist writes the reindexed index.
      */
     @Test
     @Order(Integer.MAX_VALUE - 1)
-    void reindexDuringPersistPhase2(@TempDir final Path tempDir) throws Exception
+    void reindexDuringAFlush_completesAndTheFlushCommitsNothing(@TempDir final Path tempDir) throws Exception
     {
         final GigaMap<Doc> map = populatedMap();
         final PausableVectorizer vectorizer = new PausableVectorizer();
-        final VectorIndex.Default<Doc> index = (VectorIndex.Default<Doc>)register(map, vectorizer, tempDir.resolve("index"));
+        final Path indexDir = tempDir.resolve("index");
+        final VectorIndex.Default<Doc> index = (VectorIndex.Default<Doc>)register(map, vectorizer, indexDir);
 
         final AtomicReference<Worker> reindexer = new AtomicReference<>();
-        index.persistPhase2TestHook = () ->
+        FlushHooks.onceAt(index, VectorIndex.Default.FlushStage.CLEANED, () ->
         {
-            index.persistPhase2TestHook = null;
-            reindexer.set(new Worker("reindexer", map::reindex).begin());
+            final Worker worker = new Worker("reindexer", map::reindex).begin();
+            reindexer.set(worker);
             try
             {
-                awaitWaiting(reindexer.get());
+                // The flush holds no lock here, so reindex() runs to the end.
+                worker.join(TIMEOUT_MS);
             }
             catch(final InterruptedException e)
             {
                 Thread.currentThread().interrupt();
             }
-        };
+        });
         final Worker persister = new Worker("persister", index::persistToDisk).begin();
         persister.join(TIMEOUT_MS);
-        assertNotNull(reindexer.get(), "persist did not reach Phase 2");
-        assertDone("persist Phase 2 vs reindex", persister, reindexer.get());
+        assertNotNull(reindexer.get(), "the persist did not reach its write");
+        assertDone("flush vs reindex", persister, reindexer.get());
+        assertEquals(0, index.flushCount(), "the flush of the replaced generation must commit nothing");
+
+        index.persistToDisk();
+        assertEquals(1, index.flushCount());
+        assertEquals(1, index.sourceSet().segments().size());
         index.close();
     }
 
     /**
-     * Cycle 2: an embedded search holds the read lock and reads entities via GigaMap.get while removeAll() runs.
+     * Cycle 2: an embedded search holds the read lock while removeAll() runs.
      */
     @Test
     void removeAllDuringEmbeddedSearch() throws Exception
@@ -293,8 +330,7 @@ class VectorIndexLockOrderTest
      * apply thread's search out of the read lock.
      * <p>
      * Order: a search holds the read lock (paused in scoring), reindex() starts and waits for the write lock, the
-     * apply thread enters the monitor, the paused search resumes (and now waits for the monitor), the apply
-     * thread searches.
+     * apply thread enters the monitor, the paused search resumes and finishes, the apply thread searches.
      */
     @Test
     void searchInsideApplyWhileReindexWaits() throws Exception
@@ -321,9 +357,18 @@ class VectorIndexLockOrderTest
         })).begin();
         await(inApply);
 
+        // The resumed search reads its vectors from the vector file and finishes without the monitor.
         vectorizer.resume.countDown();
-        awaitWaiting(searcher);
-        release.countDown();
+        searcher.join(TIMEOUT_MS);
+        try
+        {
+            // Before the apply is released: a search that waited for the monitor would finish only after it.
+            assertFalse(searcher.isAlive(), "the search waited for the monitor the apply holds");
+        }
+        finally
+        {
+            release.countDown();
+        }
 
         assertDone("search inside apply vs reindex", applier, searcher, reindexer);
         index.close();
@@ -421,7 +466,8 @@ class VectorIndexLockOrderTest
             {
                 iterator.hasNext();
                 readerOpen.countDown();
-                Thread.sleep(200);
+                // Searches only once reindex() got past the lock and waits for this reader.
+                awaitWaitingForReaders(reindexer);
                 index.search(query(), 5);
             }
             catch(final InterruptedException e)

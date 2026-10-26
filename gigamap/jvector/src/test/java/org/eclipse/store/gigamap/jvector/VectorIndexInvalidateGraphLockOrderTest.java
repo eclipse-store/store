@@ -48,7 +48,10 @@ class VectorIndexInvalidateGraphLockOrderTest
         }
     }
 
-    /** Embedded vectorizer: one designated thread can be paused inside a search's scoring, holding the read lock. */
+    /**
+     * Embedded vectorizer through which one designated thread can be paused inside a search, holding the read
+     * lock (see {@link #scoring()}).
+     */
     static class PausableVectorizer extends Vectorizer<Doc>
     {
         volatile Thread      pauseThread;
@@ -58,6 +61,15 @@ class VectorIndexInvalidateGraphLockOrderTest
 
         @Override
         public float[] vectorize(final Doc entity)
+        {
+            return entity.vector;
+        }
+
+        /**
+         * Run by every search of the index once it holds the read lock (see {@code searchTestHook}): searches
+         * read their vectors from the vector file and no longer call the vectorizer while scoring.
+         */
+        void scoring()
         {
             if(Thread.currentThread() == this.pauseThread)
             {
@@ -71,7 +83,6 @@ class VectorIndexInvalidateGraphLockOrderTest
                 this.onCall = null;
                 call.run();
             }
-            return entity.vector;
         }
 
         @Override
@@ -125,10 +136,14 @@ class VectorIndexInvalidateGraphLockOrderTest
 
     private static VectorIndex<Doc> register(final GigaMap<Doc> map, final PausableVectorizer vectorizer)
     {
-        return map.index().register(VectorIndices.Category()).add("vec", VectorIndexConfiguration.builder()
-            .dimension(4)
-            .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
-            .build(), vectorizer);
+        final VectorIndex<Doc> index = map.index().register(VectorIndices.Category()).add("vec",
+            VectorIndexConfiguration.builder()
+                .dimension(4)
+                .similarityFunction(VectorSimilarityFunction.EUCLIDEAN)
+                .build(),
+            vectorizer);
+        ((VectorIndex.Default<Doc>)index).searchTestHook = vectorizer::scoring;
+        return index;
     }
 
     private static float[] query()
@@ -201,9 +216,8 @@ class VectorIndexInvalidateGraphLockOrderTest
     }
 
     /**
-     * An embedded search holds the read lock and reads entities via GigaMap.get (which needs the monitor) while a
-     * merge thread invalidates the graph from inside {@code synchronized(map)}. The invalidation must not hold the
-     * monitor while it waits for the write lock.
+     * A search holds the read lock while a merge thread invalidates the graph from inside
+     * {@code synchronized(map)}. The invalidation must not hold the monitor while it waits for the write lock.
      */
     @Test
     void invalidateUnderTheMonitorWhileAnEmbeddedSearchHoldsTheReadLock() throws Exception

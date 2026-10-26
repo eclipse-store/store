@@ -26,6 +26,7 @@
         <module>codegen-test</module>
         <module>lucene</module>
         <module>jvector</module>
+        <module>codegen-jvector-test</module>
     </modules>
 
 </project>

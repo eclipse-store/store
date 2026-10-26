@@ -183,7 +183,6 @@ class VectorIndexPersistTrainingTest
     {
         final Path storageDir = dir.resolve("storage");
         final Path indexDir   = dir.resolve("index");
-        final Path graphFile  = indexDir.resolve("embeddings.graph");
 
         final Random random = new Random(2024);
 
@@ -201,7 +200,7 @@ class VectorIndexPersistTrainingTest
             storage.storeRoot();
         }
 
-        final long uncompressedSize = Files.size(graphFile);
+        final long uncompressedSize = Files.size(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
 
         // Session two: train through the deprecated API first, then persist. Nothing has changed
         // in the data, so the only reason to write is the codebook that call produced.
@@ -220,7 +219,7 @@ class VectorIndexPersistTrainingTest
             index.persistToDisk();
         }
 
-        final long afterSize = Files.size(graphFile);
+        final long afterSize = Files.size(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
         assertTrue(afterSize > uncompressedSize,
             "the graph did not grow (" + uncompressedSize + " -> " + afterSize + " bytes), so the"
                 + " codebook trained through the deprecated API was never written and the index"
@@ -252,7 +251,6 @@ class VectorIndexPersistTrainingTest
     {
         final Path storageDir = dir.resolve("storage");
         final Path indexDir   = dir.resolve("index");
-        final Path graphFile  = indexDir.resolve("embeddings.graph");
 
         final Random random = new Random(4711);
 
@@ -270,8 +268,8 @@ class VectorIndexPersistTrainingTest
             storage.storeRoot();
         }
 
-        assertTrue(Files.exists(graphFile), "the shutdown persist must have written a graph");
-        final long uncompressedSize = Files.size(graphFile);
+        assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"), "the shutdown persist must have written a graph");
+        final long uncompressedSize = Files.size(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
 
         // Session two: load and persist once. Nothing has changed, so this persist exists only to
         // do the training the shutdown one skipped - and to write what it trains.
@@ -285,7 +283,7 @@ class VectorIndexPersistTrainingTest
             index.persistToDisk();
         }
 
-        final long afterTrainingSize = Files.size(graphFile);
+        final long afterTrainingSize = Files.size(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
 
         // Fused codes are pqSubspaces * maxDegree bytes per node on top of the inline vectors, so
         // the difference is not subtle. Anything close to unchanged means the codebook was trained

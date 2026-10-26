@@ -5,13 +5,16 @@ The `VectorIndexConfiguration` builder provides various options to tune the inde
 [#jvm-configuration]
 == JVM Configuration
 
-To enable SIMD acceleration via the Panama Vector API, configure your JVM with the following parameters.
+The module requires Java 25 or later. Configure your JVM with the following parameters:
+
+* `--add-modules jdk.incubator.vector` enables SIMD acceleration via the Panama Vector API. Without it, jVector falls back to scalar code.
+* `--enable-native-access=ALL-UNNAMED` allows jVector's memory-mapped graph reader, which makes a restricted call on Java 22+. On the module path jVector is the automatic module `jvector`, so name it there: `--enable-native-access=jvector`.
 
 === Required JVM Arguments
 
 [source, bash]
 ----
-java --add-modules jdk.incubator.vector -jar your-app.jar
+java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED -jar your-app.jar
 ----
 
 === Full Example with Performance Tuning
@@ -19,6 +22,7 @@ java --add-modules jdk.incubator.vector -jar your-app.jar
 [source, bash]
 ----
 java --add-modules jdk.incubator.vector \
+     --enable-native-access=ALL-UNNAMED \
      -Djvector.physical_core_count=8 \
      -jar your-app.jar
 ----
@@ -33,14 +37,14 @@ For Maven projects, configure the Surefire and Failsafe plugins:
     <groupId>org.apache.maven.plugins</groupId>
     <artifactId>maven-surefire-plugin</artifactId>
     <configuration>
-        <argLine>--add-modules jdk.incubator.vector</argLine>
+        <argLine>--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED</argLine>
     </configuration>
 </plugin>
 <plugin>
     <groupId>org.apache.maven.plugins</groupId>
     <artifactId>maven-failsafe-plugin</artifactId>
     <configuration>
-        <argLine>--add-modules jdk.incubator.vector</argLine>
+        <argLine>--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED</argLine>
     </configuration>
 </plugin>
 ----
@@ -52,28 +56,37 @@ For Gradle projects:
 [source, kotlin]
 ----
 tasks.withType<JavaExec> {
-    jvmArgs("--add-modules", "jdk.incubator.vector")
+    jvmArgs("--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED")
 }
 
 tasks.withType<Test> {
-    jvmArgs("--add-modules", "jdk.incubator.vector")
+    jvmArgs("--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED")
 }
 ----
 
-=== Physical Core Configuration
+[#system-properties]
+=== System Properties
 
-Intensive SIMD operations can saturate memory bandwidth during indexing and PQ computation. JVector mitigates this by using a `PhysicalCoreExecutor` that limits concurrency to physical cores rather than logical cores (hyperthreads).
+Set with `-D<property>=<value>` on the JVM command line.
 
-[options="header",cols="1,1,3"]
+[options="header",cols="2,1,3"]
 |===
 |Property |Default |Description
 
 |`jvector.physical_core_count`
 |Half of available processors
-|Override the detected physical core count for parallel operations
+|Overrides the detected physical core count for parallel operations. Intensive SIMD operations can saturate memory bandwidth during indexing and PQ computation, so jVector's `PhysicalCoreExecutor` limits concurrency to physical cores rather than logical cores (hyperthreads). A property of the jVector library.
+
+|`org.eclipse.store.gigamap.jvector.temporaryRoot`
+|`java.io.tmpdir`
+|The directory under which in-memory indices without an index directory create their temporary vector files, in its subdirectory `eclipsestore-vectors`. Only that subdirectory is written and cleaned up.
+
+|`org.eclipse.store.gigamap.jvector.dropLegacyVectorsWithoutLocation`
+|`false`
+|Lets an in-memory index with a computed vectorizer and no index location, loaded from a 4.x storage, drop the vectors of its 4.x vector store at the next store; every later start then vectorizes every entity. Without it, storing such an index is refused until it has a location, see xref:indexing/jvector/index.adoc#upgrading-from-4x[Upgrading from 4.x].
 |===
 
-NOTE: The `jdk.incubator.vector` module is an incubator feature in Java 17-21. Starting with Java 22, the Vector API moved to preview status. JVector's multi-release JAR handles the API differences automatically, but the module must still be explicitly enabled.
+NOTE: The `jdk.incubator.vector` module is still an incubator module on Java 22 and later. JVector's multi-release JAR handles the API differences automatically, but the module must still be explicitly enabled.
 
 == Basic HNSW Parameters
 
@@ -124,7 +137,7 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 
 == On-Disk Storage
 
-For datasets that exceed available memory, enable on-disk storage to use memory-mapped files. See xref:indexing/jvector/advanced.adoc#_on_disk_index_with_compression[On-Disk Index with Compression] for an in-depth explanation of the build/persist lifecycle, memory-mapped access, PQ compression theory, and the two-phase search with reranking.
+For datasets that exceed available memory, enable on-disk storage to use memory-mapped files. See xref:indexing/jvector/advanced.adoc#_on_disk_index_with_compression[On-Disk Index with Compression] for an in-depth explanation of the segment and persist lifecycle, memory-mapped access, PQ compression theory, and the two-phase search with reranking.
 
 [options="header",cols="1,1,3"]
 |===
@@ -132,11 +145,11 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 
 |`onDisk`
 |`false`
-|Store the graph in a memory-mapped file instead of on the Java heap. This is what lets an index exceed available RAM: the OS pages the graph in and out, so heap stays flat and the cost moves to page cache and query latency. In-memory mode is faster per query but its graph is heap-resident, with the GC pressure that implies at scale.
+|Store the graph as memory-mapped segment files instead of on the Java heap. This is what lets an index exceed available RAM: the OS pages the graph in and out, so heap stays flat and the cost moves to page cache and query latency. In-memory mode is faster per query but its graph is heap-resident, with the GC pressure that implies at scale, and it is rebuilt from the vector file at every start.
 
 |`indexDirectory`
 |`null`
-|Directory for index files. Required if `onDisk=true`, unless `indexLocation` is set.
+|Directory for the index files: segments, manifest and vector file. Required if `onDisk=true`, unless `indexLocation` is set. An in-memory index with a computed vectorizer keeps its vector file there too, and then restarts without a vectorizer call per entity; see xref:indexing/jvector/index.adoc#where-the-vectors-live[Where the Vectors Live].
 
 |`indexLocation`
 |`null`
@@ -144,11 +157,11 @@ For datasets that exceed available memory, enable on-disk storage to use memory-
 
 |`vectorStorage`
 |`INLINE`
-|How the graph stores its own copy of each vector. `INLINE` keeps full precision (`dimension * 4` bytes per node). `NVQ` stores 8-bit quantized vectors (`4 + dimension + 28 * nvqSubvectors` bytes per node), which is about 3x smaller, and is the only setting that makes the graph file *smaller*. Reranking is exact under both, but reads from different places: an inline graph carrying fused codes reranks from its own mapping, while an NVQ graph has no full-precision copy and reads the GigaMap. With `approximateScoring=NONE` traversal reads the quantized vectors and so finds slightly different candidates; with `FUSED_PQ` the codes drive traversal and candidate selection is unchanged.
+|How the graph stores its own copy of each vector. `INLINE` keeps full precision (`dimension * 4` bytes per node). `NVQ` stores 8-bit quantized vectors (`4 + dimension + 28 * nvqSubvectors` bytes per node), which is about 3x smaller, and is the only setting that makes the graph file *smaller*. Reranking is exact under both, but reads from different places: an inline graph carrying fused codes reranks from its own mapping, while an NVQ graph has no full-precision copy and reads the vector file. With `approximateScoring=NONE` traversal reads the quantized vectors and so finds slightly different candidates; with `FUSED_PQ` the codes drive traversal and candidate selection is unchanged. Requires `onDisk=true`.
 
 |`approximateScoring`
 |`NONE`
-|How traversal scores candidates. `NONE` scores from whatever the storage mode holds. `FUSED_PQ` writes Product Quantization codes into every node, which speeds up traversal of a large on-disk index at the cost of a *larger* graph file. `PQ_IN_MEMORY` buys the same approximate traversal without touching the graph, keeping the codes in heap - `pqSubspaces` bytes per ordinal, resident, against `pqSubspaces * maxDegree` bytes per node on disk. An on-disk index persists them in a `.pqv` sidecar read back on load; an *in-memory* index has no persist and therefore no sidecar, building them during optimization instead. It is also the only *PQ-based* mode available to an *in-memory* index - `NONE` remains the default there - and it requires `optimizationIntervalMs > 0`: the switch from exact to compressed scoring is a rebuild, and optimization is where it happens. A scheduled optimization is necessary but not sufficient: the background manager skips one until `minChangesBetweenOptimizations` changes have accumulated, and that defaults to 1000. An index that settles between the 256 vectors PQ training needs and that threshold stays on exact scoring until something calls `optimize()` explicitly, and `build()` warns when the two are configured that way.
+|How traversal scores candidates. Keep `NONE` while the graph fits in the page cache: scoring from PQ codes saves reads, not arithmetic, so there it is slower and finds fewer of the true nearest neighbours. `FUSED_PQ` writes Product Quantization codes into every node, so traversing a graph *larger than the page cache* reads one block per hop, at the cost of a *larger* graph file and some recall; it requires `onDisk=true`. `PQ_IN_MEMORY` buys the same approximate traversal without touching the graph, keeping the codes in heap - `pqSubspaces` bytes per ordinal, resident, against `pqSubspaces * maxDegree` bytes per node on disk. An on-disk index persists them in a `.pqv` file per segment, read back on load; an *in-memory* index has no persist and therefore no such file, building them during optimization instead. It is also the only *PQ-based* mode available to an *in-memory* index - `NONE` remains the default there - and it requires `optimizationIntervalMs > 0`: the switch from exact to compressed scoring is a rebuild, and optimization is where it happens. A scheduled optimization is necessary but not sufficient: the background manager skips one until `minChangesBetweenOptimizations` changes have accumulated, and that defaults to 1000. An index that settles between the 256 vectors PQ training needs and that threshold stays on exact scoring until something calls `optimize()` explicitly, and `build()` warns when the two are configured that way.
 
 |`nvqSubvectors`
 |`0`
@@ -176,10 +189,49 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .similarityFunction(VectorSimilarityFunction.COSINE)
     .onDisk(true)
     .indexDirectory(Path.of("/data/vectors"))
-    .approximateScoring(ApproximateScoring.FUSED_PQ)
+    .approximateScoring(ApproximateScoring.FUSED_PQ) // Only for a graph larger than the page cache
     .pqSubspaces(48)  // Must divide dimension evenly
     .build();
 ----
+
+=== On-Disk Format
+
+An on-disk index is a set of immutable segments, committed by `<name>.manifest`:
+
+* `<name>.seg-<n>.graph` - the graph of segment `n`;
+* `<name>.seg-<n>.l2g` - the entity id of each node of segment `n`;
+* `<name>.seg-<n>.pqv` - the PQ codes of segment `n`, only with `PQ_IN_MEMORY`.
+
+The manifest records the state of the stored index it describes (vector count, highest entity id and a structural modification count) and carries a CRC32 checksum. A manifest that does not match the stored index, or a segment that fails to open, is rejected: the graph is rebuilt from the vector file and the next persist replaces the files. Graph files of 4.x (`<name>.graph`, `.meta`, `.pqv`) are ignored and logged once; they can be removed.
+
+== Segments and the Vector File
+
+[options="header",cols="1,1,3"]
+|===
+|Parameter |Default |Description
+
+|`flushThreshold`
+|`100000`
+|Nodes the in-memory graph of an on-disk index must hold before a background persist writes it as a new segment. Keep it large: small segments add search cost without making anything more durable. An explicit `persistToDisk()` and the shutdown persist write regardless. Only relevant for on-disk indices.
+
+|`segmentMergeFactor`
+|`4`
+|How many segments of similar size a background merge combines into one (2-240). Larger merges less often and leaves more segments for every search to visit. Only relevant for on-disk indices.
+
+|`maxSegments`
+|`32`
+|The most segments an on-disk index keeps (2-240). Background merges keep the count well below it; only if they fell behind does a persist consolidate all segments into one, blocking mutations and searches while it rebuilds.
+
+|`vectorCheckpointIntervalMs`
+|`30000`
+|Interval at which the vector file is forced to disk and its chunks marked safe. After a crash only the chunks written since the last checkpoint are recovered, by re-vectorizing their entities. Shorter costs more header writes at runtime, longer more recovery after a crash.
+
+|`vectorChunkBytes`
+|64 MB, or 2048 vectors where a large dimension needs more
+|Size of one vector-file chunk; it must hold at least 2048 vectors. A chunk is written out in full when it is created, so a full disk fails as an exception, and it is the unit of recovery. Changing it for an existing index re-vectorizes every entity at the next start.
+|===
+
+The vector file (`<name>.vec`, chunks `<name>.vec-<n>`) is a cache of what the vectorizer derives from the entities, not a copy the storage commits: it must stay with the storage it belongs to. Deleting it only makes the next start re-vectorize every entity; restoring it separately from the storage is not supported. An index without a directory (every embedded in-memory index, and a computed one without `indexDirectory`/`indexLocation`) uses a temporary vector file and re-vectorizes every entity at each start. See xref:indexing/jvector/index.adoc#where-the-vectors-live[Where the Vectors Live].
 
 == Eventual Indexing
 
@@ -191,14 +243,14 @@ Enable eventual indexing to defer expensive HNSW graph mutations to a background
 
 |`eventualIndexing`
 |`false`
-|Defer HNSW graph mutations (add, update, remove) to a background thread. The vector store is updated synchronously, but graph construction happens asynchronously. Search results may not immediately reflect the most recent mutations.
+|Defer HNSW graph mutations (add, update, remove) to a background thread. The vector file is updated synchronously, but graph construction happens asynchronously. Search results may not immediately reflect the most recent mutations.
 |===
 
 When enabled:
 
-* The vector store is always updated synchronously (no data loss).
+* The vector file is always updated synchronously (no data loss).
 * HNSW graph mutations are queued and applied by a single background worker thread.
-* The queue is automatically drained before `optimize()`, `persistToDisk()`, and `close()`.
+* The queue is automatically drained before `optimize()` and `close()`. `persistToDisk()` does not wait for it: it takes the pending operations into the graph it writes as a segment.
 
 === Example
 
@@ -232,8 +284,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 
 == Background Persistence
 
-Enable automatic asynchronous persistence to avoid blocking operations during writes.
-Setting `persistenceIntervalMs` to a value greater than 0 enables background persistence. See xref:indexing/jvector/advanced.adoc#_production_configuration[Production Configuration] for a combined example with background persistence and optimization.
+Enable automatic asynchronous persistence of an on-disk index to avoid blocking operations during writes.
+Setting `persistenceIntervalMs` to a value greater than 0 enables background persistence; it requires `onDisk=true`. A background persist writes the in-memory graph as a new segment once it holds `flushThreshold` nodes (see <<_segments_and_the_vector_file>>). Persisting concerns the graph only: the vectors are in the vector file, which mutations write directly. See xref:indexing/jvector/advanced.adoc#_production_configuration[Production Configuration] for a combined example.
 
 [options="header",cols="1,1,3"]
 |===
@@ -253,7 +305,7 @@ Setting `persistenceIntervalMs` to a value greater than 0 enables background per
 
 |`shutdownPersistTimeoutMillis`
 |`30000`
-|How long `close()` waits for the final drain, optimize and persist before interrupting it and continuing. An aborted persist never loses data or leaves a torn file - on-disk indices write atomically and self-heal from the store - it only degrades to a rebuild on the next boot. In incremental on-disk mode the shutdown persist returns immediately, so in practice this bounds a first-time (non-incremental) persist or an unexpectedly slow drain.
+|How long `close()` waits for the final drain, optimize and persist before interrupting it and continuing. An aborted persist loses no data - the vectors are in the vector file, and the manifest is committed atomically - it only costs a graph rebuild from the vector file on the next start. The shutdown persist writes the in-memory graph as one more segment and never rebuilds, so this mainly bounds the write of a large in-memory graph or an unexpectedly slow drain.
 |===
 
 === Example
@@ -273,8 +325,8 @@ VectorIndexConfiguration config = VectorIndexConfiguration.builder()
 
 == Background Optimization
 
-Enable periodic graph optimization to maintain query performance as the index grows.
-Setting `optimizationIntervalMs` to a value greater than 0 enables background optimization. See xref:indexing/jvector/advanced.adoc#_manual_optimization_and_persistence[Manual Optimization and Persistence] for manual control.
+Enable periodic graph optimization of an in-memory index to maintain query performance as the index grows.
+Setting `optimizationIntervalMs` to a value greater than 0 enables background optimization. It has no effect on an on-disk index, which cleans up each graph as it writes it as a segment. See xref:indexing/jvector/advanced.adoc#_manual_optimization_and_persistence[Manual Optimization and Persistence] for manual control.
 
 [options="header",cols="1,1,3"]
 |===
@@ -300,8 +352,6 @@ Setting `optimizationIntervalMs` to a value greater than 0 enables background op
 VectorIndexConfiguration config = VectorIndexConfiguration.builder()
     .dimension(768)
     .similarityFunction(VectorSimilarityFunction.COSINE)
-    .onDisk(true)
-    .indexDirectory(Path.of("/data/vectors"))
     .optimizationIntervalMs(60_000)       // Enable, check every 60 seconds
     .minChangesBetweenOptimizations(1000) // Only optimize if >= 1000 changes
     .optimizeOnShutdown(false)            // Skip for faster shutdown

@@ -39,9 +39,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -53,7 +55,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
+import java.util.zip.CRC32;
 
 import static java.time.Duration.ofMillis;
 import static org.awaitility.Awaitility.await;
@@ -211,8 +215,8 @@ class VectorIndexDiskTest
                 index.persistToDisk();
 
                 // Verify files were created
-                assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
-                assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
+                assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty());
+                assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"));
 
                 storage.storeRoot();
             }
@@ -325,15 +329,15 @@ class VectorIndexDiskTest
             "persisting an index with >= 256 vectors must have trained a PQ codebook");
 
         // Verify graph file was created (FusedPQ is embedded in graph, no separate .pq file)
-        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
-        assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
+        assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty());
+        assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"));
         assertFalse(Files.exists(indexDir.resolve("embeddings.pq")),
             "FusedPQ should be embedded in graph file, not in separate .pq file");
 
         index.close();
 
         // The core assertion: the flag must actually change what is written.
-        assertTrue(graphFeatures(indexDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ),
+        assertTrue(graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings")).contains(FeatureId.FUSED_PQ),
             "enablePqCompression(true) must write a FusedPQ graph");
     }
 
@@ -373,7 +377,7 @@ class VectorIndexDiskTest
 
         index.close();
 
-        final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
+        final Set<FeatureId> features = graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
         assertFalse(features.contains(FeatureId.FUSED_PQ), "no FusedPQ without enablePqCompression");
         assertTrue(features.contains(FeatureId.INLINE_VECTORS), "inline vectors are always written");
     }
@@ -658,8 +662,8 @@ class VectorIndexDiskTest
 
                 // Persist
                 index.persistToDisk();
-                assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
-                assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
+                assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty());
+                assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"));
                 assertTrue(index.isPqCompressionActive(), "the persist must have trained a codebook");
 
                 storage.storeRoot();
@@ -711,7 +715,7 @@ class VectorIndexDiskTest
      * without a codebook. {@code trainIfNeeded()} then short-circuited forever while the write gate
      * - which also requires a codebook - kept falling through to the uncompressed branch. The result
      * was an index that compressed on its first persist and silently downgraded on every later one,
-     * with nothing in the {@code .meta} to reveal it.
+     * with nothing on disk to reveal it.
      */
     @Test
     void testPqCompressionSurvivesReloadAndRepersist(@TempDir final Path tempDir) throws IOException
@@ -720,7 +724,6 @@ class VectorIndexDiskTest
         final int    dimension   = 64;
         final Path   indexDir    = tempDir.resolve("index");
         final Path   storageDir  = tempDir.resolve("storage");
-        final Path   graphPath   = indexDir.resolve("embeddings.graph");
         final Random random      = new Random(4711);
 
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
@@ -750,10 +753,10 @@ class VectorIndexDiskTest
             // index still holds it memory-mapped.
             index.close();
         }
-        assertTrue(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ),
+        assertTrue(graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings")).contains(FeatureId.FUSED_PQ),
             "the first persist must write FusedPQ");
 
-        // Phase 2: reload, mutate so the persist is not skipped as incremental-clean, persist again.
+        // Phase 2: reload, mutate so the persist is not skipped as clean, persist again: a second segment.
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
             final GigaMap<Document> gigaMap = storage.root();
@@ -772,8 +775,13 @@ class VectorIndexDiskTest
             index.close();
         }
 
-        assertTrue(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ),
-            "a re-persist after a reload must not silently downgrade to an uncompressed graph");
+        final List<Path> graphs = SegmentLayout.graphFiles(indexDir, "embeddings");
+        assertEquals(2, graphs.size(), "the re-persist flushes the new entities as a second segment");
+        for(final Path graph : graphs)
+        {
+            assertTrue(graphFeatures(graph).contains(FeatureId.FUSED_PQ),
+                "a re-persist after a reload must not silently downgrade to an uncompressed graph: " + graph);
+        }
 
         // Phase 3: the twice-written graph must still be loadable and searchable.
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
@@ -1013,19 +1021,21 @@ class VectorIndexDiskTest
             assertEquals(10, index.search(randomVector(new Random(6), dimension), 10).size());
         }
 
-        assertTrue(graphFeatures(indexDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ));
+        assertTrue(graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings")).contains(FeatureId.FUSED_PQ));
     }
 
     /**
-     * Direct guard on the PQ marker in the metadata: a graph written with PQ off must be rejected by
-     * a manager configured with PQ on, and vice versa, even though every other witness matches.
+     * Direct guard on the format the manifest records per segment: a graph written with PQ off is
+     * flagged for a rewrite by a manager configured with PQ on, and one written with full-precision
+     * vectors by a manager configured for NVQ, even though every witness matches.
      * <p>
-     * Exercises {@code verifyMetadata} through {@code tryLoad} rather than end-to-end, because the
-     * end-to-end path reaches the right state either way - the training carve-out rewrites the graph
-     * on the next persist. Only this level shows that the stale graph is refused at load.
+     * Flagged rather than rejected: the segment is still a correct index of its vectors, only not
+     * in the configured format, so it keeps serving exact searches until a persist rewrites it.
+     * Exercised through {@code tryLoad} rather than end-to-end, because the end-to-end path reaches
+     * the right state either way - the training carve-out rewrites the graph on the next persist.
      */
     @Test
-    void testMetadataRejectsAMismatchedPqSetting(@TempDir final Path tempDir) throws IOException
+    void testManifestFlagsAMismatchedPqSetting(@TempDir final Path tempDir) throws IOException
     {
         final int vectorCount = 300;
         final int dimension   = 64;
@@ -1058,41 +1068,29 @@ class VectorIndexDiskTest
         final GraphFormat storageChanged = new GraphFormat(
             VectorStorage.NVQ, ApproximateScoring.NONE, 0, 0);
 
-        try(final DiskIndexManager matching = new DiskIndexManager.Default(
-            written, "embeddings", indexDir, dimension, asWritten, false))
-        {
-            assertTrue(matching.tryLoad(state), "the same format must load");
-        }
-
-        try(final DiskIndexManager mismatched = new DiskIndexManager.Default(
-            written, "embeddings", indexDir, dimension, pqTurnedOn, false))
-        {
-            assertFalse(mismatched.tryLoad(state),
-                "a graph written with PQ off must not load into an index configured with PQ on");
-        }
-
-        try(final DiskIndexManager mismatched = new DiskIndexManager.Default(
-            written, "embeddings", indexDir, dimension, storageChanged, false))
-        {
-            assertFalse(mismatched.tryLoad(state),
-                "a full-precision graph must not load into an index configured for NVQ storage");
-        }
+        assertEquals(LoadOutcome.LOADED, this.loadsWith(written, indexDir, dimension, asWritten, state),
+            "the same format must load as it is");
+        assertEquals(LoadOutcome.FLAGGED, this.loadsWith(written, indexDir, dimension, pqTurnedOn, state),
+            "a graph written with PQ off must be flagged in an index configured with PQ on");
+        assertEquals(LoadOutcome.FLAGGED, this.loadsWith(written, indexDir, dimension, storageChanged, state),
+            "a full-precision graph must be flagged in an index configured for NVQ storage");
     }
 
     /**
      * The subspace and subvector counts shape the encoded blocks within a mode, and a changed count
-     * has to invalidate the graph for a reason the mode codes do not share: a quantizer is adopted
-     * from the loaded graph rather than retrained, so a count that is not checked here is not
-     * merely tolerated - it is silently ignored, and every later persist keeps writing the shape
-     * the old quantizer carries.
+     * has to flag the segment for a reason the mode codes do not share: a quantizer is adopted from
+     * the loaded graph rather than retrained, so a count that is not checked here is not merely
+     * tolerated - it is silently ignored, and every later persist keeps writing the shape the old
+     * quantizer carries. A flagged segment contributes no quantizer, so the next persist trains one
+     * of the configured shape.
      * <p>
-     * The counts are compared in effective form, so the two negative cases below are paired with
-     * two cases that must still load: the automatic sentinel is the same setting as the value it
-     * resolves to, and a count carries no meaning in a mode that does not encode with it. Rebuilding
-     * on either would cost a cold start for no change in the file.
+     * The counts are compared in effective form, so the two flagged cases below are paired with two
+     * cases that must load as they are: the automatic sentinel is the same setting as the value it
+     * resolves to, and a count carries no meaning in a mode that does not encode with it. Rewriting
+     * on either would cost a full persist for no change in the file.
      */
     @Test
-    void testMetadataRejectsAChangedSubvectorOrSubspaceCount(@TempDir final Path tempDir) throws IOException
+    void testManifestFlagsAChangedSubvectorOrSubspaceCount(@TempDir final Path tempDir) throws IOException
     {
         final int  vectorCount = 300;
         final int  dimension   = 64;
@@ -1121,17 +1119,17 @@ class VectorIndexDiskTest
         final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
             written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
 
-        assertTrue(this.loadsWith(written, indexDir, dimension,
+        assertEquals(LoadOutcome.LOADED, this.loadsWith(written, indexDir, dimension,
             new GraphFormat(VectorStorage.NVQ, ApproximateScoring.FUSED_PQ, 16, 2), state),
-            "the format it was written with must load");
+            "the format it was written with must load as it is");
 
-        assertFalse(this.loadsWith(written, indexDir, dimension,
+        assertEquals(LoadOutcome.FLAGGED, this.loadsWith(written, indexDir, dimension,
             new GraphFormat(VectorStorage.NVQ, ApproximateScoring.FUSED_PQ, 16, 4), state),
-            "a graph encoded with two NVQ subvectors must not load into an index configured for four");
+            "a graph encoded with two NVQ subvectors must be flagged in an index configured for four");
 
-        assertFalse(this.loadsWith(written, indexDir, dimension,
+        assertEquals(LoadOutcome.FLAGGED, this.loadsWith(written, indexDir, dimension,
             new GraphFormat(VectorStorage.NVQ, ApproximateScoring.FUSED_PQ, 32, 2), state),
-            "a graph encoded with 16 PQ subspaces must not load into an index configured for 32");
+            "a graph encoded with 16 PQ subspaces must be flagged in an index configured for 32");
 
         // dimension / 4 is what the sentinel resolves to, so these describe the same graph.
         final Path autoDir = tempDir.resolve("auto");
@@ -1155,28 +1153,41 @@ class VectorIndexDiskTest
             autoWritten.getExpectedVectorCount(), autoWritten.getHighestEntityId(),
             autoWritten.getStructuralModCount());
 
-        assertTrue(this.loadsWith(autoWritten, autoDir, dimension,
+        assertEquals(LoadOutcome.LOADED, this.loadsWith(autoWritten, autoDir, dimension,
             new GraphFormat(VectorStorage.INLINE, ApproximateScoring.FUSED_PQ, dimension / 4, 0), autoState),
-            "spelling out the value the automatic setting resolves to must not force a rebuild");
+            "spelling out the value the automatic setting resolves to must not force a rewrite");
 
-        assertTrue(this.loadsWith(autoWritten, autoDir, dimension,
+        assertEquals(LoadOutcome.LOADED, this.loadsWith(autoWritten, autoDir, dimension,
             new GraphFormat(VectorStorage.INLINE, ApproximateScoring.FUSED_PQ, 0, 8), autoState),
-            "an NVQ subvector count must not invalidate a graph that stores full-precision vectors");
+            "an NVQ subvector count must not flag a graph that stores full-precision vectors");
     }
 
     /**
-     * Opens a disk manager over an already written index directory and reports whether it accepts
-     * the files under the given format.
+     * What a disk manager makes of an already written index directory under a given format.
+     */
+    private enum LoadOutcome
+    {
+        /** The manifest was rejected. */
+        REJECTED,
+        /** Loaded, every segment in the configured format. */
+        LOADED,
+        /** Loaded, with a segment flagged for a rewrite. */
+        FLAGGED
+    }
+
+    /**
+     * Opens a disk manager over an already written index directory and reports how it takes the
+     * files under the given format.
      *
      * @param provider  the index whose state the manager reads
      * @param indexDir  the directory holding the written files
      * @param dimension the configured vector dimension
      * @param format    the format to open the files under
      * @param state     the witnesses to verify against
-     * @return whether the files loaded
+     * @return how the files loaded
      * @throws IOException if closing the manager fails
      */
-    private boolean loadsWith(
+    private LoadOutcome loadsWith(
         final VectorIndex.Default<Document> provider ,
         final Path                          indexDir ,
         final int                           dimension,
@@ -1185,10 +1196,17 @@ class VectorIndexDiskTest
     )
         throws IOException
     {
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             provider, "embeddings", indexDir, dimension, format, false))
         {
-            return manager.tryLoad(state);
+            if(!manager.tryLoad(state))
+            {
+                return LoadOutcome.REJECTED;
+            }
+            return manager.hasSegmentsFlaggedForMerge()
+                ? LoadOutcome.FLAGGED
+                : LoadOutcome.LOADED
+            ;
         }
     }
 
@@ -1196,13 +1214,13 @@ class VectorIndexDiskTest
      * Turning {@code enablePqCompression} on over an existing uncompressed index directory ends up
      * with a FusedPQ graph.
      * <p>
-     * {@code removeIndex} deliberately leaves the {@code .graph} and {@code .meta} behind, so the
-     * new index opens on top of the old files. Two mechanisms can produce the right end state here:
-     * the PQ marker in the metadata rejects the stale graph at load, and failing that the
-     * training carve-out makes the next persist retrain and rewrite it. This test pins the outcome,
-     * not which of the two got there - it passes with the marker check disabled, so it is end-to-end
-     * cover rather than a guard on the marker itself. The marker's contribution is that the
-     * correction happens at load rather than being deferred to the next persist.
+     * {@code removeIndex} deliberately leaves the manifest and segments behind, so the new index opens
+     * on top of the old files. Two mechanisms can produce the right end state here: the format the
+     * manifest records for the segment flags it for merge at load, and failing that the training
+     * carve-out makes the next persist retrain and rewrite it. This test pins the outcome, not which
+     * of the two got there - it is end-to-end cover rather than a guard on the format check itself.
+     * The check's contribution is that the stale segment is known at load rather than only replaced
+     * by the next persist.
      */
     @Test
     void testEnablingPqCompressionOverExistingFilesYieldsFusedPq(@TempDir final Path tempDir) throws IOException
@@ -1210,7 +1228,6 @@ class VectorIndexDiskTest
         final int vectorCount = 400;
         final int dimension   = 64;
         final Path indexDir   = tempDir.resolve("index");
-        final Path graphPath  = indexDir.resolve("embeddings.graph");
 
         // First index: PQ off.
         final GigaMap<Document> plainMap = GigaMap.New();
@@ -1225,10 +1242,10 @@ class VectorIndexDiskTest
             addRandomDocuments(plainMap, new Random(3), dimension, vectorCount, "doc_");
             plain.persistToDisk();
         }
-        assertFalse(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ));
+        assertFalse(graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings")).contains(FeatureId.FUSED_PQ));
 
         // Second index: same name, same directory, same data - but PQ on. The old files are still
-        // there, so this only works if the metadata records the setting.
+        // there, so this only works if the manifest records the setting.
         final GigaMap<Document> pqMap = GigaMap.New();
         try(final VectorIndex<Document> pq = pqMap.index().register(VectorIndices.Category())
             .add("embeddings", VectorIndexConfiguration.builder()
@@ -1247,7 +1264,7 @@ class VectorIndexDiskTest
             assertEquals(10, pq.search(randomVector(new Random(4), dimension), 10).size());
         }
 
-        assertTrue(graphFeatures(graphPath).contains(FeatureId.FUSED_PQ),
+        assertTrue(graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings")).contains(FeatureId.FUSED_PQ),
             "the graph must have been rebuilt for the new PQ setting");
     }
 
@@ -1287,7 +1304,7 @@ class VectorIndexDiskTest
 
         // Phase 1: build and persist through the storage manager, so phase 2 can reload the very
         // same GigaMap. Registering a fresh index over an empty map would not reload anything - the
-        // metadata check compares against the live store and rejects the files.
+        // manifest's witnesses are compared against the live store, which rejects the files.
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
             final GigaMap<Document> gigaMap = GigaMap.New();
@@ -1313,7 +1330,7 @@ class VectorIndexDiskTest
             index.close();
         }
 
-        assertTrue(graphFeatures(indexDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ),
+        assertTrue(graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings")).contains(FeatureId.FUSED_PQ),
             "a non-32 maxDegree must still produce a FusedPQ graph");
 
         // Phase 2: reload. The reader sizes the fused block from the graph header while the writer
@@ -1414,7 +1431,7 @@ class VectorIndexDiskTest
             assertEquals(pqSubspaces > 0, index.isPqCompressionActive());
         }
 
-        return Files.size(indexDir.resolve("embeddings.graph"));
+        return Files.size(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
     }
 
     /**
@@ -1487,7 +1504,7 @@ class VectorIndexDiskTest
                 "the index must report the storage mode it actually achieved");
         }
 
-        return Files.size(indexDir.resolve("embeddings.graph"));
+        return Files.size(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
     }
 
     /**
@@ -2046,7 +2063,8 @@ class VectorIndexDiskTest
     // ========================================================================
 
     /**
-     * Test that background persistence triggers after the configured interval.
+     * Test that background persistence triggers after the configured interval: the scheduled persist commits
+     * the deletions made after a persist, which nothing else commits before the interval.
      */
     @Test
     void testBackgroundPersistenceTriggersAfterInterval(@TempDir final Path tempDir) throws Exception
@@ -2076,23 +2094,32 @@ class VectorIndexDiskTest
 
         try
         {
-            // Add vectors to trigger dirty state
-            addRandomDocuments(gigaMap, random, dimension, 50, "doc_");
+            // A segment write is requested as soon as the in-memory graph reaches the flush threshold, not at
+            // the interval. What only the scheduled persist commits is a manifest whose witness moved while
+            // the in-memory graph stayed empty: removes after a persist. No mutation requests that commit.
+            final List<Long> ids = new ArrayList<>();
+            for(int i = 0; i < 50; i++)
+            {
+                ids.add(gigaMap.add(new Document("doc_" + i, randomVector(random, dimension))));
+            }
+            index.persistToDisk();
+            final Path   manifest = indexDir.resolve(SegmentFiles.manifestFileName("embeddings"));
+            final byte[] before   = Files.readAllBytes(manifest);
+            final int    graphs   = SegmentLayout.graphFiles(indexDir, "embeddings").size();
 
-            // Initially, files should not exist (not yet persisted)
-            assertFalse(Files.exists(indexDir.resolve("embeddings.graph")),
-                "Graph file should not exist immediately after adding");
+            for(int i = 0; i < 5; i++)
+            {
+                gigaMap.removeById(ids.get(i));
+            }
 
-            // Wait for background persistence to trigger (interval + some buffer)
+            // Wait for the scheduled persist to commit the deletions (interval + generous buffer)
             await()
-                    .atMost(ofMillis(1500))
+                    .atMost(ofMillis(10_000))
                     .pollInterval(ofMillis(100))
-                    .untilAsserted(() -> assertAll(
-                            () -> assertTrue(Files.exists(indexDir.resolve("embeddings.graph")),
-                                    "Graph file should exist after background persistence"),
-                            () -> assertTrue(Files.exists(indexDir.resolve("embeddings.meta")),
-                                    "Meta file should exist after background persistence")));
-
+                    .untilAsserted(() -> assertFalse(Arrays.equals(before, Files.readAllBytes(manifest)),
+                            "the scheduled persist must commit the manifest of the deletions"));
+            assertEquals(graphs, SegmentLayout.graphFiles(indexDir, "embeddings").size(),
+                    "a commit of deletions alone writes no segment");
         }
         finally
         {
@@ -2121,6 +2148,9 @@ class VectorIndexDiskTest
             .indexDirectory(indexDir)
             .persistenceIntervalMs(200) // Short interval to trigger during test
             .minChangesBetweenPersists(1)
+            // A flush writes a segment once the in-memory graph holds this many nodes; the default is far
+            // above anything this test adds, so no background persist would run at all.
+            .flushThreshold(50)
             .build();
 
         final VectorIndex<Document> index = vectorIndices.add(
@@ -2128,13 +2158,37 @@ class VectorIndexDiskTest
             config,
             new ComputedDocumentVectorizer()
         );
+        final VectorIndex.Default<Document> defaultIndex = (VectorIndex.Default<Document>)index;
 
         try
         {
             // Add initial vectors
             addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
-            // Run concurrent searches while background persistence may be running
+            // A writer keeps adding during the searches, so that flushes are written while they run.
+            final long           flushesBefore = defaultIndex.flushCount();
+            final AtomicBoolean  writing       = new AtomicBoolean(true);
+            final Thread         writer        = new Thread(() ->
+            {
+                final Random writerRandom = new Random(7);
+                for(int i = 0; writing.get() && i < 1_000; i++)
+                {
+                    gigaMap.add(new Document("w_" + i, randomVector(writerRandom, dimension)));
+                    try
+                    {
+                        Thread.sleep(2);
+                    }
+                    catch(final InterruptedException e)
+                    {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }, "writer");
+            writer.setDaemon(true);
+            writer.start();
+
+            // Run concurrent searches while background persistence runs
             final int numSearches = 50;
             final AtomicInteger successfulSearches = new AtomicInteger(0);
             final AtomicBoolean hasError = new AtomicBoolean(false);
@@ -2170,13 +2224,23 @@ class VectorIndexDiskTest
             }
 
             // Wait for all searches to complete
-            assertTrue(latch.await(30, TimeUnit.SECONDS), "Searches should complete within timeout");
-            executor.shutdown();
+            try
+            {
+                assertTrue(latch.await(30, TimeUnit.SECONDS), "Searches should complete within timeout");
+            }
+            finally
+            {
+                executor.shutdownNow();
+                writing.set(false);
+                writer.join(TimeUnit.SECONDS.toMillis(30));
+            }
 
-            // Verify all searches succeeded
+            // Verify all searches succeeded, while flushes were written
             assertFalse(hasError.get(), "No errors should occur during concurrent search");
             assertEquals(numSearches, successfulSearches.get(),
                 "All searches should return expected number of results");
+            assertTrue(defaultIndex.flushCount() > flushesBefore,
+                "background flushes must have been written while the searches ran");
         }
         finally
         {
@@ -2218,16 +2282,16 @@ class VectorIndexDiskTest
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
         // Files should not exist yet (interval hasn't triggered)
-        assertFalse(Files.exists(indexDir.resolve("embeddings.graph")),
+        assertTrue(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(),
             "Graph file should not exist before close");
 
         // Close the index (should trigger persist due to persistOnShutdown=true)
         index.close();
 
         // Files should now exist
-        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")),
+        assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(),
             "Graph file should exist after close with persistOnShutdown=true");
-        assertTrue(Files.exists(indexDir.resolve("embeddings.meta")),
+        assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"),
             "Meta file should exist after close with persistOnShutdown=true");
     }
 
@@ -2266,14 +2330,14 @@ class VectorIndexDiskTest
 
         addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
-        assertFalse(Files.exists(indexDir.resolve("embeddings.graph")),
+        assertTrue(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(),
             "Graph file should not exist before close");
 
         index.close();
 
-        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")),
+        assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(),
             "Graph file should exist after close with persistOnShutdown=true even without background features");
-        assertTrue(Files.exists(indexDir.resolve("embeddings.meta")),
+        assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"),
             "Meta file should exist after close with persistOnShutdown=true even without background features");
     }
 
@@ -2414,7 +2478,7 @@ class VectorIndexDiskTest
         index.close();
 
         // Files should NOT exist
-        assertFalse(Files.exists(indexDir.resolve("embeddings.graph")),
+        assertTrue(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(),
             "Graph file should not exist after close with persistOnShutdown=false");
     }
 
@@ -2439,6 +2503,7 @@ class VectorIndexDiskTest
             .indexDirectory(indexDir)
             .persistenceIntervalMs(200) // Short interval
             .minChangesBetweenPersists(500) // High threshold
+            .flushThreshold(500) // Neither flushes nor requests a flush below it
             .build();
 
         final VectorIndex<Document> index = vectorIndices.add(
@@ -2456,7 +2521,7 @@ class VectorIndexDiskTest
             Thread.sleep(500);
 
             // Files should NOT exist because change count is below threshold
-            assertFalse(Files.exists(indexDir.resolve("embeddings.graph")),
+            assertTrue(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(),
                 "Graph file should not exist when changes below threshold");
 
             // Now add more vectors to exceed the threshold
@@ -2468,8 +2533,10 @@ class VectorIndexDiskTest
             await()
                     .atMost(ofMillis(500))
                     .pollInterval(ofMillis(100))
-                    .untilAsserted(() -> assertTrue(Files.exists(indexDir.resolve("embeddings.graph")),
-                            "Graph file should exist when changes exceed threshold"));
+                    // The manifest, not a graph file: a segment's files exist before the commit that
+                    // would make them an index, which a failing write never reaches.
+                    .untilAsserted(() -> assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"),
+                            "A committed index should exist when changes exceed threshold"));
         }
         finally
         {
@@ -2497,6 +2564,7 @@ class VectorIndexDiskTest
             .indexDirectory(indexDir)
             .persistenceIntervalMs(300)
             .minChangesBetweenPersists(100)
+            .flushThreshold(100)
             .build();
 
         final VectorIndex<Document> index = vectorIndices.add(
@@ -2519,8 +2587,8 @@ class VectorIndexDiskTest
             await()
                     .atMost(ofMillis(800))
                     .pollInterval(ofMillis(100))
-                    .untilAsserted(() -> assertTrue(Files.exists(indexDir.resolve("embeddings.graph")),
-                            "Graph file should exist after bulk add exceeds threshold"));
+                    .untilAsserted(() -> assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"),
+                            "A committed index should exist after bulk add exceeds threshold"));
         } finally {
             index.close();
         }
@@ -2581,9 +2649,9 @@ class VectorIndexDiskTest
         }
 
         // Verify files were persisted
-        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")),
+        assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(),
             "Graph file should exist after close");
-        assertTrue(Files.exists(indexDir.resolve("embeddings.meta")),
+        assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"),
             "Meta file should exist after close");
 
         // Phase 2: Reload and verify
@@ -2643,15 +2711,15 @@ class VectorIndexDiskTest
             addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
             // Files should not exist yet
-            assertFalse(Files.exists(indexDir.resolve("embeddings.graph")));
+            assertTrue(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty());
 
             // Manually trigger persistence
             index.persistToDisk();
 
             // Files should now exist
-            assertTrue(Files.exists(indexDir.resolve("embeddings.graph")),
+            assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(),
                 "Graph file should exist after manual persistToDisk");
-            assertTrue(Files.exists(indexDir.resolve("embeddings.meta")),
+            assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"),
                 "Meta file should exist after manual persistToDisk");
         }
         finally
@@ -2709,10 +2777,10 @@ class VectorIndexDiskTest
             assertTrue(defaultIndex.backgroundTaskManager.getOptimizationPendingChangeCount() > 0,
                 "Pending changes should be tracked");
 
-            // Verify optimization was actually performed
+            // Verify optimization was actually performed. No lower bound: the fixed-rate schedule started at the
+            // index's creation, not at this await, so the first run may already be due here.
             await()
-                    .atLeast(ofMillis(300))
-                    .atMost(ofMillis(800))
+                    .atMost(ofMillis(10_000))
                     .pollInterval(ofMillis(100))
                     .untilAsserted(() -> assertTrue(defaultIndex.backgroundTaskManager.getOptimizationCount() >= 1,
                             "Optimization should have been performed at least once"));
@@ -2806,11 +2874,10 @@ class VectorIndexDiskTest
         final GigaMap<Document> gigaMap = GigaMap.New();
         final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
 
+        // In memory: an on-disk index has nothing to optimize, every flush cleans up the graph it writes.
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .onDisk(true)
-            .indexDirectory(indexDir)
             .optimizationIntervalMs(60_000) // Long interval - won't trigger during test
             .minChangesBetweenOptimizations(1)
             .optimizeOnShutdown(true) // Should optimize on close
@@ -2838,12 +2905,13 @@ class VectorIndexDiskTest
         final VectorSearchResult<Document> resultBefore = index.search(randomVector(random, dimension), 10);
         assertEquals(10, resultBefore.size());
 
-        // Close the index (should trigger optimize due to optimizeOnShutdown=true)
+        // Close the index (should trigger optimize due to optimizeOnShutdown=true). The manager is read
+        // before, since close() drops the index's reference to it.
+        final BackgroundTaskManager manager = defaultIndex.backgroundTaskManager;
         index.close();
 
-        // Note: After close(), we can't verify the count changed because the manager is shutdown.
-        // But we verified above that pending changes existed and the interval hadn't triggered.
-        // The fact that close() completed without error indicates optimization was attempted.
+        assertEquals(1, manager.getOptimizationCount(), "close() must optimize the pending changes");
+        assertEquals(0, manager.getOptimizationPendingChangeCount(), "the optimization must consume them");
     }
 
     /**
@@ -2860,11 +2928,10 @@ class VectorIndexDiskTest
         final GigaMap<Document> gigaMap = GigaMap.New();
         final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
 
+        // In memory, as in testShutdownOptimizesPendingChanges.
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .onDisk(true)
-            .indexDirectory(indexDir)
             .optimizationIntervalMs(60_000) // Long interval - won't trigger during test
             .minChangesBetweenOptimizations(1)
             .optimizeOnShutdown(false) // Should NOT optimize on close
@@ -2889,14 +2956,12 @@ class VectorIndexDiskTest
         assertEquals(0, defaultIndex.backgroundTaskManager.getOptimizationCount(),
             "Optimization count should be 0 before close");
 
-        // Close the index (should NOT trigger optimize)
+        // Close the index (should NOT trigger optimize). The manager is read before, as above.
+        final BackgroundTaskManager manager = defaultIndex.backgroundTaskManager;
         index.close();
 
-        // Note: After close(), we can't access the manager. But we verified:
-        // 1. Pending changes existed
-        // 2. No background optimization had run
-        // 3. optimizeOnShutdown=false was set
-        // So the pending changes should remain unoptimized.
+        assertEquals(0, manager.getOptimizationCount(), "close() must not optimize with optimizeOnShutdown=false");
+        assertEquals(vectorCount, manager.getOptimizationPendingChangeCount(), "the pending changes stay unoptimized");
     }
 
     /**
@@ -2913,11 +2978,10 @@ class VectorIndexDiskTest
         final GigaMap<Document> gigaMap = GigaMap.New();
         final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
 
+        // In memory: an on-disk index has nothing to optimize, every flush cleans up the graph it writes.
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .onDisk(true)
-            .indexDirectory(indexDir)
             .optimizationIntervalMs(150) // Short interval to trigger during test
             .minChangesBetweenOptimizations(1)
             .build();
@@ -2927,13 +2991,38 @@ class VectorIndexDiskTest
             config,
             new ComputedDocumentVectorizer()
         );
+        final BackgroundTaskManager manager = ((VectorIndex.Default<Document>)index).backgroundTaskManager;
 
         try
         {
             // Add initial vectors
             addRandomDocuments(gigaMap, random, dimension, vectorCount, "doc_");
 
-            // Run concurrent searches while background optimization may be running
+            // A writer keeps adding during the searches, so that the scheduled optimizations have changes to
+            // work on while they run, rather than one optimization before the first search.
+            final long           optimizationsBefore = manager.getOptimizationCount();
+            final AtomicBoolean  writing             = new AtomicBoolean(true);
+            final Thread         writer              = new Thread(() ->
+            {
+                final Random writerRandom = new Random(7);
+                for(int i = 0; writing.get() && i < 1_000; i++)
+                {
+                    gigaMap.add(new Document("w_" + i, randomVector(writerRandom, dimension)));
+                    try
+                    {
+                        Thread.sleep(2);
+                    }
+                    catch(final InterruptedException e)
+                    {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }, "writer");
+            writer.setDaemon(true);
+            writer.start();
+
+            // Run concurrent searches while background optimization runs
             final int numSearches = 50;
             final AtomicInteger successfulSearches = new AtomicInteger(0);
             final AtomicBoolean hasError = new AtomicBoolean(false);
@@ -2969,13 +3058,23 @@ class VectorIndexDiskTest
             }
 
             // Wait for all searches to complete
-            assertTrue(latch.await(30, TimeUnit.SECONDS), "Searches should complete within timeout");
-            executor.shutdown();
+            try
+            {
+                assertTrue(latch.await(30, TimeUnit.SECONDS), "Searches should complete within timeout");
+            }
+            finally
+            {
+                executor.shutdownNow();
+                writing.set(false);
+                writer.join(TimeUnit.SECONDS.toMillis(30));
+            }
 
-            // Verify all searches succeeded
+            // Verify all searches succeeded, while optimizations ran
             assertFalse(hasError.get(), "No errors should occur during concurrent search with optimization");
             assertEquals(numSearches, successfulSearches.get(),
                 "All searches should return expected number of results");
+            assertTrue(manager.getOptimizationCount() > optimizationsBefore,
+                "background optimizations must have run while the searches did");
         }
         finally
         {
@@ -2996,11 +3095,10 @@ class VectorIndexDiskTest
         final GigaMap<Document> gigaMap = GigaMap.New();
         final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
 
+        // In memory: an on-disk index has nothing to optimize, every flush cleans up the graph it writes.
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
             .similarityFunction(VectorSimilarityFunction.COSINE)
-            .onDisk(true)
-            .indexDirectory(indexDir)
             .optimizationIntervalMs(300)
             .minChangesBetweenOptimizations(100)
             .build();
@@ -3010,6 +3108,7 @@ class VectorIndexDiskTest
             config,
             new ComputedDocumentVectorizer()
         );
+        final BackgroundTaskManager manager = ((VectorIndex.Default<Document>)index).backgroundTaskManager;
 
         try
         {
@@ -3021,8 +3120,13 @@ class VectorIndexDiskTest
             }
             gigaMap.addAll(documents);
 
-            // Wait for optimization
-            Thread.sleep(500);
+            // One addAll of 150 entities must count as 150 changes, above the threshold of 100, so a
+            // scheduled optimization runs.
+            await()
+                    .atMost(ofMillis(10_000))
+                    .pollInterval(ofMillis(50))
+                    .untilAsserted(() -> assertTrue(manager.getOptimizationCount() >= 1,
+                            "the bulk add must reach the optimization threshold"));
 
             // Search should still work
             final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
@@ -3103,6 +3207,7 @@ class VectorIndexDiskTest
             .indexDirectory(indexDir)
             .persistenceIntervalMs(300)
             .minChangesBetweenPersists(10)
+            .flushThreshold(10)
             .persistOnShutdown(true)
             .optimizationIntervalMs(400)
             .minChangesBetweenOptimizations(10)
@@ -3127,9 +3232,10 @@ class VectorIndexDiskTest
             final VectorSearchResult<Document> result = index.search(randomVector(random, dimension), 10);
             assertEquals(10, result.size());
 
-            // Files should exist from background persistence
-            assertTrue(Files.exists(indexDir.resolve("embeddings.graph")),
-                "Graph file should exist from background persistence");
+            // A committed index from background persistence: the manifest, since the search above can be
+            // answered by the heap graph alone and a segment's files exist before their commit.
+            assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"),
+                "A committed index should exist from background persistence");
         }
         finally
         {
@@ -3176,59 +3282,89 @@ class VectorIndexDiskTest
         buildAndPersistIndex(vectors, queryVector, dimension, pqSubspaces, sequentialIndexDir, sequentialStorageDir, false);
 
         // --- Reload both and compare search results ---
-        final List<Long> parallelIds = new ArrayList<>();
-        final List<Float> parallelScores = new ArrayList<>();
+        final Map<String, Float> parallel   = searchReloaded(parallelStorageDir  , queryVector, vectorCount, k);
+        final Map<String, Float> sequential = searchReloaded(sequentialStorageDir, queryVector, vectorCount, k);
+
+        /*
+         * Both indexes are approximate, and the parallel build's graph can differ slightly with the machine's
+         * parallelism, so entries near the top-k boundary may swap: in CI, the parallel index once returned the
+         * exact rank 21 (cosine 0.2801) in place of rank 20 (cosine 0.2833), with the first 19 identical. Each
+         * index is therefore measured against the exact top k, and the two against each other, with room for that.
+         */
+        final List<Long> ids = new ArrayList<>();
+        for(long i = 0; i < vectorCount; i++)
         {
-            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(parallelStorageDir))
+            ids.add(i);
+        }
+        final Set<String> exact = new HashSet<>();
+        for(final long i : bruteForceTopK(queryVector, vectors, ids, k))
+        {
+            exact.add("doc_" + i);
+        }
+        final int minHits = k - 2;
+        assertTrue(countContained(parallel.keySet(), exact) >= minHits,
+            "the parallel mode's index must find the exact top " + k + ": " + parallel.keySet());
+        assertTrue(countContained(sequential.keySet(), exact) >= minHits,
+            "the sequential mode's index must find the exact top " + k + ": " + sequential.keySet());
+        assertTrue(countContained(parallel.keySet(), sequential.keySet()) >= minHits,
+            "Parallel and sequential modes should produce equivalent search results after reload");
+
+        // search scores are reranked on the full vectors, so a document both return has the same score in both.
+        for(final Map.Entry<String, Float> entry : parallel.entrySet())
+        {
+            if(sequential.containsKey(entry.getKey()))
             {
-                final GigaMap<Document> gigaMap = storage.root();
-                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
-
-                assertEquals(vectorCount, gigaMap.size());
-
-                final VectorIndex<Document> index = vectorIndices.get("embeddings");
-                assertTrue(index.isOnDisk());
-
-                final VectorSearchResult<Document> result = index.search(queryVector, k);
-                assertEquals(k, result.size());
-                for(final ScoredSearchResult.Entry<Document> entry : result)
-                {
-                    parallelIds.add(entry.entityId());
-                    parallelScores.add(entry.score());
-                    assertNotNull(entry.entity());
-                }
+                assertEquals(entry.getValue(), sequential.get(entry.getKey()),
+                    "Parallel and sequential modes should produce identical scores for " + entry.getKey());
             }
         }
+    }
 
-        final List<Long> sequentialIds = new ArrayList<>();
-        final List<Float> sequentialScores = new ArrayList<>();
+    /**
+     * Reopens a persisted store and searches its on-disk index.
+     *
+     * @return the names of the found documents, in result order, with their scores
+     */
+    private static Map<String, Float> searchReloaded(
+        final Path    storageDir ,
+        final float[] queryVector,
+        final int     vectorCount,
+        final int     k
+    )
+    {
+        final Map<String, Float> found = new LinkedHashMap<>();
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
-            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(sequentialStorageDir))
+            final GigaMap<Document> gigaMap = storage.root();
+            final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+
+            assertEquals(vectorCount, gigaMap.size());
+
+            final VectorIndex<Document> index = vectorIndices.get("embeddings");
+            assertTrue(index.isOnDisk());
+
+            final VectorSearchResult<Document> result = index.search(queryVector, k);
+            assertEquals(k, result.size());
+            for(final ScoredSearchResult.Entry<Document> entry : result)
             {
-                final GigaMap<Document> gigaMap = storage.root();
-                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
-
-                assertEquals(vectorCount, gigaMap.size());
-
-                final VectorIndex<Document> index = vectorIndices.get("embeddings");
-                assertTrue(index.isOnDisk());
-
-                final VectorSearchResult<Document> result = index.search(queryVector, k);
-                assertEquals(k, result.size());
-                for(final ScoredSearchResult.Entry<Document> entry : result)
-                {
-                    sequentialIds.add(entry.entityId());
-                    sequentialScores.add(entry.score());
-                    assertNotNull(entry.entity());
-                }
+                assertNotNull(entry.entity());
+                found.put(entry.entity().content(), entry.score());
             }
         }
+        return found;
+    }
 
-        // Both modes should produce equivalent results after reload
-        assertEquals(parallelIds, sequentialIds,
-            "Parallel and sequential modes should produce identical search results after reload");
-        assertEquals(parallelScores, sequentialScores,
-            "Parallel and sequential modes should produce identical search scores after reload");
+    private static int countContained(final Set<String> found, final Set<String> expected)
+    {
+        int count = 0;
+        for(final String name : found)
+        {
+            if(expected.contains(name))
+            {
+                count++;
+            }
+        }
+        return count;
     }
 
     /**
@@ -3270,8 +3406,8 @@ class VectorIndexDiskTest
 
             index.persistToDisk();
 
-            assertTrue(Files.exists(indexDir.resolve("embeddings.graph")));
-            assertTrue(Files.exists(indexDir.resolve("embeddings.meta")));
+            assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty());
+            assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"));
 
             storage.storeRoot();
         }
@@ -3329,8 +3465,8 @@ class VectorIndexDiskTest
 
         // Verify files were created
         assertAll(
-                () -> assertTrue(Files.exists(indexDir.resolve("embeddings.graph"))),
-                () -> assertTrue(Files.exists(indexDir.resolve("embeddings.meta")))
+                () -> assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty()),
+                () -> assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"))
         );
 
         // Verify search still works after persist
@@ -3387,8 +3523,8 @@ class VectorIndexDiskTest
 
         // Verify files were created
         assertAll(
-                () -> assertTrue(Files.exists(indexDir.resolve("embeddings.graph"))),
-                () -> assertTrue(Files.exists(indexDir.resolve("embeddings.meta")))
+                () -> assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty()),
+                () -> assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"))
         );
 
         // Verify search still works
@@ -3484,18 +3620,38 @@ class VectorIndexDiskTest
         }
 
         assertAll(
-                () -> assertTrue(Files.exists(parallelIndexDir.resolve("embeddings.graph"))),
-                () -> assertTrue(Files.exists(parallelIndexDir.resolve("embeddings.meta"))),
-                () -> assertTrue(Files.exists(sequentialIndexDir.resolve("embeddingsSequential.graph"))),
-                () -> assertTrue(Files.exists(sequentialIndexDir.resolve("embeddingsSequential.meta")))
+                () -> assertFalse(SegmentLayout.graphFiles(parallelIndexDir, "embeddings").isEmpty()),
+                () -> assertTrue(SegmentLayout.indexExists(parallelIndexDir, "embeddings")),
+                () -> assertFalse(SegmentLayout.graphFiles(sequentialIndexDir, "embeddingsSequential").isEmpty()),
+                () -> assertTrue(SegmentLayout.indexExists(sequentialIndexDir, "embeddingsSequential"))
         );
 
-        // Both indices were built from the same data with the same HNSW parameters,
-        // so search results must be identical.
-        assertEquals(parallelIds, sequentialIds,
-                "Parallel and sequential on-disk writes should produce identical search results");
-        assertEquals(parallelScores, sequentialScores,
-                "Parallel and sequential on-disk writes should produce identical search scores");
+        // Both indices are approximate, and jVector refines the graph it writes in parallel, so two builds of the
+        // same data can swap entries near the top-k boundary (see testParallelVsNonParallelPersistAndReload).
+        // Each is measured against the exact top k, and the two against each other, with room for that; an
+        // entity both return has the same score, since results are reranked on the full vectors.
+        final List<Long> allIds = new ArrayList<>();
+        for(long i = 0; i < vectors.size(); i++)
+        {
+            allIds.add(i);
+        }
+        final Set<Long> exact  = new HashSet<>(bruteForceTopK(queryVector, vectors, allIds, k));
+        final int     minHits = k - 2;
+        assertTrue(parallelIds.stream().filter(exact::contains).count() >= minHits,
+                "the parallel write's index must find the exact top " + k + ": " + parallelIds);
+        assertTrue(sequentialIds.stream().filter(exact::contains).count() >= minHits,
+                "the sequential write's index must find the exact top " + k + ": " + sequentialIds);
+        assertTrue(parallelIds.stream().filter(sequentialIds::contains).count() >= minHits,
+                "Parallel and sequential on-disk writes should produce equivalent search results");
+        for(int i = 0; i < parallelIds.size(); i++)
+        {
+            final int other = sequentialIds.indexOf(parallelIds.get(i));
+            if(other >= 0)
+            {
+                assertEquals(parallelScores.get(i), sequentialScores.get(other),
+                        "Parallel and sequential on-disk writes should score entity " + parallelIds.get(i) + " alike");
+            }
+        }
     }
 
 
@@ -4076,109 +4232,96 @@ class VectorIndexDiskTest
     }
 
     /**
-     * Regression test for internal#112: an on-disk index in incremental mode with pending changes
-     * must NOT rebuild and rewrite the full graph on {@code close()} with {@code persistOnShutdown}.
-     * The graph file must stay byte-identical across the shutdown (no O(n) consolidation), and the
-     * changes must still be visible after reload thanks to the load-time self-heal from the store.
+     * Regression test: a persist must not rebuild and rewrite the whole graph on a
+     * {@code close()} with {@code persistOnShutdown}. The shutdown persist flushes only the in-memory
+     * graph, as a new segment: the segment written before stays byte-identical, and the restart loads
+     * both segments without rebuilding anything from the store.
      */
     @Test
     @Timeout(value = 30, unit = TimeUnit.SECONDS)
-    void testShutdownDoesNotRebuildGraphInIncrementalMode(@TempDir final Path tempDir) throws IOException
+    void testShutdownFlushesTheLiveGraphAsASegment(@TempDir final Path tempDir) throws IOException
     {
         final int dimension = 32;
         final Random random = new Random(42);
 
         final Path indexDir   = tempDir.resolve("index");
         final Path storageDir = tempDir.resolve("storage");
-        final Path graphPath  = indexDir.resolve("embeddings.graph");
 
         final float[] needleVector = new float[dimension];
         needleVector[0] = 1.0f;
 
-        byte[]   graphBytesAfterPersist = null;
-        FileTime graphMTimeAfterPersist = null;
+        final Path     firstGraph;
+        final byte[]   firstGraphBytes;
+        final FileTime firstGraphMTime;
 
-        // Phase 1: create, persist once (enters incremental mode), apply incremental changes, then
-        // close with persistOnShutdown(true). The graph must not be rewritten by the shutdown.
+        // Phase 1: create, persist once, apply further changes, then close with persistOnShutdown(true).
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(GigaMap.New(), storageDir))
         {
-            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
-            {
-                final GigaMap<Document> gigaMap = GigaMap.New();
-                storage.setRoot(gigaMap);
+            final GigaMap<Document> gigaMap = rootOf(storage);
 
-                final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
-                final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
-                    .dimension(dimension)
-                    .similarityFunction(VectorSimilarityFunction.COSINE)
-                    .onDisk(true)
-                    .indexDirectory(indexDir)
-                    .persistenceIntervalMs(60_000) // long interval — background persistence won't fire during the test
-                    .minChangesBetweenPersists(1)
-                    .persistOnShutdown(true)
-                    .build();
+            final VectorIndices<Document> vectorIndices = gigaMap.index().register(VectorIndices.Category());
+            final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
+                .dimension(dimension)
+                .similarityFunction(VectorSimilarityFunction.COSINE)
+                .onDisk(true)
+                .indexDirectory(indexDir)
+                .persistenceIntervalMs(60_000) // long interval - background persistence won't fire during the test
+                .minChangesBetweenPersists(1)
+                .persistOnShutdown(true)
+                .build();
 
-                final VectorIndex<Document> index = vectorIndices.add(
-                    "embeddings", config, new ComputedDocumentVectorizer());
+            final VectorIndex<Document> index = vectorIndices.add(
+                "embeddings", config, new ComputedDocumentVectorizer());
 
-                addRandomDocuments(gigaMap, random, dimension, 100, "original_");
+            addRandomDocuments(gigaMap, random, dimension, 100, "original_");
 
-                // First persist writes the full graph and re-enters incremental mode.
-                index.persistToDisk();
-                storage.storeRoot();
-                assertTrue(Files.exists(graphPath), "Graph file should exist after the first persist");
-                graphBytesAfterPersist = Files.readAllBytes(graphPath);
-                graphMTimeAfterPersist = Files.getLastModifiedTime(graphPath);
+            index.persistToDisk();
+            storage.storeRoot();
+            firstGraph      = SegmentLayout.onlyGraphFile(indexDir, "embeddings");
+            firstGraphBytes = Files.readAllBytes(firstGraph);
+            firstGraphMTime = Files.getLastModifiedTime(firstGraph);
 
-                // Apply incremental changes (in-memory builder + tombstones) — deliberately NOT persisted.
-                addRandomDocuments(gigaMap, random, dimension, 50, "added_");
-                gigaMap.add(new Document("needle", needleVector));
-                storage.storeRoot(); // commit to the store so the self-heal can rebuild them on reload
+            // Deliberately not persisted explicitly: the shutdown persist must flush them.
+            addRandomDocuments(gigaMap, random, dimension, 50, "added_");
+            gigaMap.add(new Document("needle", needleVector));
+            storage.storeRoot();
 
-                // Shutdown persist: in incremental mode this must skip the full-graph consolidation.
-                index.close();
-            }
-
-            // The graph file must be untouched by the shutdown: not rewritten (last-modified time
-            // unchanged — catches a deterministic rebuild that happens to produce identical bytes) and
-            // byte-identical (catches a rewrite that a coarse mtime granularity might miss).
-            assertEquals(graphMTimeAfterPersist, Files.getLastModifiedTime(graphPath),
-                "Shutdown must not rewrite the graph while in incremental mode (last-modified time changed)");
-            assertArrayEquals(graphBytesAfterPersist, Files.readAllBytes(graphPath),
-                "Shutdown must not rewrite the graph while in incremental mode (no full-graph rebuild)");
-            // And it must not leave any temp file behind.
-            assertNoTempFiles(indexDir);
+            index.close();
         }
 
-        // Phase 2: reload — the on-disk graph is stale (store advanced past it), so the self-heal
-        // rebuilds from the store. All vectors, including the unpersisted incremental ones, are found.
+        // The first segment is untouched (last-modified time, which catches a deterministic rewrite
+        // producing identical bytes, and the bytes, which a coarse mtime granularity might miss), and
+        // the shutdown added one segment beside it.
+        assertEquals(firstGraphMTime, Files.getLastModifiedTime(firstGraph),
+            "the shutdown must not rewrite the segment written before");
+        assertArrayEquals(firstGraphBytes, Files.readAllBytes(firstGraph),
+            "the shutdown must not rewrite the segment written before");
+        assertEquals(2, SegmentLayout.graphFiles(indexDir, "embeddings").size(),
+            "the shutdown must flush the in-memory graph as a second segment");
+        assertNoTempFiles(indexDir);
+
+        // Phase 2: the manifest matches the store, so the restart loads it: nothing is rebuilt into the
+        // in-memory graph, and the entities of both segments, the needle among them, are found.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
-            try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
-            {
-                final GigaMap<Document> gigaMap = storage.root();
-                final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
-                final VectorIndex<Document> index = vectorIndices.get("embeddings");
+            final GigaMap<Document> gigaMap = rootOf(storage);
+            final VectorIndices<Document> vectorIndices = gigaMap.index().get(VectorIndices.Category());
+            final VectorIndex.Default<Document> index = (VectorIndex.Default<Document>)vectorIndices.get("embeddings");
 
-                assertEquals(151, gigaMap.size());
+            assertEquals(151, gigaMap.size());
 
-                final VectorSearchResult<Document> result = index.search(needleVector, 10);
-                boolean foundNeedle = false;
-                for(final ScoredSearchResult.Entry<Document> entry : result)
-                {
-                    if("needle".equals(entry.entity().content()))
-                    {
-                        foundNeedle = true;
-                        break;
-                    }
-                }
-                assertTrue(foundNeedle, "Self-heal must recover the unpersisted incremental changes from the store");
-            }
+            final VectorSearchResult<Document> result = index.search(needleVector, 10);
+            assertEquals("needle", result.iterator().next().entity().content(),
+                "the needle, flushed by the shutdown, must be the nearest hit");
+            assertEquals(0, index.inMemoryGraphNodeCount(), "the restart must load the segments, not rebuild");
+            assertEquals(2, index.sourceSet().segments().size());
         }
     }
 
     /**
-     * Fix for internal#112: {@link DiskIndexManager} writes the graph and meta via temp files and an
-     * atomic rename. A completed persist must leave no {@code .tmp} files behind, and the graph must
-     * load normally.
+     * {@link DiskIndexManager} writes the manifest via a temp file and an atomic
+     * rename. A completed persist must leave no {@code .tmp} files behind, and the index must load
+     * normally.
      */
     @Test
     @Timeout(value = 30, unit = TimeUnit.SECONDS)
@@ -4203,15 +4346,15 @@ class VectorIndexDiskTest
 
         index.persistToDisk();
 
-        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")), "Graph file should exist after persist");
-        assertTrue(Files.exists(indexDir.resolve("embeddings.meta")),  "Meta file should exist after persist");
+        assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(), "Graph file should exist after persist");
+        assertTrue(SegmentLayout.indexExists(indexDir, "embeddings"),  "Manifest should exist after persist");
         assertNoTempFiles(indexDir);
 
         index.close();
     }
 
     /**
-     * Asserts that no temporary write files ({@code *.graph.tmp} / {@code *.meta.tmp}) linger in the
+     * Asserts that no temporary write files ({@code *.tmp}, such as the manifest's) linger in the
      * index directory after a persist.
      */
     private static void assertNoTempFiles(final Path indexDir) throws IOException
@@ -4297,7 +4440,7 @@ class VectorIndexDiskTest
             assertTrue(index.isNvqCompressionActive(), "the quantizer must have been trained");
         }
 
-        final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
+        final Set<FeatureId> features = graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
         assertTrue(features.contains(FeatureId.NVQ_VECTORS), "expected NVQ_VECTORS, got " + features);
         assertFalse(features.contains(FeatureId.INLINE_VECTORS),
             "NVQ storage must replace the full-precision vectors, not accompany them: " + features);
@@ -4334,7 +4477,7 @@ class VectorIndexDiskTest
             assertFalse(index.search(randomVector(new Random(1), dimension), 5).isEmpty());
         }
 
-        final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
+        final Set<FeatureId> features = graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
         assertTrue(features.contains(FeatureId.NVQ_VECTORS), features.toString());
         assertTrue(features.contains(FeatureId.FUSED_PQ), features.toString());
         assertFalse(features.contains(FeatureId.INLINE_VECTORS), features.toString());
@@ -4624,13 +4767,13 @@ class VectorIndexDiskTest
         assertTrue(fused > none, "FUSED_PQ must still enlarge the graph, for contrast");
 
         // The graph carries no fused feature, and the sidecar exists only for this mode.
-        assertFalse(graphFeatures(inMemoryDir.resolve("embeddings.graph")).contains(FeatureId.FUSED_PQ));
-        assertTrue(Files.exists(inMemoryDir.resolve("embeddings.pqv")), "the sidecar must be written");
-        assertFalse(Files.exists(noneDir.resolve("embeddings.pqv")), "no sidecar without PQ_IN_MEMORY");
-        assertFalse(Files.exists(fusedDir.resolve("embeddings.pqv")), "no sidecar for the fused mode");
+        assertFalse(graphFeatures(SegmentLayout.onlyGraphFile(inMemoryDir, "embeddings")).contains(FeatureId.FUSED_PQ));
+        assertFalse(SegmentLayout.pqVectorsFiles(inMemoryDir, "embeddings").isEmpty(), "the sidecar must be written");
+        assertTrue(SegmentLayout.pqVectorsFiles(noneDir, "embeddings").isEmpty(), "no sidecar without PQ_IN_MEMORY");
+        assertTrue(SegmentLayout.pqVectorsFiles(fusedDir, "embeddings").isEmpty(), "no sidecar for the fused mode");
 
         // What the graph saved, the sidecar spends - but once per vector rather than per edge.
-        final long sidecar = Files.size(inMemoryDir.resolve("embeddings.pqv"));
+        final long sidecar = Files.size(SegmentLayout.onlyPqVectorsFile(inMemoryDir, "embeddings"));
         assertTrue(sidecar < fused - none,
             "the sidecar (" + sidecar + ") must cost less than the fused codes it replaces ("
                 + (fused - none) + ")");
@@ -4736,22 +4879,22 @@ class VectorIndexDiskTest
         }
 
         // No sidecar was written, because there was no codebook to write.
-        assertFalse(Files.exists(indexDir.resolve("embeddings.pqv")),
+        assertTrue(SegmentLayout.pqVectorsFiles(indexDir, "embeddings").isEmpty(),
             "a declined training must not leave a sidecar behind");
-        assertTrue(Files.exists(indexDir.resolve("embeddings.graph")), "the graph must still be written");
+        assertFalse(SegmentLayout.graphFiles(indexDir, "embeddings").isEmpty(), "the graph must still be written");
 
         final VectorIndex.Default<Document> written =
             (VectorIndex.Default<Document>)gigaMap.index().get(VectorIndices.Category()).get("embeddings");
         final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
             written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertTrue(manager.tryLoad(state),
                 "a PQ_IN_MEMORY index below the training threshold has no codes to be missing, so "
                     + "its graph must load rather than being rebuilt on every restart");
-            assertNull(manager.loadedPqVectors(),
+            assertNull(manager.segments().get(0).pqVectors(),
                 "there is no codebook at this size, so nothing should have been loaded into heap");
         }
     }
@@ -4802,7 +4945,7 @@ class VectorIndexDiskTest
         final GraphFormat format = new GraphFormat(
             VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0);
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertTrue(manager.tryLoad(state), "its own sidecar must load");
@@ -4827,10 +4970,10 @@ class VectorIndexDiskTest
             index.persistToDisk();
         }
 
-        Files.copy(foreignDir.resolve("embeddings.pqv"), indexDir.resolve("embeddings.pqv"),
-            StandardCopyOption.REPLACE_EXISTING);
+        Files.copy(SegmentLayout.onlyPqVectorsFile(foreignDir, "embeddings"),
+            SegmentLayout.onlyPqVectorsFile(indexDir, "embeddings"), StandardCopyOption.REPLACE_EXISTING);
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertFalse(manager.tryLoad(state),
@@ -4857,10 +5000,10 @@ class VectorIndexDiskTest
             index.persistToDisk();
         }
 
-        Files.copy(wrongShapeDir.resolve("embeddings.pqv"), indexDir.resolve("embeddings.pqv"),
-            StandardCopyOption.REPLACE_EXISTING);
+        Files.copy(SegmentLayout.onlyPqVectorsFile(wrongShapeDir, "embeddings"),
+            SegmentLayout.onlyPqVectorsFile(indexDir, "embeddings"), StandardCopyOption.REPLACE_EXISTING);
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertFalse(manager.tryLoad(state),
@@ -4870,23 +5013,19 @@ class VectorIndexDiskTest
     }
 
     /**
-     * A sidecar must never outlive the graph it was written for.
+     * A sidecar must never outlive the segment it was written for.
      * <p>
-     * The sequence review reproduced: an index persists with a codebook, so a {@code .pqv} exists;
-     * a later persist writes none, because training declined for that generation; the graph and the
-     * metadata are replaced but the old sidecar stays on disk. The next load finds a file that is
-     * present, correctly shaped and large enough, so every check it had passed - and the index came
-     * up reporting compressed scoring, traversing on codes describing vectors it no longer holds.
-     * Silent, and worst exactly when the vectors changed in between, which is the case that put the
-     * index in this state.
+     * The sequence review reproduced against the single-file layout: an index persists with a
+     * codebook, so a {@code .pqv} exists; a later persist replaces the graph; the old sidecar stays
+     * on disk. The next load finds a file that is present, correctly shaped and large enough, so
+     * every shape check passes - and the index comes up traversing on codes describing vectors it no
+     * longer holds. Silent, and worst exactly when the vectors changed in between.
      * <p>
-     * Two things stop it, and both are needed. The persist removes a sidecar it is not replacing,
-     * so the pair on disk stays consistent at every point a crash can stop at. And the sidecar
-     * carries the {@code structuralModCount} of the persist that wrote it, so one that survives by
-     * any other route - a crash between the two renames, a file copied in - is recognised rather
-     * than merely looking plausible. Without the removal the witness alone would reject the stale
-     * file forever, rebuilding on every restart, since the rebuild would decline again and leave it
-     * in place again.
+     * Two things stop it in the segment layout. A persist writes a new segment under a new sequence
+     * and deletes the files of every segment the manifest no longer lists, so no older sidecar is
+     * left to be found. And each sidecar carries the sequence of the segment it was written for, so
+     * one that ends up beside another segment by any other route - restored by hand, copied in - is
+     * recognised rather than merely looking plausible.
      */
     @Test
     void testSidecarFromAnEarlierGenerationIsNotUsed(@TempDir final Path tempDir) throws IOException
@@ -4895,7 +5034,6 @@ class VectorIndexDiskTest
         final int  pqSubspaces = 16;
         final Path storageDir  = tempDir.resolve("storage");
         final Path indexDir    = tempDir.resolve("vectors");
-        final Path pqvPath     = indexDir.resolve("embeddings.pqv");
 
         final VectorIndexConfiguration config = VectorIndexConfiguration.builder()
             .dimension(dimension)
@@ -4922,12 +5060,12 @@ class VectorIndexDiskTest
             storage.storeRoot();
         }
 
-        assertTrue(Files.exists(pqvPath), "generation one must have left a sidecar");
-        final byte[] firstGeneration = Files.readAllBytes(pqvPath);
+        final Path   firstPath       = SegmentLayout.onlyPqVectorsFile(indexDir, "embeddings");
+        final byte[] firstGeneration = Files.readAllBytes(firstPath);
 
-        // Generation two: the same directory, a graph small enough that training declines. Built
-        // through a fresh index rather than by mutating the first, which is what a rejected load
-        // followed by a rebuild amounts to.
+        // Generation two: the same directory, the same shape, other vectors. Built through a fresh
+        // index rather than by mutating the first, which is what a rejected load followed by a
+        // rebuild amounts to.
         final Path storageDir2 = tempDir.resolve("storage2");
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir2))
         {
@@ -4937,20 +5075,21 @@ class VectorIndexDiskTest
             final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
                 .add("embeddings", config, new ComputedDocumentVectorizer());
 
-            addRandomDocuments(gigaMap, new Random(22), dimension, 100, "doc_");
+            addRandomDocuments(gigaMap, new Random(22), dimension, 400, "doc_");
             index.persistToDisk();
 
-            assertFalse(index.isPqCompressionActive(),
-                "generation two must decline training, or this test is not in the state it targets");
+            assertTrue(index.isPqCompressionActive(), "generation two must have trained as well");
             storage.storeRoot();
         }
 
-        assertFalse(Files.exists(pqvPath),
-            "a persist that writes no sidecar must not leave the previous one behind");
+        final Path secondPath = SegmentLayout.onlyPqVectorsFile(indexDir, "embeddings");
+        assertNotEquals(firstPath, secondPath, "the new segment's sidecar must have a name of its own");
+        assertFalse(Files.exists(firstPath),
+            "the persist must delete the sidecar of the segment it replaced");
 
-        // And if one survives anyway - a crash between the renames, or a file restored by hand -
-        // the witness it carries is what gives it away.
-        Files.write(pqvPath, firstGeneration);
+        // And if one turns up anyway - restored by hand, or copied in - the witness it carries is
+        // what gives it away: same shape, same count, another segment.
+        Files.write(secondPath, firstGeneration);
 
         final VectorIndex.Default<Document> written;
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir2))
@@ -4965,7 +5104,7 @@ class VectorIndexDiskTest
             final GraphFormat format = new GraphFormat(
                 VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0);
 
-            try(final DiskIndexManager manager = new DiskIndexManager.Default(
+            try(final SegmentLoad manager = SegmentLoad.of(
                 written, "embeddings", indexDir, dimension, format, false))
             {
                 assertFalse(manager.tryLoad(state),
@@ -5009,16 +5148,16 @@ class VectorIndexDiskTest
         final GraphFormat format = new GraphFormat(
             VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, 16, 0);
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertTrue(manager.tryLoad(state), "the complete index must load");
-            assertNotNull(manager.loadedPqVectors(), "and bring its codes into heap");
+            assertNotNull(manager.segments().get(0).pqVectors(), "and bring its codes into heap");
         }
 
-        Files.delete(indexDir.resolve("embeddings.pqv"));
+        Files.delete(SegmentLayout.onlyPqVectorsFile(indexDir, "embeddings"));
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertFalse(manager.tryLoad(state),
@@ -5027,18 +5166,18 @@ class VectorIndexDiskTest
     }
 
     /**
-     * The codes are indexed by graph ordinal, which is the source entity id, so the array spans
-     * every ordinal up to the highest in use rather than only the vectors that exist. That is what
-     * makes the heap cost proportional to the ordinal space - deletion holes included - and it is
-     * the number the documentation quotes.
+     * The codes are indexed by the segment's dense local ordinals, so the array holds one code per
+     * node the segment has rather than one per entity id up to the highest in use. Deletion holes
+     * cost nothing, which is the point of writing segments densely.
      */
     @Test
-    void testPqInMemoryHeapCostMatchesTheOrdinalSpace(@TempDir final Path tempDir) throws IOException
+    void testPqInMemoryHeapCostMatchesTheNodeCount(@TempDir final Path tempDir) throws IOException
     {
         final int  dimension   = 64;
         final int  pqSubspaces = 16;
-        final int  vectorCount = 400;
-        final Path indexDir    = tempDir.resolve("vectors");
+        final int  vectorCount  = 400;
+        final int  removedCount = 100;
+        final Path indexDir     = tempDir.resolve("vectors");
 
         final GigaMap<Document> gigaMap = GigaMap.New();
         try(final VectorIndex<Document> index = gigaMap.index().register(VectorIndices.Category())
@@ -5052,6 +5191,11 @@ class VectorIndexDiskTest
                 .build(), new ComputedDocumentVectorizer()))
         {
             addRandomDocuments(gigaMap, new Random(77), dimension, vectorCount, "doc_");
+            // Holes at the low ids, so the id range is clearly larger than the node count.
+            for(long id = 0; id < removedCount; id++)
+            {
+                gigaMap.removeById(id);
+            }
             index.persistToDisk();
         }
 
@@ -5060,15 +5204,16 @@ class VectorIndexDiskTest
         final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
             written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension,
             new GraphFormat(VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0), false))
         {
             assertTrue(manager.tryLoad(state));
 
-            final var codes = manager.loadedPqVectors();
-            assertEquals(written.getHighestEntityId() + 1, codes.count(),
-                "one code per ordinal up to the highest in use, not one per vector");
+            final var codes = manager.segments().get(0).pqVectors();
+            assertEquals(vectorCount - removedCount, codes.count(),
+                "one code per node of the segment, not one per id up to the highest in use");
+            assertTrue(codes.count() < written.getHighestEntityId() + 1, "precondition: the ids have holes");
 
             // The documented formula, allowing for the codebook itself and object overhead.
             final long dataBytes = (long)codes.count() * pqSubspaces;
@@ -5156,8 +5301,8 @@ class VectorIndexDiskTest
 
         // Swap the decoy's codes in. Nothing in the metadata describes the sidecar, so the index
         // still loads - it simply traverses on codes that mean nothing for its data.
-        Files.copy(aliasDir.resolve("embeddings.pqv"), realDir.resolve("embeddings.pqv"),
-            StandardCopyOption.REPLACE_EXISTING);
+        Files.copy(SegmentLayout.onlyPqVectorsFile(aliasDir, "embeddings"),
+            SegmentLayout.onlyPqVectorsFile(realDir, "embeddings"), StandardCopyOption.REPLACE_EXISTING);
 
         final double aliasRecall = this.reopenAndMeasureRecall(
             storageDir, vectors, ids, k, queryCount, 4711);
@@ -5478,7 +5623,7 @@ class VectorIndexDiskTest
                 "the parallel-written graph must answer queries");
         }
 
-        final Set<FeatureId> features = graphFeatures(indexDir.resolve("embeddings.graph"));
+        final Set<FeatureId> features = graphFeatures(SegmentLayout.onlyGraphFile(indexDir, "embeddings"));
         assertTrue(features.contains(FeatureId.NVQ_VECTORS), features.toString());
         assertTrue(features.contains(FeatureId.FUSED_PQ), features.toString());
     }
@@ -5685,18 +5830,23 @@ class VectorIndexDiskTest
         final GraphFormat format = new GraphFormat(
             VectorStorage.INLINE, ApproximateScoring.NONE, 0, 0);
 
-        final Path metaPath = indexDir.resolve("embeddings.meta");
+        final Path manifestPath = SegmentLayout.manifest(indexDir, "embeddings");
 
         // Sanity check: unmodified, it loads.
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertTrue(manager.tryLoad(state), "the unmodified metadata must load");
         }
 
+        // A rejected manifest takes its segments with it, so every case starts from the complete index:
+        // otherwise a later case would be rejected for the missing files, whatever its format code.
+        final Map<String, byte[]> persisted = snapshotFiles(indexDir);
+
         // A scoring code from the future (3 is reserved, 99 is not even that).
-        rewriteMetaFormatCodes(metaPath, VectorStorage.INLINE.code(), 99);
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        restoreFiles(indexDir, persisted);
+        rewriteManifestFormatCodes(manifestPath, VectorStorage.INLINE.code(), 99);
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertFalse(manager.tryLoad(state),
@@ -5704,8 +5854,9 @@ class VectorIndexDiskTest
         }
 
         // And an unknown storage code.
-        rewriteMetaFormatCodes(metaPath, 99, ApproximateScoring.NONE.code());
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        restoreFiles(indexDir, persisted);
+        rewriteManifestFormatCodes(manifestPath, 99, ApproximateScoring.NONE.code());
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertFalse(manager.tryLoad(state), "an unknown storage code must be rejected");
@@ -5740,14 +5891,12 @@ class VectorIndexDiskTest
         final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
             written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
 
-        // Rewrite the leading version int as the previous version, leaving everything else intact.
-        final Path metaPath = indexDir.resolve("embeddings.meta");
-        final byte[] bytes = Files.readAllBytes(metaPath);
-        final ByteBuffer buffer = ByteBuffer.wrap(bytes);
-        buffer.putInt(0, DiskIndexManager.GRAPH_FILE_VERSION - 1);
-        Files.write(metaPath, bytes);
+        // Rewrite the version int as the previous version, leaving everything else intact and the
+        // checksum valid, so that only the version check can be what rejects it.
+        rewriteManifest(SegmentLayout.manifest(indexDir, "embeddings"),
+            buffer -> buffer.putInt(MANIFEST_VERSION_OFFSET, DiskIndexManager.GRAPH_FILE_VERSION - 1));
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension,
             new GraphFormat(VectorStorage.INLINE, ApproximateScoring.NONE, 0, 0), false))
         {
@@ -5756,38 +5905,90 @@ class VectorIndexDiskTest
     }
 
     /**
-     * Overwrites the two trailing format codes of a {@code .meta} file, leaving the content
-     * witnesses untouched, so that only the format check can be what rejects it.
+     * Reads every file of {@code directory}, by name, so that {@link #restoreFiles} can put the
+     * directory back exactly.
      */
-    private static void rewriteMetaFormatCodes(
-        final Path metaPath   ,
-        final int  storageCode,
-        final int  scoringCode
-    ) throws IOException
+    private static Map<String, byte[]> snapshotFiles(final Path directory) throws IOException
     {
-        final byte[] bytes = Files.readAllBytes(metaPath);
-
-        // Anchored from the start of the record, and the length is asserted, because the fields are
-        // no longer last: pqSubspaces and nvqSubvectors follow them. Addressing from the end here
-        // used to write into those two counts instead, and the test still passed - the load was
-        // rejected on a count mismatch before the unknown code was ever parsed. A layout change
-        // must break this loudly rather than quietly retarget it.
-        assertEquals(META_SIZE, bytes.length,
-            "the .meta layout changed; the offsets below need revisiting");
-
-        final ByteBuffer buffer = ByteBuffer.wrap(bytes);
-        buffer.putInt(META_STORAGE_CODE_OFFSET, storageCode);
-        buffer.putInt(META_SCORING_CODE_OFFSET, scoringCode);
-        Files.write(metaPath, bytes);
+        final Map<String, byte[]> files = new LinkedHashMap<>();
+        for(final String name : SegmentLayout.fileNames(directory))
+        {
+            files.put(name, Files.readAllBytes(directory.resolve(name)));
+        }
+        return files;
     }
 
     /**
-     * The {@code .meta} layout: {@code int} version, {@code int} dimension, three {@code long}
-     * witnesses, then the storage and scoring codes and the two quantization counts.
+     * Replaces the content of {@code directory} with the files {@link #snapshotFiles} read.
      */
-    private static final int META_SIZE                 = 6 * Integer.BYTES + 3 * Long.BYTES;
-    private static final int META_STORAGE_CODE_OFFSET  = 2 * Integer.BYTES + 3 * Long.BYTES;
-    private static final int META_SCORING_CODE_OFFSET  = META_STORAGE_CODE_OFFSET + Integer.BYTES;
+    private static void restoreFiles(
+        final Path                directory,
+        final Map<String, byte[]> files
+    ) throws IOException
+    {
+        for(final String name : SegmentLayout.fileNames(directory))
+        {
+            Files.delete(directory.resolve(name));
+        }
+        for(final Map.Entry<String, byte[]> file : files.entrySet())
+        {
+            Files.write(directory.resolve(file.getKey()), file.getValue());
+        }
+        assertEquals(new ArrayList<>(files.keySet()), SegmentLayout.fileNames(directory),
+            "the directory must hold exactly the persisted files again");
+    }
+
+    /**
+     * Overwrites the format codes of the first segment a manifest lists, leaving the content
+     * witnesses untouched and the checksum valid, so that only the format check can be what rejects
+     * it.
+     */
+    private static void rewriteManifestFormatCodes(
+        final Path manifestPath,
+        final int  storageCode ,
+        final int  scoringCode
+    ) throws IOException
+    {
+        rewriteManifest(manifestPath, buffer ->
+        {
+            // Anchored from the start of the record, and the segment count is asserted, so a layout
+            // change breaks this loudly rather than quietly retargeting another field.
+            assertEquals(1, buffer.getInt(MANIFEST_SEGMENT_COUNT_OFFSET),
+                "expected a one-segment manifest; the offsets below need revisiting otherwise");
+            buffer.putInt(MANIFEST_STORAGE_CODE_OFFSET, storageCode);
+            buffer.putInt(MANIFEST_SCORING_CODE_OFFSET, scoringCode);
+        });
+    }
+
+    /**
+     * Patches a manifest's payload in place and recomputes its trailing CRC32, so that the patched
+     * field rather than the checksum is what a load reacts to.
+     */
+    private static void rewriteManifest(
+        final Path                 manifestPath,
+        final Consumer<ByteBuffer> patch
+    ) throws IOException
+    {
+        final byte[]     bytes   = Files.readAllBytes(manifestPath);
+        final ByteBuffer buffer  = ByteBuffer.wrap(bytes);
+        final int        payload = bytes.length - Long.BYTES;
+        patch.accept(buffer);
+        final CRC32 crc = new CRC32();
+        crc.update(bytes, 0, payload);
+        buffer.putLong(payload, crc.getValue());
+        Files.write(manifestPath, bytes);
+    }
+
+    /**
+     * The manifest layout (see {@link SegmentManifest}): {@code int} magic, {@code int} version,
+     * {@code int} dimension, three {@code long} witnesses, {@code int} segment count, then per
+     * segment a {@code long} sequence, an {@code int} node count, and the storage and scoring codes.
+     */
+    private static final int MANIFEST_VERSION_OFFSET       = Integer.BYTES;
+    private static final int MANIFEST_SEGMENT_COUNT_OFFSET = 3 * Integer.BYTES + 3 * Long.BYTES;
+    private static final int MANIFEST_STORAGE_CODE_OFFSET  = MANIFEST_SEGMENT_COUNT_OFFSET + Integer.BYTES
+        + Long.BYTES + Integer.BYTES;
+    private static final int MANIFEST_SCORING_CODE_OFFSET  = MANIFEST_STORAGE_CODE_OFFSET + Integer.BYTES;
 
     /**
      * NVQ traversal must work for every similarity function {@code NVQScorer} supports. Each case
@@ -5822,4 +6023,13 @@ class VectorIndexDiskTest
         }
     }
 
+
+    /**
+     * The root as the typed map: the storage manager is not generic over the root.
+     */
+    @SuppressWarnings("unchecked")
+    private static GigaMap<Document> rootOf(final EmbeddedStorageManager storage)
+    {
+        return (GigaMap<Document>)storage.root();
+    }
 }

@@ -36,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -64,7 +65,7 @@ class VectorIndexInMemoryPqTest
         }
     }
 
-    /** Embedded vectorizer, so that every vector lookup is a countable call. */
+    /** Embedded vectorizer that counts its calls. */
     static final class CountingVectorizer extends Vectorizer<Doc>
     {
         final AtomicLong calls = new AtomicLong();
@@ -564,7 +565,7 @@ class VectorIndexInMemoryPqTest
      * the codes either way. A gate that required a non-empty code store silently sent the rebuilt
      * builder down the exact path and the suite stayed green.
      * <p>
-     * Counting the vectorizer distinguishes them, but only over a window that holds nothing else:
+     * Counting the vector file's reads distinguishes them, but only over a window that holds nothing else:
      * insertions made <i>after</i> the switch. Measuring across {@code optimize()} itself does not
      * work - it runs {@code cleanup()} on the old, exact-provider builder first, and that alone
      * costs a couple of hundred reads per node, swamping what the switch does.
@@ -591,20 +592,21 @@ class VectorIndexInMemoryPqTest
             index.optimize();
             assertTrue(index.isPqCompressionActive(), "the optimization must have switched");
 
-            final long beforeInserts = vectorizer.calls.get();
+            // The builder reads its vectors from the vector file, so its reads are the lookups.
+            final LongAdder reads = new LongAdder();
+            ((VectorFile.Default)((VectorIndex.Default<Doc>)index).vectorFile()).readCountTestSeam = reads;
 
             for(int i = 0; i < later.size(); i++)
             {
                 map.add(new Doc("late" + i, later.get(i)));
             }
 
-            final long perInsert = (vectorizer.calls.get() - beforeInserts) / later.size();
+            final long perInsert = reads.sum() / later.size();
 
-            // A handful per insertion: the entity's own vector, read to encode its code and to hand
-            // it to the builder. The exact provider instead reads one per comparison, which at this
-            // beam width is two orders of magnitude more.
+            // A handful per insertion at most. The exact provider instead reads one vector per
+            // comparison, which at this beam width is two orders of magnitude more.
             assertTrue(perInsert < 20,
-                "inserting after the switch cost " + perInsert + " vectorizer calls per node, which"
+                "inserting after the switch cost " + perInsert + " vector reads per node, which"
                     + " is the exact provider's cost profile - the builder is not scoring from codes");
         }
     }
@@ -948,16 +950,20 @@ class VectorIndexInMemoryPqTest
 
             final int queries = 50;
 
-            vectorizer.calls.set(0);
+            // Searches read their vectors from the vector file, so its reads are the lookups.
+            final LongAdder lookups = new LongAdder();
+            final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
+            index.search(vectors.get(0), 1);
+            ((VectorFile.Default)def.vectorFile()).readCountTestSeam = lookups;
             this.runQueries(index, vectors, queries, 7);
-            final long exactLookups = vectorizer.calls.get();
+            final long exactLookups = lookups.sumThenReset();
 
             index.optimize();
             assertTrue(index.isPqCompressionActive());
 
-            vectorizer.calls.set(0);
+            lookups.reset();
             this.runQueries(index, vectors, queries, 7);
-            final long compressedLookups = vectorizer.calls.get();
+            final long compressedLookups = lookups.sum();
 
             assertTrue(compressedLookups * 4 < exactLookups,
                 "compressed scoring must collapse the per-query lookups, measured "

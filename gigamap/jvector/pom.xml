@@ -19,7 +19,10 @@
     <url>https://projects.eclipse.org/projects/technology.store</url>
 
     <properties>
-        <jvector.version>4.0.0-rc.9</jvector.version>
+        <jvector.version>4.0.1</jvector.version>
+        <!-- memory-mapped vector file (foreign memory API) and jVector's MemorySegmentReader need Java 22+;
+             this module and the modules that use it target Java 25, the rest of Eclipse Store stays at 17 -->
+        <maven.compiler.release>25</maven.compiler.release>
     </properties>
 
     <dependencies>
@@ -40,6 +43,11 @@
             <version>${jvector.version}</version>
         </dependency>
         <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
             <version>4.2.2</version>
@@ -54,7 +62,13 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
-                    <argLine>--add-modules jdk.incubator.vector --add-exports java.base/jdk.internal.misc=ALL-UNNAMED,org.eclipse.serializer.base --add-opens java.base/java.lang=ALL-UNNAMED,org.eclipse.serializer.base --add-opens java.base/java.nio=ALL-UNNAMED,org.eclipse.serializer.base --add-opens java.base/sun.nio.ch=ALL-UNNAMED,org.eclipse.serializer.base --add-reads org.eclipse.serializer.base=ALL-UNNAMED</argLine>
+                    <!--
+                        jVector computes similarities through the Panama Vector API when jdk.incubator.vector
+                        is resolved and falls back to scalar code otherwise. The tests resolve it so they cover
+                        the vectorized path a deployment started with the same flag runs. On JDK 22+ jVector's
+                        MemorySegmentReader makes a restricted downcall, hence the native access flag.
+                    -->
+                    <argLine>--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED --add-exports java.base/jdk.internal.misc=ALL-UNNAMED,org.eclipse.serializer.base --add-opens java.base/java.lang=ALL-UNNAMED,org.eclipse.serializer.base --add-opens java.base/java.nio=ALL-UNNAMED,org.eclipse.serializer.base --add-opens java.base/sun.nio.ch=ALL-UNNAMED,org.eclipse.serializer.base --add-reads org.eclipse.serializer.base=ALL-UNNAMED</argLine>
                 </configuration>
             </plugin>
         </plugins>

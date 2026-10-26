@@ -562,6 +562,96 @@ class VectorIndexNullVectorTest
         }
     }
 
+    /**
+     * Entities added without a vector change the witnesses of the manifest - the map's size and highest
+     * id - but no graph. They must still make the shutdown persist run, or the manifest it leaves is
+     * rejected at the next start, which then rebuilds rather than loading the segments.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void nullOnlyAdditionAfterALoad_shutdownPersistKeepsTheManifestCurrent(@TempDir final Path dir)
+    {
+        final Path storageDir = dir.resolve("storage");
+        final VectorIndexConfiguration diskConfig = VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(dir.resolve("index"))
+            .persistenceIntervalMs(600_000L) // a background task manager whose interval never comes
+            .persistOnShutdown(true)
+            .build();
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(GigaMap.New(), storageDir))
+        {
+            final GigaMap<Doc>     map   = rootOf(storage);
+            final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+                .add("embeddings", diskConfig, new NullableComputedVectorizer());
+            map.add(new Doc("v0", basis(0)));
+            map.add(new Doc("v1", basis(1)));
+            index.persistToDisk();
+            storage.storeRoot();
+            index.close();
+        }
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc>             map   = rootOf(storage);
+            final VectorIndex.Default<Doc> index = (VectorIndex.Default<Doc>)map.index()
+                .get(VectorIndices.Category())
+                .get("embeddings");
+            assertEquals(2, index.search(basis(0), 10).size());
+            assertEquals(0, index.inMemoryGraphNodeCount(), "loaded, not rebuilt");
+
+            map.add(new Doc("none", null));
+            storage.storeRoot();
+            index.close();
+        }
+
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        {
+            final GigaMap<Doc>             map   = rootOf(storage);
+            final VectorIndex.Default<Doc> index = (VectorIndex.Default<Doc>)map.index()
+                .get(VectorIndices.Category())
+                .get("embeddings");
+            assertEquals(3, map.size());
+            assertEquals(2, index.search(basis(0), 10).size());
+            assertEquals(0, index.inMemoryGraphNodeCount(), "the restart must load the manifest, not rebuild");
+            index.close();
+        }
+    }
+
+    /**
+     * In a batch with vectors, the entities without one change the witnesses just as in a batch made only
+     * of them, so they count towards persistence too, not only the entities that reach the graph.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void mixedBatch_countsTheEntitiesWithoutAVectorTowardsPersistence(@TempDir final Path dir)
+    {
+        final GigaMap<Doc> map = GigaMap.New();
+        final VectorIndexConfiguration diskConfig = VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(dir)
+            .persistenceIntervalMs(600_000L) // a background task manager whose interval never comes
+            .build();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", diskConfig, new NullableComputedVectorizer()))
+        {
+            final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
+
+            map.addAll(List.of(
+                new Doc("v0", basis(0)),
+                new Doc("none0", null),
+                new Doc("none1", null),
+                new Doc("none2", null)
+            ));
+
+            assertEquals(4, def.backgroundTaskManager.getPersistenceChangeCount());
+        }
+    }
+
     // ==================== 10b. Crash restart: vec→null must not survive a stale disk graph ====================
 
     /**
@@ -570,7 +660,7 @@ class VectorIndexNullVectorTest
      * structural-change counter the on-disk graph passed metadata validation after a crash between
      * the transition (committed via {@code storeRoot()}) and the next {@code persistToDisk()} — the
      * nulled entity kept appearing in search. {@code persistOnShutdown(false)} simulates the crash:
-     * {@code close()} must not persist the graph, leaving the {@code .meta} stale.
+     * {@code close()} must not persist the graph, leaving the manifest stale.
      */
     @Test
     @Timeout(value = 60, unit = TimeUnit.SECONDS)
@@ -601,7 +691,7 @@ class VectorIndexNullVectorTest
             v0 = map.add(new Doc("v0", basis(0)));
             v1 = map.add(new Doc("v1", basis(1)));
 
-            index.persistToDisk(); // writes .graph + .meta (structuralModCount = 2)
+            index.persistToDisk(); // writes the segment + manifest (structuralModCount = 2)
             storage.storeRoot();   // store also carries structuralModCount = 2
             index.close();
         }
@@ -613,11 +703,11 @@ class VectorIndexNullVectorTest
             final VectorIndex<Doc> index = map.index().get(VectorIndices.Category()).get("embeddings");
 
             map.set(v0, new Doc("v0", null)); // vec→null: bumps structuralModCount to 3
-            map.store();                      // persist the mutation (+ counter 3); .meta still carries 2
-            index.close();                    // persistOnShutdown(false) → .meta stays stale
+            map.store();                      // persist the mutation (+ counter 3); manifest still carries 2
+            index.close();                    // persistOnShutdown(false) → manifest stays stale
         }
 
-        // Phase C: restart. The structuralModCount mismatch (store 3 vs .meta 2) must reject the
+        // Phase C: restart. The structuralModCount mismatch (store 3 vs manifest 2) must reject the
         // stale disk graph and rebuild from the store, so v0 is gone from search.
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
@@ -634,20 +724,19 @@ class VectorIndexNullVectorTest
         }
     }
 
-    // ==================== 10c. Deletion during persist Phase 2 (Finding #4) ====================
+    // ==================== 10c. Deletion while a flush writes ====================
 
     /**
-     * A sync-mode {@code vec→null} that lands in persist Phase 2 defers its graph-deletion op, which is
-     * drained only after {@code doPersistToDisk} swaps the in-memory builder (exit/reenter incremental).
-     * Before the fix the deferred {@code markNodeDeleted} hit the new empty builder and was lost, leaving
-     * the entity live on the reloaded disk graph until the next persist. The {@code persistPhase2TestHook}
-     * injects the delete deterministically into that exact window, on the persist thread — the same
-     * monitor / {@code cleanupInProgress} state a concurrent sync mutation would observe.
+     * A sync-mode {@code vec→null} that lands while a flush writes the frozen graph must hide the entity
+     * at once and for good: the frozen graph takes no deletion, so the owner table is all that excludes
+     * it, there and in the segment the flush publishes. The {@code flushStageTestHook} injects the delete
+     * deterministically into that window, on the persist thread with no lock held, like a concurrent
+     * sync mutation.
      */
     @Test
     @Timeout(value = 60, unit = TimeUnit.SECONDS)
     @SuppressWarnings("unchecked")
-    void deletionDuringPersistPhase2NotLost(@TempDir final Path indexDir)
+    void deletionDuringFlushIsNotLost(@TempDir final Path indexDir)
     {
         final VectorIndexConfiguration diskConfig = VectorIndexConfiguration.builder()
             .dimension(DIM)
@@ -665,49 +754,84 @@ class VectorIndexNullVectorTest
             map.add(new Doc("c", basis(2)));
             assertEquals(3, index.search(basis(0), 10).size());
 
-            // One-shot: null out 'a' during persist Phase 2 — after the parentMap monitor is released,
-            // before the builder is swapped (reenterIncrementalMode) and the deferred op is drained.
-            // Runs on the persist thread: the same cleanupInProgress / monitor state a concurrent sync
-            // mutation would observe, so it defers exactly as the bug requires.
+            // One-shot: null out 'a' once the graph holding it is frozen and before it is written.
             final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
-            def.persistPhase2TestHook = () ->
+            FlushHooks.onceAt(def, VectorIndex.Default.FlushStage.FROZEN, () ->
             {
-                def.persistPhase2TestHook = null;
                 map.set(a, new Doc("a", null));
-            };
+            });
 
-            // This persist writes a,b,c to disk (captured before the hook), the hook defers a's delete,
-            // then the builder is swapped and the deferred op drained.
+            // This persist writes a,b,c to disk (frozen before the hook); the hook hides 'a' in the frozen
+            // graph and in the segment written from it.
             index.persistToDisk();
 
             final VectorSearchResult<Doc> result = index.search(basis(0), 10);
-            assertEquals(2, result.size(), "nulled entity must not survive a persist-window deletion");
+            assertEquals(2, result.size(), "nulled entity must not survive a deletion during a flush");
             assertTrue(result.stream().noneMatch(e -> e.entityId() == a),
-                "deferred deletion drained after the builder swap must still exclude the entity");
+                "the segment written from the frozen graph must exclude the entity");
             assertNull(index.getVector(a));
         }
     }
 
-    // ==================== 10c-crash. Persist-window crash restart: stale .meta must be rejected ====================
+    /**
+     * An embedded {@code null→vec} update that lands while a flush writes goes into the live graph, which
+     * takes it over from every other source, so it answers from exactly one source, by its new
+     * vector.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void nullToVectorDuringFlushAnswersOnce(@TempDir final Path indexDir)
+    {
+        final VectorIndexConfiguration diskConfig = VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(indexDir)
+            .build();
+
+        final GigaMap<Doc> map = GigaMap.New();
+        try(final VectorIndex<Doc> index = map.index().register(VectorIndices.Category())
+            .add("embeddings", diskConfig, new NullableEmbeddedVectorizer()))
+        {
+            final long a = map.add(new Doc("a", null));
+            map.add(new Doc("b", basis(1)));
+            map.add(new Doc("c", basis(2)));
+            index.persistToDisk();
+
+            // A change, so the next persist is not skipped as clean and flushes.
+            map.add(new Doc("d", basis(3)));
+            final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
+            FlushHooks.onceAt(def, VectorIndex.Default.FlushStage.FROZEN, () ->
+            {
+                map.set(a, new Doc("a", basis(0)));
+            });
+            index.persistToDisk();
+
+            final List<Long> ids = index.search(basis(0), 10).stream().map(e -> e.entityId()).toList();
+            assertEquals(a, ids.get(0), "the entity must answer by its new vector after the flush");
+            assertEquals(ids.size(), new HashSet<>(ids).size(), "no entity may answer twice: " + ids);
+            assertEquals(4, ids.size());
+        }
+    }
+
+    // ==================== 10c-crash. Flush-window crash restart: stale manifest must be rejected ====================
 
     /**
-     * The persist-window variant of the crash-restart hole: {@code writeMetadata} used to read the
-     * witness values ({@code structuralModCount}, {@code expectedVectorCount}, {@code highestEntityId})
-     * LIVE during persist Phase 2, while the graph content was captured in Phase 1. A {@code
-     * vec→null} landing during the disk write (parentMap monitor released) bumps the counter
-     * BEFORE the {@code .meta} is written, so the {@code .meta} carries the post-mutation counter
-     * while the graph on disk still contains the nulled entity. After the store commit and a crash
-     * before the next persist, restart compares store counter == {@code .meta} counter → the stale
-     * graph is ACCEPTED and the nulled entity reappears in search. In-session the transient
-     * {@code diskDeletedOrdinals} masks this — only the restart exposes it.
+     * The flush-window variant of the crash-restart hole: if the witness values ({@code structuralModCount},
+     * {@code expectedVectorCount}, {@code highestEntityId}) were read LIVE while the flush writes, a
+     * {@code vec→null} landing during the write (no lock held) would bump the counter BEFORE the manifest
+     * is written, so the manifest would carry the post-mutation counter while the segment on disk still
+     * holds the nulled entity. After the store commit and a crash before the next persist, restart would
+     * compare store counter == manifest counter, ACCEPT the stale segment, and the nulled entity would
+     * reappear in search. In-session the owner table masks this - only the restart exposes it.
      * <p>
-     * Fix: the witness values are captured in Phase 1 alongside {@code capturedIndex} and stamped
-     * into the {@code .meta}, so a Phase-2 mutation yields a mismatch and forces the rebuild.
+     * The witness values are sampled at the freeze, together with the graph and the deletions, and
+     * stamped into the manifest, so a mutation during the write yields a mismatch and forces the rebuild.
      */
     @Test
     @Timeout(value = 60, unit = TimeUnit.SECONDS)
     @SuppressWarnings("unchecked")
-    void crashRestartAfterPersistWindowVecToNull_rejectsStaleMeta(@TempDir final Path dir)
+    void crashRestartAfterFlushWindowVecToNull_rejectsStaleMeta(@TempDir final Path dir)
     {
         final Path storageDir = dir.resolve("storage");
         final Path indexDir   = dir.resolve("index");
@@ -717,15 +841,15 @@ class VectorIndexNullVectorTest
             .similarityFunction(VectorSimilarityFunction.COSINE)
             .onDisk(true)
             .indexDirectory(indexDir)
-            .persistOnShutdown(false) // simulate a crash: close() must not overwrite the stale .meta
+            .persistOnShutdown(false) // simulate a crash: close() must not overwrite the stale manifest
             .build();
 
         final long v0;
         final long v1;
 
-        // Phase A: two vectors; inject the vec→null into persist Phase 2 via the test hook, so the
-        // .meta is stamped with the post-mutation counter while the written graph still holds v0.
-        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
+        // Phase A: two vectors; inject the vec→null into the flush via the test hook, after the freeze
+        // sampled the witnesses and while the frozen graph still holds v0.
+        try(final EmbeddedStorageManager storage = EmbeddedStorage.start(GigaMap.New(), storageDir))
         {
             final GigaMap<Doc> map = GigaMap.New();
             storage.setRoot(map);
@@ -736,19 +860,18 @@ class VectorIndexNullVectorTest
             v1 = map.add(new Doc("v1", basis(1)));
 
             final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
-            def.persistPhase2TestHook = () ->
+            FlushHooks.onceAt(def, VectorIndex.Default.FlushStage.FROZEN, () ->
             {
-                def.persistPhase2TestHook = null;
-                map.set(v0, new Doc("v0", null)); // bumps structuralModCount before writeMetadata runs
-            };
+                map.set(v0, new Doc("v0", null)); // bumps structuralModCount before the manifest is written
+            });
 
-            index.persistToDisk(); // graph contains v0; .meta must reflect the Phase-1 counter
+            index.persistToDisk(); // segment contains v0; manifest must carry the counter of the freeze
             storage.storeRoot();   // commit the store, carrying the bumped counter
             index.close();         // persistOnShutdown(false) → "crash", no corrective persist
         }
 
-        // Phase B: restart. Store counter == live-read .meta counter (both post-mutation) would accept
-        // the stale graph; the Phase-1 capture makes the .meta lag the store, forcing a rebuild.
+        // Phase B: restart. Store counter == live-read manifest counter (both post-mutation) would accept
+        // the stale segment; sampling at the freeze makes the manifest lag the store, forcing a rebuild.
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
             final GigaMap<Doc> map = storage.root();
@@ -757,7 +880,7 @@ class VectorIndexNullVectorTest
             assertNull(index.getVector(v0), "v0 lost its embedding");
             final VectorSearchResult<Doc> result = index.search(basis(0), 10);
             assertTrue(result.stream().noneMatch(e -> e.entityId() == v0),
-                "entity nulled during persist Phase 2 must not survive a crash restart");
+                "entity nulled during a flush must not survive a crash restart");
             assertEquals(1, result.size(), "only v1 must remain searchable");
             assertEquals(v1, index.search(basis(1), 1).stream().findFirst().orElseThrow().entityId());
             index.close();
@@ -1058,13 +1181,14 @@ class VectorIndexNullVectorTest
      * An index whose entity count clears the PQ training threshold but whose embedding count does
      * not must still load its graph, rather than rebuilding on every restart.
      * <p>
-     * This is the corner where the two counts disagree, and it needs an <b>embedded</b> vectorizer
-     * to reach: there {@code expectedVectorCount} counts <i>entities</i>, so a map of 300 entities
-     * holding 100 embeddings reads as 300 - over the threshold - while PQ training saw 100 and
-     * declined. With a computed vectorizer the count follows the stored vectors and the two agree. A loader that asked "should this have
-     * trained?" of the entity count would answer yes, treat the absent sidecar as loss, reject, and
-     * rebuild; the rebuild would decline again, write no sidecar again, and the next restart would
-     * repeat it. The graph's own node count is what was actually indexed, and that is what decides.
+     * This used to be the corner where the two counts disagree, reached with an <b>embedded</b>
+     * vectorizer whose {@code expectedVectorCount} counted <i>entities</i>: a map of 300 entities
+     * holding 100 embeddings read as 300 - over the threshold - while PQ training saw 100 and
+     * declined. The count now follows the vector file in both modes, and the test keeps the guard. A
+     * loader that asked "should this have trained?" of the entity count would answer yes, treat the
+     * absent sidecar as loss, reject, and rebuild; the rebuild would decline again, write no sidecar
+     * again, and the next restart would repeat it. The graph's own node count is what was actually
+     * indexed, and that is what decides.
      * <p>
      * Asserted through {@code tryLoad}, since a rejected load is invisible from outside: the graph
      * is rebuilt from the store and the index answers queries either way.
@@ -1101,35 +1225,37 @@ class VectorIndexNullVectorTest
                 "the fixture depends on training declining: too few embeddings despite enough entities");
         }
 
-        assertFalse(Files.exists(indexDir.resolve("embeddings.pqv")),
+        assertTrue(SegmentLayout.pqVectorsFiles(indexDir, "embeddings").isEmpty(),
             "training declined, so no sidecar should exist");
 
         final VectorIndex.Default<Doc> written =
             (VectorIndex.Default<Doc>)map.index().get(VectorIndices.Category()).get("embeddings");
 
-        assertTrue(written.getExpectedVectorCount() >= 256,
-            "the entity count must clear the threshold, or this test is not in the corner it targets");
+        // The vector count follows the embeddings in embedded mode as well now, so it no longer disagrees with
+        // what training saw; the load must be accepted all the same.
+        assertTrue(written.getExpectedVectorCount() < 256,
+            "the vector count counts embeddings, not entities");
 
         final DiskIndexManager.MetaState state = new DiskIndexManager.MetaState(
             written.getExpectedVectorCount(), written.getHighestEntityId(), written.getStructuralModCount());
         final GraphFormat format = new GraphFormat(
             VectorStorage.INLINE, ApproximateScoring.PQ_IN_MEMORY, pqSubspaces, 0);
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             written, "embeddings", indexDir, dimension, format, false))
         {
             assertTrue(manager.tryLoad(state),
                 "the graph holds fewer vectors than PQ training needs, so its missing sidecar is"
                     + " absence rather than loss and the graph must load");
-            assertNull(manager.loadedPqVectors(), "there is no codebook, so nothing to load into heap");
+            assertNull(manager.segments().get(0).pqVectors(), "there is no codebook, so nothing to load into heap");
         }
     }
 
     /**
-     * Removing a null-embedding entity in incremental mode changes the {@code .meta} witnesses
+     * Removing a null-embedding entity from an index with segments changes the manifest witnesses
      * (the structural mod count) without reaching the graph or the disk deletion mask: the entity
      * has no graph node, and its id lies at or above the disk graph's id upper bound, which the mask
-     * ignores. The next persist must still write, or the stale {@code .meta} makes the restart reject
+     * ignores. The next persist must still write, or the stale manifest makes the restart reject
      * the graph and rebuild it in full.
      * <p>
      * Asserted through {@code tryLoad} against the live witnesses, which is exactly the restart check.
@@ -1153,11 +1279,11 @@ class VectorIndexNullVectorTest
         index.close();
 
         assertTrue(this.diskGraphLoadsForLiveState(map, dir),
-            "the persist after the removal must stamp the current witnesses into the .meta");
+            "the persist after the removal must stamp the current witnesses into the manifest");
     }
 
     /**
-     * Adding a null-embedding entity in incremental mode moves the highest entity id, a {@code .meta}
+     * Adding a null-embedding entity to an index with segments moves the highest entity id, a manifest
      * witness, without any graph change or deletion. The next persist must still write, for the same
      * reason as {@link #incrementalRemoveOfNullEntityAboveDiskBound_persistKeepsDiskGraphLoadable}.
      */
@@ -1179,7 +1305,7 @@ class VectorIndexNullVectorTest
         index.close();
 
         assertTrue(this.diskGraphLoadsForLiveState(map, dir),
-            "the persist after the add must stamp the current witnesses into the .meta");
+            "the persist after the add must stamp the current witnesses into the manifest");
     }
 
     private VectorIndex<Doc> registerOnDiskNullableIndex(
@@ -1216,7 +1342,7 @@ class VectorIndexNullVectorTest
             index.getExpectedVectorCount(), index.getHighestEntityId(), index.getStructuralModCount());
         final VectorIndexConfiguration configuration = this.onDiskConfiguration(dir);
 
-        try(final DiskIndexManager manager = new DiskIndexManager.Default(
+        try(final SegmentLoad manager = SegmentLoad.of(
             index, "embeddings", dir.resolve("vectors"), 8, GraphFormat.of(configuration), false))
         {
             return manager.tryLoad(live);
@@ -1425,13 +1551,11 @@ class VectorIndexNullVectorTest
      * <p>
      * In embedded mode the training gate counts entities, not embeddings, so a map with at least 256
      * entities but fewer embeddings passes the gate and is then declined by the re-check against the
-     * collected sample. If that decline is not recorded, {@code isPqTrainingPending()} stays true,
-     * the incremental-clean shortcut in {@code doPersistToDisk} never applies, and every subsequent
-     * persist leaves incremental mode, rebuilds the whole graph and rewrites the files - an O(n) loop
-     * on an index where nothing changed.
+     * collected sample. If that decline is not recorded, {@code isPqTrainingPending()} stays true and
+     * every subsequent persist collects a training sample again, and if training counted as a change,
+     * an idle persist would rewrite the files.
      * <p>
-     * Observed through {@code persistPhase2TestHook}, which only runs when a persist actually reaches
-     * the write phase.
+     * Observed through {@code flushStageTestHook}, which only runs when a persist actually flushes.
      */
     @Test
     @Timeout(value = 120, unit = TimeUnit.SECONDS)
@@ -1470,16 +1594,16 @@ class VectorIndexNullVectorTest
             assertFalse(index.isPqCompressionActive(),
                 "100 embeddings is below the training minimum, so no codebook can exist");
 
-            final AtomicInteger phase2Runs = new AtomicInteger();
+            final AtomicInteger flushes = new AtomicInteger();
             final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
-            def.persistPhase2TestHook = phase2Runs::incrementAndGet;
+            def.flushStageTestHook = stage -> flushes.incrementAndGet();
 
-            // Nothing has changed, so neither of these may reach the write phase.
+            // Nothing has changed, so neither of these may flush.
             index.persistToDisk();
             index.persistToDisk();
 
-            assertEquals(0, phase2Runs.get(),
-                "an idle persist must not rebuild and rewrite the graph just because PQ never trained");
+            assertEquals(0, flushes.get(),
+                "an idle persist must not rewrite the files just because PQ never trained");
         }
     }
 
@@ -1500,16 +1624,36 @@ class VectorIndexNullVectorTest
         return v;
     }
 
-    // sanity: equals/hashCode of stored entries tolerate null vectors (defensive)
+    /**
+     * A vector that becomes null tombstones the entity's slot in the vector file: the slot reads absent and the
+     * vector count drops, so neither a search nor a rebuild finds the old vector.
+     */
     @Test
-    void vectorEntryToleratesNull()
+    void update_toNullVector_tombstonesTheSlot()
     {
-        final VectorEntry a = new VectorEntry(1L, null);
-        final VectorEntry b = new VectorEntry(1L, null);
-        assertEquals(a, b);
-        assertEquals(a.hashCode(), b.hashCode());
-        assertTrue(a.toString().contains("sourceEntityId=1"));
-        assertNull(a.vector);
-        assertFalse(Arrays.equals(new float[]{1f}, a.vector));
+        final GigaMap<Doc> map = GigaMap.New();
+        final VectorIndices<Doc> indices = map.index().register(VectorIndices.Category());
+        final VectorIndex<Doc> index = indices.add("embeddings", config(), new NullableComputedVectorizer());
+        final float[] vector = new float[DIM];
+        vector[0] = 1f;
+        final long id = map.add(new Doc("a", vector));
+        final VectorIndex.Default<Doc> def = (VectorIndex.Default<Doc>)index;
+        assertNotNull(index.getVector(id));
+        assertEquals(1L, def.getExpectedVectorCount());
+
+        map.set(id, new Doc("a", null));
+
+        assertNull(index.getVector(id));
+        assertEquals(0L, def.getExpectedVectorCount());
+        assertEquals(0, index.search(vector, 5).size());
+    }
+
+    /**
+     * The root as the typed map: the storage manager is not generic over the root.
+     */
+    @SuppressWarnings("unchecked")
+    private static GigaMap<Doc> rootOf(final EmbeddedStorageManager storage)
+    {
+        return (GigaMap<Doc>)storage.root();
     }
 }

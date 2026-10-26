@@ -43,13 +43,13 @@ class BackgroundTaskManagerShutdownTest
         final AtomicBoolean  persistInterrupted = new AtomicBoolean(false);
 
         @Override
-        public void applyGraphAdd(final VectorEntry entry) { /* no-op */ }
+        public void applyGraphAdd(final int ordinal) { /* no-op */ }
 
         @Override
-        public void applyGraphBatchAdd(final List<VectorEntry> entries) { /* no-op */ }
+        public void applyGraphBatchAdd(final int[] ordinals) { /* no-op */ }
 
         @Override
-        public void applyGraphUpdate(final VectorEntry entry) { /* no-op */ }
+        public void applyGraphUpdate(final int ordinal) { /* no-op */ }
 
         @Override
         public void applyGraphRemove(final int ordinal) { /* no-op */ }
@@ -61,7 +61,7 @@ class BackgroundTaskManagerShutdownTest
         public void doOptimize() { /* no-op */ }
 
         @Override
-        public void doPersistToDisk(final boolean onShutdown)
+        public boolean doPersistToDisk(final boolean onShutdown)
         {
             this.persistStarted.countDown();
             try
@@ -74,6 +74,7 @@ class BackgroundTaskManagerShutdownTest
                 Thread.currentThread().interrupt();
                 this.persistInterrupted.set(true);
             }
+            return true;
         }
     }
 

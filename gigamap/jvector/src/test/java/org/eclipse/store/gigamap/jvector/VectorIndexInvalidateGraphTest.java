@@ -147,13 +147,14 @@ class VectorIndexInvalidateGraphTest
     }
 
     @Test
-    void incrementalOnDiskModeRejectsInvalidation(@TempDir final Path tempDir)
+    void onDiskIndexRejectsInvalidation(@TempDir final Path tempDir)
     {
         final Path indexDir = tempDir.resolve("index");
         final Path storageDir = tempDir.resolve("storage");
 
-        // Phase 1: on-disk-configured but not yet incremental (no persist yet);
-        // invalidation is legal and must keep answering from stored state.
+        // An on-disk index serves its graph from the segments in its index directory, which the
+        // invalidation seam does not retire: the call fails closed instead of half-retiring it, from
+        // the start and after a reload alike.
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
             final GigaMap<Entity> map = GigaMap.New();
@@ -173,16 +174,15 @@ class VectorIndexInvalidateGraphTest
                 map.index().get(VectorIndices.Category()).get("vec");
             map.add(new Entity(new float[]{1, 0, 0, 0}));
 
-            index.invalidateGraph(); // not yet incremental: must work
+            assertThrows(IllegalStateException.class, index::invalidateGraph,
+                "an on-disk index must reject graph invalidation");
+            // Rejected without touching the graph: the index still answers.
             assertFalse(index.search(new float[]{1, 0, 0, 0}, 1).isEmpty());
 
-            // persistToDisk() enters incremental on-disk serving mode.
             index.persistToDisk();
             storage.storeRoot();
         }
 
-        // Phase 2: after a disk reload the index serves from incremental mode;
-        // invalidation must fail closed instead of half-retiring the graph.
         try(final EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
         {
             final GigaMap<Entity> map = storage.root();
@@ -190,7 +190,8 @@ class VectorIndexInvalidateGraphTest
                 map.index().get(VectorIndices.Category()).get("vec");
 
             assertThrows(IllegalStateException.class, index::invalidateGraph,
-                "incremental on-disk mode must reject graph invalidation");
+                "a loaded on-disk index must reject graph invalidation");
+            assertFalse(index.search(new float[]{1, 0, 0, 0}, 1).isEmpty());
         }
     }
 

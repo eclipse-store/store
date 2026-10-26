@@ -52,19 +52,22 @@ You can combine vector search with bitmap indices for hybrid queries - for examp
 == Features
 
 * *HNSW Vector Index*: Fast approximate k-nearest-neighbor search using JVector's HNSW graph implementation
-* *Persistent Storage*: Vectors are stored in GigaMap for durability and lazy loading
-* *On-Disk Index*: Memory-mapped graph storage for datasets larger than RAM
-* *PQ Compression*: Product Quantization for faster graph traversal (trades disk space for search speed)
+* *Memory-Mapped Vector File*: Vectors live in a memory-mapped file per index, a cache of what the vectorizer derives from the entities; the storage itself holds no vectors
+* *On-Disk Index*: Graph stored as immutable, memory-mapped segments committed by a manifest, for datasets larger than RAM; background merges keep the segment count low
+* *PQ Compression*: Product Quantization codes for traversing a graph larger than the page cache with fewer reads (trades disk or heap and some recall for I/O)
 * *NVQ Storage*: quantized vectors in the on-disk graph, about 3x smaller than full precision (scores stay exact; costs a little candidate recall only when `approximateScoring` is `NONE`)
 * *Background Persistence*: Automatic asynchronous persistence at configurable intervals
-* *Background Optimization*: Periodic graph cleanup for improved query performance
+* *Background Optimization*: Periodic graph cleanup of an in-memory index for improved query performance
+* *Eventual Indexing*: Deferred graph mutations via a background thread for reduced write latency
 * *Lazy Entity Access*: Search results provide direct access to entities without additional lookups
 * *Stream API*: Java Stream support for search results
 
 == Requirements
 
-* Java 17+ (minimum)
-* Java 20+ (recommended for SIMD acceleration)
+* Java 25+. The module uses the foreign memory API for its vector file and is compiled for Java 25; the rest of {product-name} stays at Java 17.
+* JVM flags:
+** `--add-modules jdk.incubator.vector` for SIMD scoring (without it, jVector falls back to scalar code).
+** `--enable-native-access=ALL-UNNAMED` for jVector's memory-mapped graph reader. On the module path jVector is the automatic module `jvector`, so use `--enable-native-access=jvector` there.
 
 == SIMD Acceleration (Panama Vector API)
 
@@ -77,37 +80,33 @@ JVector leverages the https://openjdk.org/jeps/338[Panama Vector API] (`jdk.incu
 * *Faster queries*: Nearest neighbor searches execute more quickly
 * *Optimized PQ encoding*: Product Quantization compression uses SIMD for distance computations
 
-=== Java Version Requirements
+=== Enabling SIMD
 
 [options="header",cols="1,2"]
 |===
-|Java Version |SIMD Support
+|JVM flag |SIMD Support
 
-|Java 17-19
+|without `--add-modules jdk.incubator.vector`
 |Functional, but *not optimized* (scalar fallback)
 
-|Java 20+
+|with `--add-modules jdk.incubator.vector`
 |*Full SIMD acceleration* via Panama Vector API
 |===
 
-JVector uses a multi-release JAR structure:
-
-* Base code targets Java 11 compatibility
-* Optimized vector code in `jvector-twenty` activates automatically on Java 20+ JVMs
-* Earlier Java versions receive functional but non-SIMD implementations
+JVector uses a multi-release JAR structure. On the Java 25+ JVM this module requires, the optimized vector code activates as soon as the incubator module is resolved.
 
 === JVM Parameters
 
-To enable the Panama Vector API, add the incubator module to your JVM arguments:
+To enable the Panama Vector API and jVector's memory-mapped reader, add these flags to your JVM arguments:
 
 [source, bash]
 ----
-java --add-modules jdk.incubator.vector -jar your-app.jar
+java --add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED -jar your-app.jar
 ----
 
 See xref:indexing/jvector/configuration.adoc#jvm-configuration[JVM Configuration] for detailed setup instructions including Maven and Gradle configuration.
 
-TIP: For optimal performance, run on *Java 21 LTS or later* to benefit from full SIMD acceleration. The performance difference can be substantial for large-scale vector operations.
+TIP: Always run with `--add-modules jdk.incubator.vector`. The performance difference can be substantial for large-scale vector operations.
 
 == Installation
 
@@ -137,7 +136,7 @@ public class DocumentVectorizer extends Vectorizer<Document>
     @Override
     public boolean isEmbedded()
     {
-        return true; // Vector is stored in entity (no duplicate storage)
+        return true; // The vector is a field of the entity
     }
 }
 ----
@@ -239,6 +238,24 @@ try (EmbeddedStorageManager storage = EmbeddedStorage.start(storageDir))
 }
 ----
 
+Shutting the storage down closes every index of the map; there is no need to close them explicitly.
+
+[#where-the-vectors-live]
+=== Where the Vectors Live
+
+The storage holds no vectors. Each index keeps its vectors in a memory-mapped *vector file* (`<name>.vec` plus chunks `<name>.vec-<n>`), a cache of what the `Vectorizer` derives from the entities. The entities are the source of truth, which has two consequences:
+
+* `Vectorizer.vectorize` must reproduce the committed vector of a persisted entity. The index calls it again whenever it has to repair its vector file: after a crash for the entities written since the last checkpoint (see `vectorCheckpointIntervalMs`), and for every entity when the vector file is missing or does not match the stored index.
+* Change what an entity's vector derives from only through the GigaMap: `update`/`apply`, or `set`/`replace` with a new instance. A field mutated in place without them is not seen by the index, which keeps serving the old vector until a recovery or `reindex()` re-vectorizes the entity.
+
+Where the vector file lives depends on the index:
+
+* An *on-disk* index keeps it in its index directory, next to its graph segments.
+* An *in-memory* index with a computed vectorizer (`isEmbedded()` returns `false`) keeps it in its index directory if one is configured (`indexDirectory` or `indexLocation`), and then restarts without a vectorizer call per entity (`VectorIndex.keepsIndexFiles()` returns `true`).
+* Every other in-memory index uses a temporary vector file and re-vectorizes every entity at each start. Temporary files live under `<java.io.tmpdir>/eclipsestore-vectors`, or under `eclipsestore-vectors` in the directory the system property `org.eclipse.store.gigamap.jvector.temporaryRoot` names.
+
+The vector file must stay with the storage it belongs to: back up and restore the index directory together with the storage. Deleting it only makes the next start re-vectorize every entity; restoring it separately from the storage is not supported.
+
 [#computed-vectorizers-and-lazy-initialization]
 == Computed Vectorizers and Lazy Initialization
 
@@ -284,9 +301,13 @@ public class MyVectorizer extends Vectorizer<Entity>
 
 When the GigaMap is loaded from existing storage, the vectorizer is restored from the persistent graph with its `baseUrl` and `modelName` intact. The transient `embeddingModel` field is `null` after deserialization and is recreated on the first `vectorize` call.
 
+Since the index re-vectorizes entities to repair its vector file (see <<where-the-vectors-live>>), the model behind a computed vectorizer must stay deterministic: it must return the same vector for the same persisted entity. For an in-memory index backed by an embedding service, configure an `indexDirectory` or `indexLocation`, or every start calls the service once per entity, holding the GigaMap's lock until it is done.
+
+An expensive vectorizer can also override `vectorKey(entity)` to return a cheap version key of the entity's vector (for example a record version). An update whose entity has the same key as the indexed one is taken to leave the vector unchanged, and `vectorize` is not called at all. The key must change whenever the vector changes; the default `Vectorizer.NO_KEY` compares vectors by content.
+
 === Looking up a vector index after load
 
-The first argument to `vectorIndices.add(name, configuration, vectorizer)` is the index's handle. GigaMap stores the index under that name and uses it as the on-disk filename prefix (`{name}.graph`, `{name}.meta`) when on-disk storage is enabled, so pick a stable string that is also a valid filename. Avoid path separators and keep it short.
+The first argument to `vectorIndices.add(name, configuration, vectorizer)` is the index's handle. GigaMap stores the index under that name and uses it as the filename prefix of the index files (`{name}.vec`, `{name}.manifest`, `{name}.seg-{n}.graph`, ...) when the index keeps files in a directory, so pick a stable string that is also a valid filename. Avoid path separators and keep it short.
 
 After the GigaMap is loaded from existing storage, the index is owned and managed by GigaMap — you do not re-add it. Retrieve a reference by name:
 
@@ -302,8 +323,22 @@ VectorIndex<Document> index = vectorIndices.get("embeddings");
 
 * *Null vectors are rejected by default*: `Vectorizer.vectorize()` must not return `null` unless the vectorizer opts in via `Vectorizer.allowsNullVectors()`. By default a `null` vector throws an `IllegalStateException`. When opted in, a `null` vector means the entity has no embedding: it stays in the GigaMap but is excluded from the vector index and never appears in search results (see xref:indexing/jvector/advanced.adoc[Advanced Topics]).
 * *~2.1 billion vectors per index*: JVector uses `int` for graph node ordinals. For larger datasets, implement sharding across multiple indices.
-* *`FUSED_PQ` scoring enlarges the index*: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It buys search speed, not disk space. To make the index *smaller*, set `vectorStorage` to `NVQ`.
-* *`NVQ` storage never costs score accuracy*: the graph keeps no full-precision copy, but reranking reads the vectors held in the GigaMap, so the scores and the ordering a search returns are exact. With `approximateScoring(NONE)` it does change which candidates traversal finds, since traversal reads the quantized vectors; with `FUSED_PQ` the codes drive traversal and candidate selection is unchanged.
+* *Java 25 or later*: the module targets Java 25 and uses the foreign memory API for its vector file.
+* *The vector file must stay with its storage*: it is a cache derived from the entities, rebuilt (one vectorizer call per entity) when it is missing or does not match the stored index.
+* *`FUSED_PQ` scoring enlarges the index*: it stores each node's neighbour codes inline, on top of whatever the storage mode holds. It saves reads on a graph larger than the page cache, not disk space, and it costs recall. To make the index *smaller*, set `vectorStorage` to `NVQ`.
+* *`NVQ` storage never costs score accuracy*: the graph keeps no full-precision copy, but reranking reads the full-precision vectors of the vector file, so the scores and the ordering a search returns are exact. With `approximateScoring(NONE)` it does change which candidates traversal finds, since traversal reads the quantized vectors; with `FUSED_PQ` the codes drive traversal and candidate selection is unchanged.
+
+[#upgrading-from-4x]
+== Upgrading from 4.x
+
+The vectors of an index now live in the vector file instead of a persisted vector store, and the on-disk graph is a set of segments committed by a manifest instead of one `<name>.graph`/`.meta`/`.pqv` file set. A storage written by 4.0.0 to 4.2.0 opens without preparation:
+
+* A computed index imports the vectors of its old vector store into the vector file at its first use, *without calling the vectorizer*. An embedded index reads its vectors from the entities as before.
+* The next store of the map persists the index in the current layout; the old vector store becomes unreferenced and is reclaimed by the storage's housekeeping.
+* The old graph files of an on-disk index are ignored, logged once at the first load, and can be removed. The graph is rebuilt from the vector file and persisted as segments beside them at the next persist, which is scheduled even if the index is only searched.
+* *One way:* a storage stored by this version cannot be opened by 4.x, or by an earlier build without the vector file, any more: they fail at start with `Missing runtime type ... VectorIndexFormat` (4.2.0 already at `VectorStorage`). Until the first store on this version, the storage still opens with the old version. Back up the storage before upgrading.
+
+IMPORTANT: A 4.x *in-memory index with a computed vectorizer and no directory* imports its persisted vectors into a temporary vector file, which the current layout cannot keep. Storing the map is therefore refused until the index has a location: give it one with `VectorIndices.changeIndexLocation` (see xref:indexing/index-locations.adoc[Index Locations]), which moves the imported vectors there at once, without a vectorizer call. To drop them deliberately instead, set the system property `org.eclipse.store.gigamap.jvector.dropLegacyVectorsWithoutLocation=true`; every later start then vectorizes every entity.
 
 == Examples
 

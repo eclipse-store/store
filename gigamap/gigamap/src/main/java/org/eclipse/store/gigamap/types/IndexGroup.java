@@ -14,6 +14,8 @@ package org.eclipse.store.gigamap.types;
  * #L%
  */
 
+import org.eclipse.serializer.persistence.types.Storer;
+
 import java.util.Arrays;
 
 /**
@@ -58,6 +60,31 @@ public interface IndexGroup<E> extends GigaMap.Component<E>
 		}
 		
 		public void internalPrepareIndicesUpdate(E replacedEntity);
+
+		/**
+		 * Called under the {@link GigaMap}'s monitor before an add, a remove or a removeAll changes the map, while
+		 * the map still shows the state the indices were last aligned with; an in-place update calls
+		 * {@link #internalPrepareIndicesUpdate(Object)} at that point instead. A group whose deferred
+		 * initialization reads the map, such as a recovery from the entities, completes it here. A throw rejects
+		 * the mutation with the map unchanged. Does nothing by default.
+		 */
+		public default void internalPrepareMutation()
+		{
+			// nothing to prepare by default
+		}
+
+		/**
+		 * Called when the {@link GigaMap} is stored, under its monitor, before it registers any changed component
+		 * with the storer, so before any entity segment of the store is written. A group that has to fix what its
+		 * stored state describes at the start of the store, such as an index whose cache a mutation racing the
+		 * rest of the store must not leave looking committed, does it here. Does nothing by default.
+		 * 
+		 * @param storer the storer of the store
+		 */
+		public default void internalPrepareStore(final Storer storer)
+		{
+			// nothing to prepare by default
+		}
 		
 		/**
 		 * Updates all affected entries in the indices of this group.

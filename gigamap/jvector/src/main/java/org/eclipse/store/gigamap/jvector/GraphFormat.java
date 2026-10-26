@@ -21,10 +21,10 @@ import java.util.Objects;
  * actually contains.
  * <p>
  * {@link DiskIndexManager} needs exactly these four values and nothing else from the configuration,
- * and they are also what the {@code .meta} file records so that a configuration change over an
- * existing index directory is detected rather than silently ignored. Bundling them keeps the disk
- * manager's constructor from growing a positional parameter per format option, and gives
- * {@code verifyMetadata} a single value to compare.
+ * and they are also what the manifest records per segment, so that a configuration change over an
+ * existing index directory is detected rather than silently ignored: a segment whose recorded format
+ * differs is flagged for merge. Bundling them keeps the disk manager's constructor from growing a
+ * positional parameter per format option, and gives that check a single value to compare.
  * <p>
  * This type is <b>not</b> persisted by EclipseStore. It is derived from the persisted configuration
  * whenever a disk manager is constructed, so adding a component here is not a schema change - only
@@ -122,12 +122,13 @@ record GraphFormat(
      * Returns the PQ subspace count this format actually encodes with, resolved from the sentinel
      * and reduced to zero when the format carries no PQ codes at all.
      * <p>
-     * This is the form the metadata records, so that two configurations which produce the same
-     * graph compare equal: the automatic sentinel and the value it resolves to are the same
+     * This is the form the manifest records per segment, so that two configurations which produce
+     * the same graph compare equal: the automatic sentinel and the value it resolves to are the same
      * setting, and a subspace count carries no meaning when nothing is quantized with it.
      *
      * @param dimension the configured vector dimension, which the automatic value derives from
-     * @return the effective subspace count, or 0 if this format writes no fused PQ codes
+     * @return the effective subspace count, or 0 if this format writes no PQ codes (fused or in a
+     *         {@code .pqv} sidecar)
      */
     int effectivePqSubspaces(final int dimension)
     {
@@ -140,9 +141,8 @@ record GraphFormat(
         }
         // Clamped to one, exactly as PQCompressionManager resolves the same sentinel. A dimension
         // below four is legal - the builder asks only that it be positive - and plain division
-        // gives zero there, so the manager would encode one byte per vector while the metadata
-        // recorded none. sidecarFitsTheGraph compares the two, so such an index would reject its
-        // own sidecar and rebuild on every single load.
+        // gives zero there, so the manager would encode one byte per vector while the manifest
+        // recorded none, and the recorded format would not describe the segment's codes.
         return this.pqSubspaces > 0 ? this.pqSubspaces : Math.max(1, dimension / 4);
     }
 

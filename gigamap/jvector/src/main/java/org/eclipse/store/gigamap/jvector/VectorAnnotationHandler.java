@@ -42,7 +42,7 @@ import static org.eclipse.serializer.util.X.notNull;
  *     .generateIndices(gigaMap);
  * }</pre>
  * When the entity type carries no {@link Vector} member, {@link #contribute(Class, GigaIndices)} is
- * a no-op. The vector is read from the entity on demand (embedded mode).
+ * a no-op. The vector is read from the entity when it is added or updated (embedded mode).
  *
  * @param <E> the entity type
  *

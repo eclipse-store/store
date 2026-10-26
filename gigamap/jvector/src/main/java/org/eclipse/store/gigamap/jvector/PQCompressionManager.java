@@ -24,16 +24,19 @@ import java.util.List;
 /**
  * Owns the Product Quantization (PQ) codebook of a {@link VectorIndex}.
  * <p>
- * This manager is deliberately narrow: it trains a codebook, or adopts one recovered from an
- * on-disk graph, and hands it to {@link DiskIndexManager#writeIndex} so the graph can be written
- * with a {@code FusedPQ} feature. It takes no part in searching - a PQ-compressed graph is
- * self-describing, so the query path builds its score functions from the loaded graph's own view
- * rather than from any state held here.
+ * This manager is deliberately narrow: it trains a codebook, or adopts one recovered from the
+ * loaded segments, and hands it to {@link DiskIndexManager#writeSegment} so a segment can be written
+ * with a {@code FusedPQ} feature, or with a {@code .pqv} sidecar for
+ * {@link ApproximateScoring#PQ_IN_MEMORY}. It takes no part in searching - every segment carries
+ * the codebook its codes were encoded with, so the query path builds its score functions from the
+ * segment itself rather than from any state held here.
  * <p>
- * The codebook is trained once, on the first persist that has enough vectors, and reused for the
- * lifetime of the on-disk index: subsequent sessions recover it from the {@code .graph} header.
- * Re-training on data drift is out of scope - a new codebook would not match the codes already
- * fused into the graph.
+ * The codebook is trained once, on the first persist that has enough vectors, and every segment
+ * written afterwards carries it: in its {@code .graph} header for {@code FUSED_PQ}, in its
+ * {@code .pqv} for {@code PQ_IN_MEMORY}. A later session recovers it from the newest segment
+ * written for the configured format. Re-training on data drift is out of scope - a new codebook
+ * would not match the codes of the segments already written. A segment encoded with another
+ * codebook, or with none, is searched exactly and rewritten by a merge.
  */
 interface PQCompressionManager
 {
@@ -79,8 +82,8 @@ interface PQCompressionManager
      * already held or there are too few vectors.
      * <p>
      * Split from {@link #trainFrom(List)} so the caller can hold the GigaMap monitor for the
-     * collection - which iterates the map - and drop it before the clustering, which is by far the
-     * longer half and needs no access to the map at all.
+     * collection - which reads the vector file that mutations write under that monitor - and drop it
+     * before the clustering, which is by far the longer half and touches only the sample.
      *
      * @return the sample to train from, or {@code null} if no training is due
      */
@@ -184,14 +187,13 @@ interface PQCompressionManager
             // ordinal space, and that is deliberate: the ordinal-spaced RAVV used for the disk write
             // is wrapped in NullSafeVectorValues, so every deletion hole and null embedding would
             // feed k-means a 1e-6 placeholder and drag the centroids toward the origin. Ordinal
-            // alignment matters only when encoding, which DiskIndexManager.writeIndexWithFusedPQ
-            // does separately against the ordinal-spaced RAVV.
+            // alignment matters only when encoding, which DiskIndexManager.writeSegment does
+            // separately against the segment's local ordinals.
             final List<VectorFloat<?>> trainingVectors = this.provider.collectTrainingVectors(MAX_TRAINING_VECTORS);
 
-            // Re-check against what was actually collected, not against the count used above. In
-            // embedded mode that count is parentMap.size(), which includes entities with no
-            // embedding, so a map of 256 entities can yield fewer than 256 vectors - and
-            // ProductQuantization.compute would then be asked for 256 clusters from fewer points.
+            // Re-check against what was actually collected, not against the count used above, which
+            // was read before the collection and may have changed since - and
+            // ProductQuantization.compute must not be asked for 256 clusters from fewer points.
             if(trainingVectors.size() < MIN_VECTORS_FOR_PQ_TRAINING)
             {
                 LOG.debug("Not enough non-null vectors for PQ training ({} < {}), leaving the index uncompressed",
@@ -236,8 +238,8 @@ interface PQCompressionManager
             );
 
             // Publish the codebook before the flag: isTrained() must never report true without a
-            // codebook, since that is exactly the state in which DiskIndexManager.writeIndex falls
-            // back to an uncompressed write while the index reports itself as compressed.
+            // codebook, since that is exactly the state in which a flush writes its segment
+            // uncompressed while the index reports itself as compressed.
             this.pq        = trained;
             this.pqTrained = true   ;
 

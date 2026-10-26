@@ -18,7 +18,7 @@ Search the [issue tracker](https://github.com/eclipse-store/store/issues) for a 
 ## Build
 
 To build EclipseStore you need
-- Java 17
+- JDK 25 to build; the modules target Java 17, except `gigamap-jvector` and the demo, example and code generator tests that use it, which target Java 25
 - Maven 3.9 or higher
 
 ```

@@ -21,6 +21,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.eclipse.store.gigamap.types.GigaMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
 
 /**
  * The vector projection of internal issue #119: {@code update()} of a committed entity whose new
@@ -86,5 +89,42 @@ class VectorIndexUpdateRetentionTest
         assertSame(doc, map.get(id), "the committed entity must survive the index's rejection");
         assertEquals(1, map.size());
         assertSame(wrongDimension, doc.embedding, "the in-place mutation is kept");
+    }
+
+    /**
+     * The same rejection for an entity whose graph node lives in a segment of an on-disk index: the
+     * rejection leaves its owner as it was, so the segment keeps answering for it.
+     */
+    @Test
+    @Timeout(60)
+    void updateToWrongDimensionOfAnEntityInASegment_keepsItSearchable(@TempDir final Path dir)
+    {
+        final GigaMap<Doc>       map     = GigaMap.New();
+        final VectorIndices<Doc> indices = map.index().register(VectorIndices.Category());
+        final VectorIndexConfiguration configuration = VectorIndexConfiguration.builder()
+            .dimension(DIM)
+            .similarityFunction(VectorSimilarityFunction.COSINE)
+            .onDisk(true)
+            .indexDirectory(dir.resolve("index"))
+            .build();
+
+        try(final VectorIndex<Doc> index = indices.add("embeddings", configuration, new EmbeddingVectorizer()))
+        {
+            final float[] vector = new float[]{1.0f, 0.0f, 0.0f};
+            final Doc     doc    = new Doc(vector);
+            final long    id     = map.add(doc);
+            map.add(new Doc(new float[]{0.0f, 1.0f, 0.0f}));
+            index.persistToDisk();
+            assertEquals(1, ((VectorIndex.Default<Doc>)index).sourceSet().segments().size());
+
+            // A replacement rather than an in-place update, which would leave the committed entity with
+            // the rejected embedding, read by every search that scores from the entities.
+            final Doc wrongDimension = new Doc(new float[]{0.0f, 0.0f, 0.0f, 0.0f});
+            assertThrows(RuntimeException.class, () -> map.set(id, wrongDimension));
+
+            assertSame(doc, map.get(id), "the committed entity must survive the index's rejection");
+            assertEquals(id, index.search(new float[]{1.0f, 0.1f, 0.0f}, 1).iterator().next().entityId(),
+                "the segment must still answer for the entity");
+        }
     }
 }
