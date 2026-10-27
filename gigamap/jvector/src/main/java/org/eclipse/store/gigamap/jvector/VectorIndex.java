@@ -9639,9 +9639,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Adds a graph node to {@code target}, tolerating an ordinal that is already present.
-         * Never calls {@code removeDeletedNodes()}: an add for a present ordinal means the entity is back
-         * or was replayed, not that its vector changed, so its links stay.
+         * Adds a graph node to {@code target}, tolerating an ordinal that is already present. A live node was
+         * replayed and keeps its links. A node marked deleted is inserted again, see {@link #insertBatch}.
          */
         private void internalAddGraphNodeIdempotent(
             final GraphIndexBuilder target ,
@@ -9658,10 +9657,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             if(graph.containsNode(ordinal))
             {
-                // The code first, whichever branch follows: it is what the node is scored by once
-                // compressed scoring is on, and the insert below reads it while choosing neighbours.
+                if(graph.getDeletedNodes().get(ordinal))
+                {
+                    // A rolled-back add reclaims its id, so this can be another entity: its links were
+                    // chosen for the old vector, and clearing the bit would leave it unreachable from its
+                    // own. The purge drops them safely, unlike removeNode (see below).
+                    this.replaceDeletedNode(target, ordinal, vf);
+                    return;
+                }
+                // The code first: it is what the node is scored by once compressed scoring is on.
                 this.trackPqCode(ordinal, vf);
-                // Already a node of this graph, so there is nothing structural left to do - and
+                // A live node of this graph, so there is nothing structural left to do - and
                 // reaching the same state by removing and re-adding is not merely wasteful, it
                 // corrupts the graph. removeNode strips the node's own entry but not the backlinks
                 // its neighbours hold, so the next insert that picks one of those stale references
@@ -9670,11 +9676,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // That is not a rare interleaving. After the in-memory PQ switch every queued add
                 // names an ordinal the replay has already inserted, so an unconditional remove
                 // would churn the entire graph and lose nodes out of it.
-                //
-                // Clearing a deleted bit is kept, because an add for an ordinal that is present
-                // but marked deleted does mean "this entity is back" - the same thing the resurrect
-                // path does, and for the same reason.
-                graph.getDeletedNodes().clear(ordinal);
                 return;
             }
 
@@ -9688,13 +9689,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * Inserts the nodes of a batch into {@code target}, in parallel on the insert pool, with the semantics
-         * of {@link #internalAddGraphNodeIdempotent}: an ordinal that is a node of the graph already only comes
-         * back if it was deleted, and one whose vector is {@code null} is skipped.
+         * of {@link #internalAddGraphNodeIdempotent}: an ordinal that is a live node of the graph already keeps
+         * its links, one marked deleted is inserted anew, and one whose vector is {@code null} is skipped.
          * <p>
          * In phases, each joined before the next starts, so each builds on what the one before completed:
          * <ol>
-         *   <li>On this thread, the steps per ordinal that are not safe against concurrent inserts: which
-         *       ordinals are nodes already, and the purge of a node left over in an upper layer only.</li>
+         *   <li>On this thread, one purge of the deleted nodes if the entry or an ordinal of the batch is one of
+         *       them, then the steps per ordinal that are not safe against concurrent inserts: which ordinals
+         *       are nodes already, and the purge of a node left over in an upper layer only.</li>
          *   <li>With in-memory PQ codes, the code of every new node, the highest ordinal first on this thread so
          *       the code store never grows while the workers write (see encodeRebuildCodes). Every code is
          *       there before any insert scores against it.</li>
@@ -9718,8 +9720,23 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return;
             }
-            this.purgeIfEntryDeleted(target);
-            final OnHeapGraphIndex                graph   = graphOf(target);
+            final OnHeapGraphIndex graph = graphOf(target);
+            GraphReachability.NodesLostException purgeLoss = null;
+            if(isEntryDeleted(graph) || holdsDeletedNode(graph, ordinals))
+            {
+                // A deleted node of the batch is one a rolled-back add left behind, its id reclaimed, see
+                // internalAddGraphNodeIdempotent. Once for the batch, not per node: the purge walks every node.
+                try
+                {
+                    this.removeDeletedNodes(target);
+                }
+                catch(final GraphReachability.NodesLostException e)
+                {
+                    // The purge is done, only its repair lost other nodes (already escalated): the batch still
+                    // goes in, so its own entities are not lost as well.
+                    purgeLoss = e;
+                }
+            }
             final int[]                           pending = new int[ordinals.length];
             final VectorFloat<?>[]                inserts = new VectorFloat<?>[ordinals.length];
             final ReentrantReadWriteLock.ReadLock lock    = this.structureLock.readLock();
@@ -9737,10 +9754,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     final int ordinal = ordinals[index];
                     if(graph.containsNode(ordinal))
                     {
-                        // As in internalAddGraphNodeIdempotent: a node already, its code kept current, back if it
-                        // was deleted.
+                        // As in internalAddGraphNodeIdempotent: a live node already (the purge above took the
+                        // deleted ones), its code kept current.
                         this.trackPqCode(ordinal, vector);
-                        graph.getDeletedNodes().clear(ordinal);
                         continue;
                     }
                     // As in internalAddGraphNodeIdempotent: a leftover in an upper layer would make the insert throw.
@@ -9773,7 +9789,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 lock.unlock();
             }
-            this.repairReachability(target, pending, count);
+            try
+            {
+                this.repairReachability(target, pending, count);
+            }
+            catch(final GraphReachability.NodesLostException e)
+            {
+                if(purgeLoss != null)
+                {
+                    e.addSuppressed(purgeLoss);
+                }
+                throw e;
+            }
+            if(purgeLoss != null)
+            {
+                throw purgeLoss;
+            }
         }
 
         /**
@@ -9870,12 +9901,38 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void purgeIfEntryDeleted(final GraphIndexBuilder target)
         {
-            final OnHeapGraphIndex                graph = graphOf(target);
-            final ImmutableGraphIndex.NodeAtLevel entry = graph.entryNode();
-            if(entry != null && graph.getDeletedNodes().get(entry.node))
+            if(isEntryDeleted(graphOf(target)))
             {
                 this.removeDeletedNodes(target);
             }
+        }
+
+        private static boolean isEntryDeleted(final OnHeapGraphIndex graph)
+        {
+            final ImmutableGraphIndex.NodeAtLevel entry = graph.entryNode();
+            return entry != null && graph.getDeletedNodes().get(entry.node);
+        }
+
+        /**
+         * Whether one of {@code ordinals} is a node of {@code graph} marked deleted.
+         */
+        private static boolean holdsDeletedNode(
+            final OnHeapGraphIndex graph   ,
+            final int[]            ordinals
+        )
+        {
+            if(graph.getDeletedNodes().cardinality() == 0)
+            {
+                return false;
+            }
+            for(final int ordinal : ordinals)
+            {
+                if(graph.containsNode(ordinal) && graph.getDeletedNodes().get(ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /**
