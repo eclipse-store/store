@@ -4908,8 +4908,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Makes every slot absent without changing the logical count. Under the parent monitor, before
-         * recovery or as part of removeAll.
+         * Makes every slot of the vector file absent. Under the write lock and the parent monitor.
          */
         private void clearVectorSlots(final VectorFile file)
         {
