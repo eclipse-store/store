@@ -56,6 +56,7 @@ import java.lang.ref.WeakReference;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -1003,7 +1004,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * Rebuilds this index from the current state of the parent map's entities. Every vector is computed and
-         * validated before anything is dropped, so a throwing vectorizer leaves the index as it was.
+         * validated before anything is changed, so a throwing vectorizer leaves the index as it was.
          * Must be called like {@link #internalRemoveAll()}: with the parent-map monitor and the lock of
          * {@link #internalTryLockExclusive()} held.
          */
@@ -1449,9 +1450,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private transient volatile boolean                closeRequested   ;
 
-        // Set while removeAll re-initializes the index: the disk load then rejects without retiring (see
-        // DiskIndexManager#load(MetaState, OwnerTable, boolean)). Under the parent monitor and the write lock.
+        // Set while removeAll or a reindex re-initializes the index (see discardGraph): the disk load then rejects
+        // without retiring (see DiskIndexManager#load(MetaState, OwnerTable, boolean)). Under the parent monitor and
+        // the write lock.
         private transient boolean                         reloadingAfterRemoveAll;
+
+        // Set while a reindex rewrites the vector file, which a graph rebuilt meanwhile would only partly reflect
+        // and still be published as complete (see ensureGraphRebuilt). Under the parent monitor and the write lock.
+        private transient boolean                         reindexRewriting;
 
         /**
          * Whether a codebook was trained outside a persist and has not been written yet.
@@ -1694,7 +1700,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * <p>
          * Because every builder-swapping path also calls {@code ensureIndexInitialized()} before its
          * swap, the first caller wins the rebuild under the monitor and publishes {@code graphRebuilt};
-         * all others see the flag and skip. An on-disk index whose segments loaded never gets here:
+         * all others see the flag and skip. A reindex is the exception: it discards the graph without
+         * rebuilding it first, and its rewrite of the vector file rejects a rebuild until it is done
+         * (see {@link #reindexRewriting}). An on-disk index whose segments loaded never gets here:
          * the load sets the flag, since the segments hold the graph and the live in-memory graph
          * starts empty. One whose load was rejected rebuilds into the live graph, which then owns
          * every entity it holds.
@@ -1702,6 +1710,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * @throws RebuildAbandonedException (an {@link IllegalStateException}) if the graph still needs
          *                                   its rebuild and {@link #close()} has been requested, so the
          *                                   rebuild was not done or was abandoned
+         * @throws IllegalStateException     if the graph still needs its rebuild while a reindex rewrites the
+         *                                   vector file (see {@link #reindexRewriting})
          */
         private void ensureGraphRebuilt()
         {
@@ -1714,6 +1724,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 if(this.graphRebuilt)
                 {
                     return;
+                }
+                if(this.reindexRewriting)
+                {
+                    // Only the reindex's own thread gets here, e.g. through a vectorizer searching its index.
+                    throw new IllegalStateException(
+                        "Vector index \"" + this.name + "\" is being reindexed: it cannot be searched or trained"
+                        + " from within its own vectorizer meanwhile."
+                    );
                 }
                 if(!this.rebuildGraphFromStore(true))
                 {
@@ -2159,11 +2177,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return false;
             }
-            if(nodes.count() == 0)
-            {
-                return true;
-            }
-
             // The builder, null-checked above, cannot change meanwhile: every path that replaces or
             // closes it holds the parent monitor this thread holds - close() takes it before tearing
             // down.
@@ -2172,8 +2185,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Always from an empty builder. A non-empty one here holds nodes inserted after an
                 // earlier rebuild was abandoned and left its empty replacement behind. The file
                 // already reflects those changes, so they are rebuilt with everything else; keeping
-                // their nodes would keep links built against a graph that was nearly empty.
+                // their nodes would keep links built against a graph that was nearly empty. Also for a
+                // file without a vector, which must leave an empty graph.
                 this.discardPartialGraph(this.builder);
+            }
+            if(nodes.count() == 0)
+            {
+                return true;
             }
             // Read once, and empty from here on.
             final GraphIndexBuilder target = this.builder;
@@ -3775,16 +3793,19 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         /**
          * Computes and validates the vector of every entity of the parent map, changing nothing: a vectorizer
          * that throws for one entity leaves the index as it was. The vectors stay on the heap until the rebuild
-         * writes them, as the vector store held them before: written into the vector file now, the removeAll of
-         * the rebuild would make them absent again. Must be called with the parent-map monitor held.
+         * writes them, as the vector store held them before, since nothing may change before every one of them is
+         * known. Must be called with the parent-map monitor held.
+         *
+         * @param entities receives the ordinal of every entity
          */
-        private CollectedVectors collectParentVectors()
+        private CollectedVectors collectParentVectors(final BitSet entities)
         {
             final CollectedVectors collected = new CollectedVectors();
             this.parentMap().iterateIndexed((entityId, entity) ->
             {
                 // validates the id range on this thread, as internalAdd does
                 final int ordinal = toOrdinal(entityId);
+                entities.set(ordinal);
                 collected.add(ordinal, this.vectorize(entity), this.vectorizer.vectorKey(entity));
             });
             return collected;
@@ -3820,49 +3841,195 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void internalReindex()
         {
-            // Before anything is dropped: a vectorizer that throws for one entity must leave the index as it was.
+            // The teardown below would corrupt a search, freeze or background operation running meanwhile.
+            if(!this.builderLock.isWriteLockedByCurrentThread())
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\": internalReindex() must be called via GigaMap.reindex(),"
+                    + " which acquires its write lock first."
+                );
+            }
+            if(this.closed || this.closeRequested)
+            {
+                // Before anything is initialized: the rebuild would bring the closed index back.
+                throw new IllegalStateException("Vector index \"" + this.name + "\" is closed or closing.");
+            }
+
+            // The ordinals of the map's entities, so the slots of others can be cleared before the rewrite.
+            final BitSet entities = new BitSet();
+
+            // Before anything is changed: a vectorizer that throws for one entity must leave the index as it was.
             if(this.vectorizer.isEmbedded())
             {
-                // Validation only. The vectors live in the entities and are read from them again while re-adding,
+                // Validation only. The vectors live in the entities and are read from them again while rewriting,
                 // so keeping this pass's results would hold every vector a second time for a vectorizer that
                 // derives them on the fly, for the whole rebuild.
                 this.parentMap().iterateIndexed((entityId, entity) ->
                 {
-                    toOrdinal(entityId);
+                    entities.set(toOrdinal(entityId));
                     this.vectorize(entity);
+                    this.vectorizer.vectorKey(entity);
                 });
-                this.internalRemoveAll();
-                this.parentMap().iterateIndexed(this::internalAdd);
+                this.reindexInPlace(null, entities);
                 return;
             }
 
-            // Computed: one vectorizer call per entity, before anything is dropped. The vectors are kept on the
+            // Computed: one vectorizer call per entity, before anything is changed. The vectors are kept on the
             // heap for the rebuild, no more than the vector store held before.
-            final CollectedVectors collected = this.collectParentVectors();
+            this.reindexInPlace(this.collectParentVectors(entities), entities);
+        }
 
-            this.internalRemoveAll();
-
-            // The file survived the removeAll in place (every slot absent), so the vectors are written back under
-            // the ordinals the validation pass collected and their nodes added as internalAdd would, without a
-            // second vectorizer call. An entity without a vector keeps its key and counts, as in internalAdd.
-            final VectorFile file = this.vectorFile;
-            for(int i = 0; i < collected.size; i++)
+        /**
+         * The rebuild of a reindex, after its validation pass. The graph is discarded first, the slots of ordinals
+         * that are no entity of the map are cleared, and the vectors of the entities are then rewritten in place,
+         * never dropped: after a failure every entity keeps its vector in the file, the new one or the one it had
+         * before, and nothing else has one. The graph is rebuilt from the file at the end, or, after a failure,
+         * on the next use of the index. Under the write lock and the parent monitor.
+         *
+         * @param collected the vectors of a computed vectorizer's validation pass, or {@code null} to vectorize
+         *                  the entities again, for an embedded vectorizer
+         * @param entities  the ordinals of the map's entities, from the validation pass
+         */
+        private void reindexInPlace(
+            final CollectedVectors collected,
+            final BitSet           entities
+        )
+        {
+            if(!this.isIndexPresent())
             {
-                final int     ordinal = collected.ordinals[i];
-                final float[] vector  = collected.vectors[i] ;
-                final long    key     = collected.keys[i]    ;
-                if(vector == null)
-                {
-                    if(key != Vectorizer.NO_KEY)
-                    {
-                        this.writeSlot(file, ordinal, null, key);
-                    }
-                    this.markWitnessChanged(1);
-                    continue;
-                }
-                this.writeSlot(file, ordinal, vector, key);
-                this.addWrittenVector(ordinal, vector);
+                this.initializeIndex();
             }
+            // Recovered before they are overwritten, so a later recovery cannot replace them. The graph is not
+            // rebuilt first, it is discarded anyway.
+            this.ensureVectorsRecovered();
+            // The vectors a 4.x store still held are recomputed now.
+            this.legacyVectorStore = null;
+
+            // Before the teardown: from here on a failure must leave the rebuild from the file due.
+            this.graphRebuilt = false;
+            this.discardGraph();
+            // Again after the teardown, whatever its re-initialization loaded: the graph has to be built from the file.
+            this.graphRebuilt = false;
+            // The counter discardGraph bumps makes its re-initialization reject the index files torn down. A segment
+            // adopted anyway would keep serving entities with their old vectors, so fail while the file still holds
+            // exactly those vectors: the graph rebuilt from it on the next use owns every entity again.
+            final SourceSet loaded = this.sources;
+            if(loaded != null && !loaded.segments().isEmpty())
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\": the reindex re-adopted the on-disk segments it discarded."
+                );
+            }
+
+            final VectorFile file    = this.vectorFile;
+            // [0] the vectors written, [1] the entities without a vector, whether their slot was written or not
+            final long[]     written = new long[2];
+            try
+            {
+                Throwable failure = null;
+                this.reindexRewriting = true;
+                try
+                {
+                    // First the slots that belong to no entity, which a drop-first rebuild emptied as well: a
+                    // failure in the rewrite below must not leave one for the graph rebuilt on the next use.
+                    file.forEachSlot(ordinal ->
+                    {
+                        if(!entities.get(ordinal) && isOccupied(file, ordinal))
+                        {
+                            this.writeSlot(file, ordinal, null, Vectorizer.NO_KEY);
+                        }
+                        return true;
+                    });
+                    if(collected != null)
+                    {
+                        for(int i = 0; i < collected.size; i++)
+                        {
+                            this.rewriteSlot(
+                                file, written, collected.ordinals[i], collected.vectors[i], collected.keys[i]
+                            );
+                        }
+                    }
+                    else
+                    {
+                        this.parentMap().iterateIndexed((entityId, entity) ->
+                            this.rewriteSlot(
+                                file, written,
+                                toOrdinal(entityId), this.vectorize(entity), this.vectorizer.vectorKey(entity)
+                            )
+                        );
+                    }
+                }
+                catch(final Throwable t)
+                {
+                    failure = t;
+                    throw t;
+                }
+                finally
+                {
+                    try
+                    {
+                        // Counted anew rather than adjusted by the writes, so a reindex also repairs a count that
+                        // drifted, failed or not. A failing count must neither replace the failure of the rewrite
+                        // (e.g. an OutOfMemoryError, which the count can run into again) nor keep the flag set.
+                        this.vectorCount = countPresent(file);
+                    }
+                    catch(final Throwable t)
+                    {
+                        if(failure == null)
+                        {
+                            throw t;
+                        }
+                        // The VM may throw one shared OutOfMemoryError, which cannot suppress itself.
+                        if(t != failure)
+                        {
+                            failure.addSuppressed(t);
+                        }
+                    }
+                    finally
+                    {
+                        this.reindexRewriting = false;
+                        // Failed or not: the record carries the count, which a store must write.
+                        this.markContentChanged();
+                    }
+                }
+
+                this.ensureGraphRebuilt();
+            }
+            finally
+            {
+                // Counted like the per-entity adds a drop-first rebuild made: background optimization (e.g. the
+                // switch to in-memory PQ codes, which the teardown dropped) and persistence wait for a number of
+                // changes, also for a graph rebuilt on the next use after a failure.
+                this.markDirtyForBackgroundManagers(Math.max(1, Math.toIntExact(written[0])));
+                if(written[1] > 0)
+                {
+                    this.markWitnessChanged(Math.toIntExact(written[1]));
+                }
+            }
+        }
+
+        /**
+         * Writes the vector of one entity of a reindex into its slot, unless the slot stays empty anyway, and
+         * counts it.
+         */
+        private void rewriteSlot(
+            final VectorFile file   ,
+            final long[]     written,
+            final int        ordinal,
+            final float[]    vector ,
+            final long       key
+        )
+        {
+            if(vector != null || key != Vectorizer.NO_KEY || isOccupied(file, ordinal))
+            {
+                this.writeSlot(file, ordinal, vector, key);
+            }
+            written[vector != null ? 0 : 1]++;
+        }
+
+        private static boolean isOccupied(final VectorFile file, final int ordinal)
+        {
+            return file.isPresent(ordinal) || file.key(ordinal) != Vectorizer.NO_KEY;
         }
 
         @Override
@@ -4649,15 +4816,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // The write lock ensures no concurrent freeze, search, or background worker mutation is running:
             // closeInternalResources() destroys the graph and retires the sources, which would corrupt any
             // in-flight operation. A flush writing without a lock commits nothing afterwards (see retireSources).
-            // Called with the parentMap monitor held, by GigaMap.removeAll() / reindex(), which have already
+            // Called with the parentMap monitor held, by GigaMap.removeAll(), which has already
             // acquired this lock without waiting (internalTryLockExclusive): this is a reentrant acquisition that
             // never waits. Waiting for it here would deadlock with a persist, which holds it and needs the
             // monitor, so a caller that has not acquired it is rejected instead.
             if(!this.builderLock.isWriteLockedByCurrentThread())
             {
                 throw new IllegalStateException(
-                    "Vector index \"" + this.name + "\": internalRemoveAll() must be called via GigaMap.removeAll()"
-                    + " or GigaMap.reindex(), which acquire its write lock first."
+                    "Vector index \"" + this.name + "\": internalRemoveAll() must be called via GigaMap.removeAll(),"
+                    + " which acquires its write lock first."
                 );
             }
             this.builderLock.writeLock().lock();
@@ -4668,39 +4835,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 // Every vector goes, in place: the file is never unmapped while open, so a reader that read the
                 // chunk table before this sees absent slots rather than unmapped memory.
                 this.removeAllVectors(this.vectorFile);
-                // The vectors a 4.x store still held are gone with the entities, or recomputed by a reindex.
+                // The vectors a 4.x store still held are gone with the entities.
                 this.legacyVectorStore = null;
 
-                // Shut the background task manager down and discard its pending ops, they are stale. Without
-                // waiting for its thread: a task of it may be waiting for the write lock or the monitor held here.
-                if(this.backgroundTaskManager != null)
-                {
-                    this.backgroundTaskManager.shutdownWithoutWaiting();
-                    this.backgroundTaskManager = null;
-                }
-
-                // Not waiting for a flush in flight either: it may be waiting for the monitor held here.
-                // Advancing the epoch makes it commit nothing and delete what it wrote (see retireSources),
-                // and the sequences it reserved stay protected meanwhile.
-                this.closeInternalResources();
-
-                // Before initializeIndex(): the bumped counter makes tryLoad() reject the files of the
-                // generation just torn down, instead of adopting them as the new one.
-                this.markContentChanged();
-
-                // Reinitialize the index (this will also restart background managers if configured). Without
-                // retiring the rejected manifest: it still matches the stored record until the next store.
-                this.reloadingAfterRemoveAll = true;
-                try
-                {
-                    this.initializeIndex();
-                }
-                finally
-                {
-                    this.reloadingAfterRemoveAll = false;
-                }
-                // The vector file was emptied above, so the empty graph is complete: no rebuild is due, and a
-                // reindex that re-adds right after must not trigger one.
+                this.discardGraph();
+                // The vector file was emptied above, so the empty graph is complete: no rebuild is due.
                 this.graphRebuilt = true;
 
                 // Mark dirty for background managers
@@ -4709,6 +4848,62 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             finally
             {
                 this.builderLock.writeLock().unlock();
+            }
+        }
+
+        /**
+         * Tears down the graph, its sources and the background task manager and initializes them anew, empty,
+         * leaving the vector file as it is. Bumps the structural modification count before the re-initialization,
+         * which makes it reject the index files of the generation torn down. Under the write lock and the parent
+         * monitor.
+         */
+        private void discardGraph()
+        {
+            // Shut the background task manager down and discard its pending ops, they are stale. Without
+            // waiting for its thread: a task of it may be waiting for the write lock or the monitor held here.
+            if(this.backgroundTaskManager != null)
+            {
+                this.backgroundTaskManager.shutdownWithoutWaiting();
+                this.backgroundTaskManager = null;
+            }
+
+            // Not waiting for a flush in flight either: it may be waiting for the monitor held here.
+            // Advancing the epoch makes it commit nothing and delete what it wrote (see retireSources),
+            // and the sequences it reserved stay protected meanwhile.
+            this.closeInternalResources();
+
+            // Before initializeIndex(): the bumped counter makes tryLoad() reject the files of the
+            // generation just torn down, instead of adopting them as the new one.
+            this.markContentChanged();
+
+            // Reinitialize the index (this will also restart background managers if configured). Without
+            // retiring the rejected manifest: it still matches the stored record until the next store.
+            this.reloadingAfterRemoveAll = true;
+            try
+            {
+                this.initializeIndex();
+            }
+            catch(final Throwable t)
+            {
+                // A builder without sources looks initialized, and an on-disk index would then answer every search
+                // with nothing. Torn down again, the next access initializes it anew.
+                try
+                {
+                    this.closeInternalResources();
+                }
+                catch(final Throwable suppressed)
+                {
+                    // The VM may throw one shared OutOfMemoryError, which cannot suppress itself.
+                    if(suppressed != t)
+                    {
+                        t.addSuppressed(suppressed);
+                    }
+                }
+                throw t;
+            }
+            finally
+            {
+                this.reloadingAfterRemoveAll = false;
             }
         }
 
@@ -4741,11 +4936,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
         /**
          * {@inheritDoc}
-         * <p>
-         * Read from the vector file, without a lock once the vectors are recovered, and returned as a copy:
-         * changing it changes nothing in the index.
-         *
-         * @throws IllegalStateException if the index is closed
          */
         @Override
         public void invalidateGraph()
@@ -4878,6 +5068,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             }
         }
 
+        /**
+         * {@inheritDoc}
+         * <p>
+         * Read from the vector file, without a lock once the vectors are recovered, and returned as a copy:
+         * changing it changes nothing in the index.
+         *
+         * @throws IllegalStateException if the index is closed
+         */
         @Override
         public float[] getVector(final long entityId)
         {
@@ -9313,12 +9511,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * to insert concurrently, which jVector rejects with "Node already exists", or remove or
          * replace a node while the rebuild links to it. Today no callback can be queued then: every
          * enqueue happens inside a GigaMap mutation that has run {@code ensureIndexInitialized()}
-         * under the monitor first, and the queue is transient and so empty after a load. The one way
-         * {@code graphRebuilt} returns to {@code false} while the background manager runs is a recovery
-         * that drops the loaded segments (see {@link #dropLoadedSegments()}), and callbacks queued before
-         * it then find no rebuild in flight but one due. This guard covers both: a callback either finds
-         * the rebuild done (a volatile read) or
-         * waits for it, or runs it, under the monitor.
+         * under the monitor first, and the queue is transient and so empty after a load. Two ways return
+         * {@code graphRebuilt} to {@code false} while a background manager runs: a recovery that drops the
+         * loaded segments (see {@link #dropLoadedSegments()}), whose earlier callbacks then find no rebuild in
+         * flight but one due, and a reindex that failed after its teardown, whose new manager has an empty
+         * queue. This guard covers all of them: a callback either finds the rebuild done (a volatile read)
+         * or waits for it, or runs it, under the monitor.
          * <p>
          * Lock order: called before the read lock is taken, exactly like the search path does, so
          * this thread holds no {@code builderLock} while it takes the monitor; and the rebuild

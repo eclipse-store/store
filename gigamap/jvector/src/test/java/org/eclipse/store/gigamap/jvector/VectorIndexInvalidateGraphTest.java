@@ -151,6 +151,29 @@ class VectorIndexInvalidateGraphTest
     }
 
     @Test
+    void invalidationAfterReindexPreservesTheNewWitness()
+    {
+        final GigaMap<Entity> map = GigaMap.New();
+        try(final VectorIndex<Entity> index = newIndex(map))
+        {
+            final Entity entity = new Entity(new float[]{1, 0, 0, 0});
+            final long id = map.add(entity);
+            index.search(entity.vector, 1);
+            entity.vector = new float[]{0, 1, 0, 0};
+            map.reindex();
+            assertArrayEquals(entity.vector, index.getVector(id));
+            final long witness = ((VectorIndex.Default<Entity>)index).getStructuralModCount();
+
+            entity.vector = new float[]{0, 0, 1, 0};
+            index.invalidateGraph();
+            assertArrayEquals(entity.vector, index.getVector(id));
+            assertEquals(id, index.search(entity.vector, 1).toList().getFirst().entityId());
+            assertEquals(witness, ((VectorIndex.Default<Entity>)index).getStructuralModCount(),
+                "cache invalidation must not inherit reindex's structural-counter bump");
+        }
+    }
+
+    @Test
     void doubleInvalidationIsSafe()
     {
         final GigaMap<Entity> map = GigaMap.New();

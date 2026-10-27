@@ -478,9 +478,10 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
         /**
          * Rebuilds each index on its own, unlike the group default, whose fan-out per entity lets one throwing
          * vectorizer truncate every index of the group. An index whose vectorizer throws stays as it was, since
-         * every vector is validated before anything is dropped; a failure after that (an insert, an I/O error)
-         * leaves the index partly rebuilt, and the reindex has to be repeated. A failing index does not keep the
-         * others from being rebuilt; the first failure is rethrown at the end, later ones are suppressed.
+         * every vector is validated before anything is changed; a failure after that (a graph insert, an I/O error)
+         * lets every entity keep its vector, new or old, and rebuilds the graph on the next use; the reindex has to be
+         * repeated. A failing index does not keep the others from being rebuilt; the first failure is rethrown at
+         * the end, later ones are suppressed.
          */
         @Override
         public void internalReindex(final GigaMap<E> parentMap)

@@ -15,7 +15,9 @@ package org.eclipse.store.gigamap.lucene;
  */
 
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
 import org.apache.lucene.document.Field.Store;
 import org.apache.lucene.document.LongField;
 import org.apache.lucene.index.*;
@@ -38,6 +40,7 @@ import org.eclipse.store.gigamap.types.*;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.NoSuchFileException;
@@ -455,14 +458,25 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 						return;
 					}
 
-					final List<Document> documents       = new ArrayList<>();
-					long                 currentEntityId = firstEntityId;
-					
-					for(final E entity : entities)
+					final List<Document> documents = new ArrayList<>();
+					try
 					{
-						documents.add(this.toDocument(currentEntityId++, entity));
+						long currentEntityId = firstEntityId;
+						for(final E entity : entities)
+						{
+							documents.add(this.toDocument(currentEntityId++, entity));
+						}
 					}
-					
+					catch(final Throwable t)
+					{
+						// the documents built so far are never indexed, so nothing else would close them
+						for(final Document document : documents)
+						{
+							closeUnindexed(document, t);
+						}
+						throw t;
+					}
+
 					this.writer.addDocuments(documents);
 					this.readerStale = true;
                     this.optCommit();
@@ -543,6 +557,15 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			{
 				synchronized(this.gigaMap)
 				{
+					if(clearFirst)
+					{
+						// Before anything is dropped: a populator that throws for one entity leaves the index as
+						// it was, instead of a discarded writer that every later access rebuilds and fails on.
+						this.gigaMap.iterateIndexed((entityId, entity) ->
+							closeUnindexed(this.toDocument(entityId, entity))
+						);
+					}
+
 					// this rebuilds from the map anyway, so no rebuild on open is needed, but only once it
 					// has succeeded: a failure below must leave the index checked or rebuilt on the next open
 					final boolean checkFiles = this.checkFilesOnOpen;
@@ -606,11 +629,96 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			}
 		}
 
+		/**
+		 * Closes the reader and token stream of a field that is discarded without being indexed: the
+		 * {@link IndexWriter} closes them once it has indexed a document, so a populator may open them, e.g. on a
+		 * file. A token stream is reset before it is closed, as indexing does: a tokenizer takes over the reader set
+		 * on it only when it is reset, and closes only a reader it took over. A token stream the populator reset
+		 * itself would therefore lose its reader by that second reset.
+		 * <p>
+		 * A failure to close is ignored, since the field is not used anyway. Only a {@link VirtualMachineError}, which
+		 * {@link IOUtils#closeWhileHandlingException(java.io.Closeable...)} rethrows after closing both, or a failing
+		 * {@code readerValue()} or {@code tokenStreamValue()} of the field, gets through.
+		 */
+		private static void closeReaders(final IndexableField field)
+		{
+			final Reader      reader = field.readerValue();
+			final TokenStream stream = field instanceof final Field f ? f.tokenStreamValue() : null;
+			IOUtils.closeWhileHandlingException(
+				reader,
+				stream == null ? null : () ->
+				{
+					try
+					{
+						stream.reset();
+					}
+					finally
+					{
+						stream.close();
+					}
+				}
+			);
+		}
+
+		/**
+		 * {@link #closeReaders(IndexableField) Closes the readers} of every field of a document that is discarded
+		 * without being indexed. What gets through stops the closing; the later fields stay open.
+		 */
+		private static void closeUnindexed(final Document document)
+		{
+			for(final IndexableField field : document)
+			{
+				closeReaders(field);
+			}
+		}
+
+		/**
+		 * {@link #closeReaders(IndexableField) Closes the readers} of every field of a document that is discarded
+		 * because of {@code failure}. What gets through is added to that failure as suppressed instead of replacing
+		 * it, except a {@link VirtualMachineError}: as with {@link IOUtils}, it wins, carries the failure as
+		 * suppressed, and stops the closing, also of any further document.
+		 */
+		private static void closeUnindexed(final Document document, final Throwable failure)
+		{
+			for(final IndexableField field : document)
+			{
+				try
+				{
+					closeReaders(field);
+				}
+				catch(final Throwable t)
+				{
+					// the VM may throw one shared OutOfMemoryError, which cannot suppress itself
+					if(t instanceof VirtualMachineError)
+					{
+						if(t != failure)
+						{
+							t.addSuppressed(failure);
+						}
+						throw t;
+					}
+					if(t != failure)
+					{
+						failure.addSuppressed(t);
+					}
+				}
+			}
+		}
+
 		private Document toDocument(final long entityId, final E entity)
 		{
 			final Document document = new Document();
 			document.add(new LongField(ENTITY_ID_FIELD, entityId, Store.YES));
-			this.context.documentPopulator().populate(document, entity);
+			try
+			{
+				this.context.documentPopulator().populate(document, entity);
+			}
+			catch(final Throwable t)
+			{
+				// what the populator added before it failed is never indexed, so nothing else would close it
+				closeUnindexed(document, t);
+				throw t;
+			}
 			return document;
 		}
 
