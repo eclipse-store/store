@@ -528,6 +528,13 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	 * Volatile because the storing thread is not necessarily the thread that mutated the segment.
 	 */
 	private volatile boolean entriesRegionStale;
+
+	/*
+	 * Changes whenever the block behind level2Address is replaced or freed, which may free its standalone
+	 * level1 segments. Lets holders of a raw level1 pointer (BitmapLevel3's add cache) detect that the pointer
+	 * may be stale. A counter, not the address: a freed address can be handed out again.
+	 */
+	private transient int addressGeneration;
 	
 	
 	
@@ -607,6 +614,12 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		this.level2Address  = newAddress;
 		this.cleanup.address = newAddress;
+		this.addressGeneration++;
+	}
+
+	final int addressGeneration()
+	{
+		return this.addressGeneration;
 	}
 
 	final void ensureCompressed()
@@ -670,6 +683,7 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		}
 		this.cleanup.address = 0L; // neutralize the Cleaner before freeing (volatile write)
 		this.level2Address   = 0L;
+		this.addressGeneration++;
 		deallocate(address);
 	}
 	
