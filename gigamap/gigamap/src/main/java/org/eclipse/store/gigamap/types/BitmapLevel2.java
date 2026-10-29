@@ -926,15 +926,23 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 		}
 
 		final long copiesAddress = XMemory.allocate((long)standaloneCount * LEVEL1_STANDALONE_TOTAL_LENGTH);
-		long copyAddress = copiesAddress;
-		for(long a = indexArrayStart; a < indexArrayBound; a += POINTER_LENGTH)
+		try
 		{
-			final long level1Address = XMemory.get_long(a);
-			if(level1Address > 0L)
+			long copyAddress = copiesAddress;
+			for(long a = indexArrayStart; a < indexArrayBound; a += POINTER_LENGTH)
 			{
-				XMemory.copyRange(level1Address, copyAddress, LEVEL1_STANDALONE_TOTAL_LENGTH);
-				copyAddress += LEVEL1_STANDALONE_TOTAL_LENGTH;
+				final long level1Address = XMemory.get_long(a);
+				if(level1Address > 0L)
+				{
+					XMemory.copyRange(level1Address, copyAddress, LEVEL1_STANDALONE_TOTAL_LENGTH);
+					copyAddress += LEVEL1_STANDALONE_TOTAL_LENGTH;
+				}
 			}
+		}
+		catch(final Throwable t)
+		{
+			XMemory.free(copiesAddress);
+			throw t;
 		}
 
 		return copiesAddress;
@@ -1102,6 +1110,14 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 					}
 					targetEntryAddress += compressEntry(sourceEntryAddress, targetEntryAddress, newIndexAddress);
 				}
+
+				setTotalLength(newLevel2Address, requiredLevel2TotalLength);       // new total length, of course.
+				setLevel3Index(newLevel2Address, getLevel3Index(level2Address));   // unchanged, just copied.
+				setHighestLevel2Index(newLevel2Address, highestLevel2Index);       // unchanged, just copied.
+				setSegmentCount(newLevel2Address, getSegmentCount(level2Address)); // unchanged, just copied.
+				setStandaloneSegmentCount(newLevel2Address, 0);                    // standalone segments are now 0, of course.
+
+				return newLevel2Address;
 			}
 			catch(final Throwable t)
 			{
@@ -1109,14 +1125,6 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 				XMemory.free(newLevel2Address);
 				throw t;
 			}
-
-			setTotalLength(newLevel2Address, requiredLevel2TotalLength);       // new total length, of course.
-			setLevel3Index(newLevel2Address, getLevel3Index(level2Address));   // unchanged, just copied.
-			setHighestLevel2Index(newLevel2Address, highestLevel2Index);       // unchanged, just copied.
-			setSegmentCount(newLevel2Address, getSegmentCount(level2Address)); // unchanged, just copied.
-			setStandaloneSegmentCount(newLevel2Address, 0);                    // standalone segments are now 0, of course.
-
-			return newLevel2Address;
 		}
 		finally
 		{

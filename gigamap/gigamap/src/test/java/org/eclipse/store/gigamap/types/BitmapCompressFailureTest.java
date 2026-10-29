@@ -51,6 +51,7 @@ public class BitmapCompressFailureTest
 	enum FailurePoint
 	{
 		COPIES_ALLOCATION   ("allocateMemory", "copyStandaloneSegments", true ),
+		COPIES_FILL         ("copyRange"     , "copyStandaloneSegments", false),
 		NEW_BLOCK_ALLOCATION("allocateMemory", "allocateLevel2Block"   , true ),
 		NEW_BLOCK_FILL      ("copyRange"     , "copyCompressedData"    , false);
 
@@ -78,6 +79,12 @@ public class BitmapCompressFailureTest
 	void failedCopiesAllocation(@TempDir final Path dir)
 	{
 		assertFailedCompressLeavesIndexIntact(FailurePoint.COPIES_ALLOCATION, dir);
+	}
+
+	@Test
+	void failureWhileFillingCopies(@TempDir final Path dir)
+	{
+		assertFailedCompressLeavesIndexIntact(FailurePoint.COPIES_FILL, dir);
 	}
 
 	@Test
