@@ -141,9 +141,11 @@ public class BitmapLevel3 extends AbstractStateChangeFlagged implements Unpersis
 	private transient int  segmentCount     ; // the non-null segments of THIS level (shallow)
 	private transient long totalSegmentCount; // sum of all level1 instances below this level (deep)
 
-	private transient long currentAddLevel1StartEntityId;
-	private transient long currentAddLevel1BoundEntityId;
-	private transient long currentAddLevel1Segment      ;
+	private transient long         currentAddLevel1StartEntityId;
+	private transient long         currentAddLevel1BoundEntityId;
+	private transient long         currentAddLevel1Segment      ;
+	private transient BitmapLevel2 currentAddLevel2             ;
+	private transient int          currentAddLevel2Generation   ;
 		
 	
 	
@@ -287,7 +289,10 @@ public class BitmapLevel3 extends AbstractStateChangeFlagged implements Unpersis
 	final void add(final long entityId)
 	{
 		// if the passed entityId does not fit in the current level1's id range, it needs to to be (re)set.
-		if(entityId < this.currentAddLevel1StartEntityId || entityId >= this.currentAddLevel1BoundEntityId)
+		// The same if the level2 block was rebuilt or freed since: the cached raw pointer may point to freed memory.
+		if(entityId < this.currentAddLevel1StartEntityId || entityId >= this.currentAddLevel1BoundEntityId
+		|| this.currentAddLevel2.addressGeneration() != this.currentAddLevel2Generation
+		)
 		{
 			this.setCurrentAddLevel1Segment(entityId);
 		}
@@ -433,6 +438,8 @@ public class BitmapLevel3 extends AbstractStateChangeFlagged implements Unpersis
 		
 		final BitmapLevel2 level2 = this.ensureLevel2Segment(level3Index);
 		this.currentAddLevel1Segment       = level2.ensureAddableLevel1Segment(entityId, this);
+		this.currentAddLevel2              = level2;
+		this.currentAddLevel2Generation    = level2.addressGeneration();
 		this.currentAddLevel1StartEntityId = entityId & ~LEVEL_1_ID_MASK;
 		this.currentAddLevel1BoundEntityId = this.currentAddLevel1StartEntityId + LEVEL_1_ID_COUNT;
 	}
@@ -440,6 +447,7 @@ public class BitmapLevel3 extends AbstractStateChangeFlagged implements Unpersis
 	private void clearCurrentAddLevel1Segment()
 	{
 		this.currentAddLevel1Segment       =  0L;
+		this.currentAddLevel2              = null;
 		this.currentAddLevel1StartEntityId = -1L;
 		this.currentAddLevel1BoundEntityId = -1L;
 	}
