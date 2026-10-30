@@ -30,7 +30,7 @@ A `Storer` is *not* `AutoCloseable`. Do not wrap it in try-with-resources.
 If `commit()` is never called, the buffered data is discarded — the store had no effect on disk.
 The exception is xref:storing-data/batch-storer.adoc[BatchStorer], which is `AutoCloseable` and flushes on close.
 
-If a `store(...)` call throws, the storer holds incomplete data. `commit()` and further `store(...)` calls then throw a `PersistenceException` until `clear()` discards the buffered data.
+If a `store(...)` call fails while serializing the object graph, the storer holds incomplete data. `commit()` and further `store(...)` calls then throw a `PersistenceException` until `clear()` discards the buffered data.
 ====
 
 == Lazy storing — the default
@@ -246,7 +246,7 @@ You stored an ancestor of the changed object. The ancestor itself was re-written
 You created a `Storer` explicitly but forgot to call `commit()`. The data sat in the storer's buffer and was discarded. Convenience methods (`storageManager.store(...)`) commit for you; explicit storers do not.
 
 * *"`commit()` throws: a store of this storer failed and left partially serialized data."* +
-An earlier `store(...)` call on the same storer threw, for example because the graph contains an instance that cannot be persisted. The storer refuses to commit the incomplete data. Call `clear()`, fix or remove the failing object, and store the graph again.
+An earlier `store(...)` call on the same storer failed while serializing the object graph, for example because the graph contains an instance that cannot be persisted. The storer refuses to commit the incomplete data. Call `clear()`, fix or remove the failing object, and store the graph again.
 
 * *"My eager storer's commits are slow and the file keeps growing."* +
 Eager storing re-writes the entire reachable graph on every commit. If only a couple of fields are the actual problem, switch back to lazy and use a `PersistenceEagerStoringFieldEvaluator` to mark only those fields.

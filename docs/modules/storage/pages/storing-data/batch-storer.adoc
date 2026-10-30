@@ -123,11 +123,11 @@ Calling `commit()` also flushes all pending data.
 
 == Error Handling
 
-If a `store()` call throws, for example because the object graph contains an instance that cannot be persisted, the batch holds incomplete data.
+If a `store()` call fails while serializing the object graph, for example because the graph contains an instance that cannot be persisted, the batch holds incomplete data.
 Such a batch is never written, because committing it would persist a broken object graph:
 
 * Further `store()` calls, `flush()`, `commit()` and `close()` throw a `PersistenceException` with the original failure as cause.
-* The background flush skips the batch and logs the failure once.
+* The background flush skips the batch and logs the failure instead of retrying it on every tick.
 * `hasPendingData()` keeps returning `true`.
 
 This applies to the whole batch, including data that other threads stored before the failure.
@@ -149,8 +149,9 @@ catch(final RuntimeException e)
 ----
 
 In a try-with-resources block, `close()` throws if a store failed and the batch was not cleared.
+If `close()` has already been called, the pending data can no longer be recovered.
 
-A failed write, for example an I/O error during the flush, does not block the batch: flushing again retries the write.
+A failure while writing the batch, for example an I/O error during the flush, is reported by `flush()` or `commit()` and does not count as a failed store.
 
 == When to Use
 
