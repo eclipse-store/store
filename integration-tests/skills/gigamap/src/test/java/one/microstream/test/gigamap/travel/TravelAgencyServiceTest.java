@@ -95,7 +95,7 @@ class TravelAgencyServiceTest
                 "expected hotels to dominate the similarity ranking");
 
             // Book it
-            Reservation r = svc.book(hotelId, "Jonas",
+            Reservation r = svc.book(hotelId, "Guest",
                 LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 5));
             reservationId = r.id();
             assertEquals(4 * grand.pricePerNight(), r.totalPrice());

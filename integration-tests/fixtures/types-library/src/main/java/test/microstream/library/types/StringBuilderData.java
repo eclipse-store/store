@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 public class StringBuilderData implements BinaryHandlerTestData {
     StringBuilder value = new StringBuilder();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // StringBuilder is value-compared via toString(). The probes target Unicode/UTF-16 boundaries and
     // capacity-vs-content: if ES internally encodes through UTF-8, lone surrogates would be replaced
     // by U+FFFD — the loneSurrogateBuilder probe catches that. Capacity is an implementation detail
@@ -43,7 +43,7 @@ public class StringBuilderData implements BinaryHandlerTestData {
                 .append("A, Á, B, C, Č, D, Ď, E, É, Ě, F, G, H, Ch, I, Í, J, K, L, M, N, Ň, O, Ó, P, Q, R, Ř, S, Š, T, Ť, U, Ú, Ů, V, W, X, Y, Ý, Z, Ž.")
                 .append("a, á, b, c, č, d, ď, e, é, ě, f, g, h, ch, i, í, j, k, l, m, n, ň, o, ó, p, q, r, ř, s, š, t, ť, u, ú, ů, v, w, x, y, ý, z, ž.");
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyBuilder = new StringBuilder();
         nulCharBuilder = new StringBuilder().append("a").append((char) 0).append("b");
         emojiBuilder = new StringBuilder().append(Character.toChars(0x1F600)); // U+1F600 grinning face — 2 chars
@@ -54,8 +54,7 @@ public class StringBuilderData implements BinaryHandlerTestData {
         return this;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public StringBuilder getEmptyBuilder() {
         return emptyBuilder;
     }
@@ -87,7 +86,7 @@ public class StringBuilderData implements BinaryHandlerTestData {
         assertAll("StringBuilder tests",
                 () -> assertEquals(this.value.toString(), copy.value.toString()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEmptyBuilder() != null) {
                         assertEquals(0, copy.getEmptyBuilder().length(), "empty builder length");

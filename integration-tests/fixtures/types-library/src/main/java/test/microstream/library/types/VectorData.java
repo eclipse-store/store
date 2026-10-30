@@ -47,7 +47,7 @@ public class VectorData implements BinaryHandlerTestData {
 
     private Vector<Object> vector = new Vector<>();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // Vector is value-compared via assertIterableEquals (size + element-wise .equals, order preserved).
     // Vector's capacityIncrement is a protected field with no public getter — not asserted here;
     // ES's BinaryHandlerVector is not expected to round-trip that growth-policy attribute.
@@ -85,7 +85,7 @@ public class VectorData implements BinaryHandlerTestData {
         vector.add(15, SAMPLE_CHARACTER);
         vector.add(16, SAMPLE_STRING);
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyVector = new Vector<>();
         oversizedCapacityVector = createOversizedCapacityVector();
         largeVector = createLargeVector();
@@ -98,8 +98,7 @@ public class VectorData implements BinaryHandlerTestData {
         return this;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public Vector<String> getEmptyVector() {
         return emptyVector;
     }
@@ -199,7 +198,7 @@ public class VectorData implements BinaryHandlerTestData {
         assertAll("Vector tests",
                 () -> assertIterableEquals(this.getVector(), copy.getVector()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEmptyVector() != null) {
                         assertTrue(copy.getEmptyVector().isEmpty(), "empty vector remains empty");

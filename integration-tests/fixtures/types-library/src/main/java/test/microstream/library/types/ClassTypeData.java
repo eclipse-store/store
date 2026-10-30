@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 public class ClassTypeData implements BinaryHandlerTestData {
     Class clazz;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // Class.equals is reference identity — Class objects are singletons per (ClassLoader, name). After
     // round-trip ES must resolve the deserialized Class to the same singleton this JVM already holds.
     // The fields below cover JDK encoding rules where Class.getName() differs from the canonical name:
@@ -48,7 +48,7 @@ public class ClassTypeData implements BinaryHandlerTestData {
     public ClassTypeData fillSampleData() {
         clazz = PrimitiveTypes.class;
 
-        // ===== proposed edge-cases =====
+        // edge cases
         arrayClass = String[].class;
         multiDimArrayClass = int[][].class;
         interfaceClass = Runnable.class;
@@ -63,8 +63,7 @@ public class ClassTypeData implements BinaryHandlerTestData {
         return clazz;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public Class getArrayClass() {
         return arrayClass;
     }
@@ -96,7 +95,7 @@ public class ClassTypeData implements BinaryHandlerTestData {
         assertAll("Class type tests",
                 () -> assertEquals(this.clazz, copy.getClazz()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 // Class.equals is identity (==); ES must resolve every binary name back to the JVM's singleton.
                 () -> {
                     if (this.arrayClass != null) {

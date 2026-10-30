@@ -26,10 +26,9 @@ public class ThrowableData implements BinaryHandlerTestData
 {
     Throwable value = new Throwable("Test Throwable");
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
-    // Throwable has several non-trivial fields: detailMessage, cause (self-ref sentinel when unset),
+    // Edge cases. Throwable has several non-trivial fields: detailMessage, cause (self-ref sentinel when unset),
     // stackTrace[], suppressedExceptions. The existing fixture compares toString() only, which leaves
-    // subclass type, cause, suppressed, and stack frames untested. The probes below cover each.
+    // subclass type, cause, suppressed, and stack frames untested. The fields below cover each.
     //
     // Stack-trace note: Throwable.stackTrace[] is lazily built from a transient JVM-internal backtrace.
     // If getStackTrace() is not called before serialize, the field is null and the trace is
@@ -53,7 +52,7 @@ public class ThrowableData implements BinaryHandlerTestData
             value = throwable;
         }
 
-        // ===== proposed edge-cases =====
+        // edge cases
         nullMessageThrowable = new Throwable();
         subclassThrowable = new RuntimeException("runtime");
         chainedThrowable = new RuntimeException("outer", new IllegalStateException("inner"));
@@ -69,7 +68,7 @@ public class ThrowableData implements BinaryHandlerTestData
         return this;
     }
 
-    // ===== proposed edge-cases — getters =====
+    // edge-case getters
 
     public Throwable getNullMessageThrowable() {
         return nullMessageThrowable;
@@ -99,7 +98,7 @@ public class ThrowableData implements BinaryHandlerTestData
         assertAll("Throwable tests",
                 () -> assertEquals(this.value.toString(), copy.value.toString()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getNullMessageThrowable() != null) {
                         assertNull(copy.getNullMessageThrowable().getMessage(), "null detail message");

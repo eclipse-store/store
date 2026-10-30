@@ -37,7 +37,7 @@ public class AtomicPrimitiveData implements BinaryHandlerTestData {
     private AtomicIntegerArray atomicIntegerArrayWithValues = new AtomicIntegerArray(0);
     private AtomicLongArray atomicLongArrayWithValues = new AtomicLongArray(0);
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     private AtomicInteger atomicIntegerMin = new AtomicInteger(0);
     private AtomicInteger atomicIntegerMax = new AtomicInteger(0);
     private AtomicLong atomicLongMin = new AtomicLong(0);
@@ -61,7 +61,7 @@ public class AtomicPrimitiveData implements BinaryHandlerTestData {
         atomicIntegerArrayWithValues = new AtomicIntegerArray(new int[]{0, -1, Integer.MAX_VALUE, Integer.MIN_VALUE, 9999});
         atomicLongArrayWithValues = new AtomicLongArray(new long[]{Long.MAX_VALUE, Long.MIN_VALUE, -100L, 0L, 100L});
 
-        // ===== proposed edge-cases =====
+        // edge cases
         atomicIntegerMin = new AtomicInteger(Integer.MIN_VALUE);
         atomicIntegerMax = new AtomicInteger(Integer.MAX_VALUE);
         atomicLongMin = new AtomicLong(Long.MIN_VALUE);
@@ -127,7 +127,7 @@ public class AtomicPrimitiveData implements BinaryHandlerTestData {
                     }
                 },
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> assertEquals(this.atomicIntegerMin.get(), copy.atomicIntegerMin.get(), "AtomicInteger MIN_VALUE"),
                 () -> assertEquals(this.atomicIntegerMax.get(), copy.atomicIntegerMax.get(), "AtomicInteger MAX_VALUE"),
                 () -> assertEquals(this.atomicLongMin.get(), copy.atomicLongMin.get(), "AtomicLong MIN_VALUE"),
@@ -140,7 +140,7 @@ public class AtomicPrimitiveData implements BinaryHandlerTestData {
         );
     }
 
-    // ===== proposed edge-cases — element-wise array comparison =====
+    // edge cases: element-wise array comparison
     private static void assertEqualContents(AtomicIntegerArray a, AtomicIntegerArray b, String label) {
         assertEquals(a.length(), b.length(), label + " length");
         for (int i = 0; i < a.length(); i++) {

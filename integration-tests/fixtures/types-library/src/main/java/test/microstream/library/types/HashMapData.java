@@ -31,7 +31,7 @@ public class HashMapData implements BinaryHandlerTestData {
     private HashMap<Integer, HashMap<Integer, HashMap<Integer, PrimitiveTypes>>> threeMap = new HashMap<>();
     private HashMap<Integer, PrimitiveTypes> primitiveTypeHashMap = new HashMap<>();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     private HashMap<String, String> nullKeyMap;
     private HashMap<String, String> nullValueMap;
     private HashMap<String, String> emptyMap;
@@ -46,7 +46,7 @@ public class HashMapData implements BinaryHandlerTestData {
         primitiveTypeHashMap = new HashMap<>();
         primitiveTypeHashMap.put(105, PrimitiveTypes.fillSample());
 
-        // ===== proposed edge-cases =====
+        // edge cases
         nullKeyMap = createNullKeyMap();
         nullValueMap = createNullValueMap();
         emptyMap = new HashMap<>();
@@ -68,7 +68,7 @@ public class HashMapData implements BinaryHandlerTestData {
         threeMap.put(200, nested);
         primitiveTypeHashMap.put(206, PrimitiveTypes.fillSample());
 
-        // ===== proposed edge-cases — touch where safe (no shared-ref / self-ref / emptyMap mutation) =====
+        // edge cases: touch where safe (no shared-ref / self-ref / emptyMap mutation)
         nullKeyMap.put("another", "another-value");
         nullValueMap.put("k4", null); // another null value
         oversizedCapacityMap.put(4, 4);
@@ -120,7 +120,7 @@ public class HashMapData implements BinaryHandlerTestData {
                 () -> assertIterableEquals(this.getThreeMap().values(), copy.getThreeMap().values()),
                 () -> assertIterableEquals(this.getPrimitiveTypeHashMap().values(), copy.getPrimitiveTypeHashMap().values()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     // HashMap allows exactly one null key — must survive round-trip
                     if (this.getNullKeyMap() != null) {
@@ -183,8 +183,7 @@ public class HashMapData implements BinaryHandlerTestData {
         );
     }
 
-    // ===== proposed edge-cases — helpers & getters =====
-
+    // edge-case helpers and getters
     public HashMap<String, String> getNullKeyMap() {
         return nullKeyMap;
     }

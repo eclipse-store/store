@@ -41,7 +41,7 @@ public class PrimitiveTypes implements BinaryHandlerTestData {
     private boolean booleanValue;
     private char charValue;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     private byte byteMin;
     private byte byteMax;
     private byte byteZero;
@@ -92,7 +92,7 @@ public class PrimitiveTypes implements BinaryHandlerTestData {
         this.booleanValue = SAMPLE_BOOLEAN;
         this.charValue = SAMPLE_CHAR;
 
-        // ===== proposed edge-cases =====
+        // edge cases
         this.byteMin = Byte.MIN_VALUE;
         this.byteMax = Byte.MAX_VALUE;
         this.byteZero = 0;
@@ -157,8 +157,7 @@ public class PrimitiveTypes implements BinaryHandlerTestData {
         return charValue;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public byte getByteMin() {
         return byteMin;
     }
@@ -285,7 +284,7 @@ public class PrimitiveTypes implements BinaryHandlerTestData {
                 () -> assertEquals(this.isBooleanValue(), copy.isBooleanValue(), "boolean"),
                 () -> assertEquals(this.getCharValue(), copy.getCharValue(), "char"),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> assertEquals(this.getByteMin(), copy.getByteMin(), "byte MIN_VALUE"),
                 () -> assertEquals(this.getByteMax(), copy.getByteMax(), "byte MAX_VALUE"),
                 () -> assertEquals(this.getByteZero(), copy.getByteZero(), "byte 0"),

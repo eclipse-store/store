@@ -30,7 +30,7 @@ public class LinkedHashMapData implements BinaryHandlerTestData {
     private LinkedHashMap<Integer, LinkedHashMap<Integer, LinkedHashMap<Integer, PrimitiveTypes>>> threeMap = new LinkedHashMap<>();
     private LinkedHashMap<Integer, PrimitiveTypes> primitiveTypeLinkedHashMap = new LinkedHashMap<>();
 
-    // ===== proposed edge-cases (review & cherry-pick) — focus on linked-order semantics =====
+    // edge cases: focus on linked-order semantics
     private LinkedHashMap<String, Integer> insertionOrderMap = new LinkedHashMap<>();
     private LinkedHashMap<String, Integer> reorderAfterRemoveMap = new LinkedHashMap<>();
     private LinkedHashMap<String, Integer> accessOrderMap = new LinkedHashMap<>(16, 0.75f, true);
@@ -46,8 +46,7 @@ public class LinkedHashMapData implements BinaryHandlerTestData {
         primitiveTypeLinkedHashMap = new LinkedHashMap<>();
         primitiveTypeLinkedHashMap.put(105, PrimitiveTypes.fillSample());
 
-        // ===== proposed edge-cases =====
-
+        // edge cases
         // 1. plain insertion order — keys must iterate as [a, b, c, d, e]
         insertionOrderMap = new LinkedHashMap<>();
         insertionOrderMap.put("a", 1);
@@ -137,7 +136,7 @@ public class LinkedHashMapData implements BinaryHandlerTestData {
                 () -> assertIterableEquals(this.getThreeMap().values(), copy.getThreeMap().values()),
                 () -> assertIterableEquals(this.getPrimitiveTypeLinkedHashMap().values(), copy.getPrimitiveTypeLinkedHashMap().values()),
 
-                // ===== proposed edge-case verifications — linked-order semantics =====
+                // edge-case verifications: linked-order semantics
                 // Handler (BinaryHandlerLinkedHashMap + AbstractBinaryHandlerMap):
                 //   store()    → iterates entrySet() in current linked-list order
                 //   create()   → new LinkedHashMap<>(elementCount)  — 1-arg constructor only

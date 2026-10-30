@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public class StringBufferData implements BinaryHandlerTestData {
     StringBuffer value = new StringBuffer();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // Note: BinaryHandlerStringBuffer stores BOTH `long capacity` and `chars[] value`
     // and rebuilds via `new StringBuffer(capacity)`, so capacity MUST round-trip too.
     private StringBuffer emptyStringBuffer = new StringBuffer();
@@ -43,8 +43,7 @@ public class StringBufferData implements BinaryHandlerTestData {
                 .append("a, á, b, c, č, d, ď, e, é, ě, f, g, h, ch, i, í, j, k, l, m, n, ň, o, ó, p, q, r, ř, s, š, t, ť, u, ú, ů, v, w, x, y, ý, z, ž.");
         ;
 
-        // ===== proposed edge-cases =====
-
+        // edge cases
         // empty — length() == 0 must survive round-trip
         emptyStringBuffer = new StringBuffer();
 
@@ -80,7 +79,7 @@ public class StringBufferData implements BinaryHandlerTestData {
         assertAll("StringBuffer tests",
                 () -> assertEquals(this.value.toString(), copy.value.toString()),
 
-                // ===== proposed edge-case verifications — compare toString() content only =====
+                // edge-case verifications: compare toString() content only
                 () -> assertEquals(this.emptyStringBuffer.toString(), copy.emptyStringBuffer.toString(), "empty StringBuffer"),
                 () -> assertEquals(this.emptyStringBuffer.length(), copy.emptyStringBuffer.length(), "empty StringBuffer length"),
                 () -> assertEquals(this.singleCharStringBuffer.toString(), copy.singleCharStringBuffer.toString(), "single char"),

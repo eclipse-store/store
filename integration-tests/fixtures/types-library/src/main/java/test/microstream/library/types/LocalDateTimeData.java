@@ -25,7 +25,7 @@ public class LocalDateTimeData implements BinaryHandlerTestData
 
     private LocalDateTime value = LocalDateTime.MAX;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // LocalDateTime aggregates LocalDate (year, month, day) and LocalTime (hour, minute, second,
     // nano) — 7 fields total. equals() is value-based across all 7. The probes target the
     // boundary values (MIN/MAX), the nanosecond precision, and proleptic-Gregorian quirks
@@ -42,7 +42,7 @@ public class LocalDateTimeData implements BinaryHandlerTestData
     {
         this.value = LocalDateTime.of(2020, 1, 1, 1, 1, 0);
 
-        // ===== proposed edge-cases =====
+        // edge cases
         minLocalDateTime = LocalDateTime.MIN;
         maxLocalDateTime = LocalDateTime.MAX;
         epochStart = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
@@ -60,7 +60,7 @@ public class LocalDateTimeData implements BinaryHandlerTestData
         assertAll("LocalDateTime tests",
                 () -> assertEquals(this.value, copy.getValue()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.minLocalDateTime != null) {
                         assertEquals(LocalDateTime.MIN, copy.getMinLocalDateTime(), "LocalDateTime.MIN (-999999999-01-01T00:00)");
@@ -113,8 +113,7 @@ public class LocalDateTimeData implements BinaryHandlerTestData
         return value;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public LocalDateTime getMinLocalDateTime() {
         return minLocalDateTime;
     }

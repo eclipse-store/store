@@ -29,7 +29,7 @@ public class OptionalLongData implements BinaryHandlerTestData {
     @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
     OptionalLong value = OptionalLong.of(0);
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // OptionalLong has two distinct states (empty vs present) backed by isPresent + value.
     // The critical probe is empty() vs of(0L): both have value==0 internally, so a handler
     // that fails to persist isPresent would collapse them into the same thing. equals() is
@@ -49,7 +49,7 @@ public class OptionalLongData implements BinaryHandlerTestData {
     public OptionalLongData fillSampleData() {
         value = OptionalLong.of(44356);
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyOptional = OptionalLong.empty();
         ofZero = OptionalLong.of(0L);
         ofLongMin = OptionalLong.of(Long.MIN_VALUE);
@@ -63,8 +63,7 @@ public class OptionalLongData implements BinaryHandlerTestData {
         return value;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public OptionalLong getEmptyOptional() {
         return emptyOptional;
     }
@@ -92,7 +91,7 @@ public class OptionalLongData implements BinaryHandlerTestData {
         assertAll("OptionalLong tests",
                 () -> assertEquals(this.getValue(), copy.getValue(), "OptionalLong"),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEmptyOptional() != null) {
                         assertFalse(copy.getEmptyOptional().isPresent(), "empty() must stay empty — must NOT collapse to of(0)");

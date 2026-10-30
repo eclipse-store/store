@@ -26,7 +26,7 @@ public class IdentityHashMapData implements BinaryHandlerTestData {
     private IdentityHashMap<Integer, IdentityHashMap<Integer, IdentityHashMap<Integer, PrimitiveTypes>>> threeMap = createEmptyThreeMap();
     private IdentityHashMap<Integer, PrimitiveTypes> primitiveTypeIdentityHashMap = new IdentityHashMap<>();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // IdentityHashMap uses == for key/value equality. Cross-JDK identity is NOT preserved across save/load,
     // so verifications below use HashMap wrappers (value semantics) where the content is outside the
     // Integer/String JVM cache. Identity-specific scenarios (self-ref, shared-ref) are deliberately omitted.
@@ -43,7 +43,7 @@ public class IdentityHashMapData implements BinaryHandlerTestData {
         primitiveTypeIdentityHashMap = new IdentityHashMap<>();
         primitiveTypeIdentityHashMap.put(105, PrimitiveTypes.fillSample());
 
-        // ===== proposed edge-cases =====
+        // edge cases
         nullKeyMap = createNullKeyMap();
         nullValueMap = createNullValueMap();
         emptyMap = new IdentityHashMap<>();
@@ -114,7 +114,7 @@ public class IdentityHashMapData implements BinaryHandlerTestData {
                 () -> assertEquals(this.getThreeMap().get(100).get(100).get(100), copy.getThreeMap().get(100).get(100).get(100)),
                 () -> assertIterableEquals(this.getPrimitiveTypeIdentityHashMap().values(), copy.getPrimitiveTypeIdentityHashMap().values()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     // IdentityHashMap permits null keys (internal NULL_KEY sentinel) — must survive round-trip
                     if (this.getNullKeyMap() != null) {
@@ -167,8 +167,7 @@ public class IdentityHashMapData implements BinaryHandlerTestData {
 
     }
 
-    // ===== proposed edge-cases — helpers & getters =====
-
+    // edge-case helpers and getters
     public IdentityHashMap<String, String> getNullKeyMap() {
         return nullKeyMap;
     }

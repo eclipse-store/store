@@ -1,0 +1,5 @@
+# test output written next to the module (AFS tests that use a relative root)
+afs/nio/microstream_afs_test_*/
+afs/sql-sqlite/microstreamdb
+afs/sql-sqlite/truncation
+compatibility/target/

@@ -26,7 +26,7 @@ public class SqlFileSystemSqLiteTest extends SqlFileSystemTest {
     @Override
     protected SqlFileSystem setupFileSystem() {
         final SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl("jdbc:sqlite:microstreamdb");
+        dataSource.setUrl("jdbc:sqlite:target/microstreamdb");
 
         return SqlFileSystem.New(
                 SqlConnector.Caching(

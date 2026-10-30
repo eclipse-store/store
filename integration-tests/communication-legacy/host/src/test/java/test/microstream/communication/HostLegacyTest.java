@@ -71,7 +71,7 @@ public class HostLegacyTest {
     public void missingClassTest() {
         Car dto = new Car("big");
         int port = Integer.parseInt(System.getProperty("msport", "1234"));
-        System.out.println("XXXX  readed port: " + port);
+        System.out.println("host port: " + port);
 
         host = ComBinaryDynamic.Foundation()
                 .setHostByteOrder(ByteOrder.LITTLE_ENDIAN)
@@ -98,7 +98,7 @@ public class HostLegacyTest {
     public void startServer(Object original, Class<?> type) {
 
         int port = Integer.parseInt(System.getProperty("msport", "1234"));
-        System.out.println("XXXX  readed port: " + port);
+        System.out.println("host port: " + port);
 
         host = ComBinaryDynamic.Foundation()
                 .setHostByteOrder(ByteOrder.LITTLE_ENDIAN)

@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class ConcurrentSkipListMapData implements BinaryHandlerTestData {
     ConcurrentSkipListMap<Integer, PrimitiveTypes> value = new ConcurrentSkipListMap<>();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // ConcurrentSkipListMap is a concurrent SortedMap — entrySet() iterates in comparator-defined
     // key order. assertIterableEquals on entrySet doubles as both content + sort-order check;
     // divergent order signals a dropped Comparator (reverse / caseInsensitive probes).
@@ -42,7 +42,7 @@ public class ConcurrentSkipListMapData implements BinaryHandlerTestData {
     public ConcurrentSkipListMapData fillSampleData() {
         value.put(1, PrimitiveTypes.fillSample());
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyMap = new ConcurrentSkipListMap<>();
         reverseMap = createReverseMap();
         caseInsensitiveMap = createCaseInsensitiveMap();
@@ -55,8 +55,7 @@ public class ConcurrentSkipListMapData implements BinaryHandlerTestData {
         return value;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public ConcurrentSkipListMap<Integer, Integer> getEmptyMap() {
         return emptyMap;
     }
@@ -110,7 +109,7 @@ public class ConcurrentSkipListMapData implements BinaryHandlerTestData {
                 () -> assertIterableEquals(this.getValue().entrySet(), copy.getValue().entrySet()),
                 () -> assertIterableEquals(this.getValue().values(), copy.getValue().values()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEmptyMap() != null) {
                         assertTrue(copy.getEmptyMap().isEmpty(), "empty map remains empty");

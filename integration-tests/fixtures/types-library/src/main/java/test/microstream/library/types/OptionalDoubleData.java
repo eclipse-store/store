@@ -29,7 +29,7 @@ public class OptionalDoubleData implements BinaryHandlerTestData {
     @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
     OptionalDouble value = OptionalDouble.of(0);
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // OptionalDouble adds double-specific concerns on top of the empty/present distinction:
     //   - NaN, ±Infinity must survive bit-exactly (NaN equals NaN via Double.compare, but raw
     //     bit pattern matters too — Double.doubleToRawLongBits gives the exact preservation check)
@@ -53,7 +53,7 @@ public class OptionalDoubleData implements BinaryHandlerTestData {
     public OptionalDoubleData fillSampleData() {
         value = OptionalDouble.of(44356.455d);
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyOptional = OptionalDouble.empty();
         ofZero = OptionalDouble.of(0.0);
         ofNaN = OptionalDouble.of(Double.NaN);
@@ -68,8 +68,7 @@ public class OptionalDoubleData implements BinaryHandlerTestData {
         return value;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public OptionalDouble getEmptyOptional() {
         return emptyOptional;
     }
@@ -101,7 +100,7 @@ public class OptionalDoubleData implements BinaryHandlerTestData {
         assertAll("OptionalDouble tests",
                 () -> assertEquals(this.getValue(), copy.getValue(), "OptionalDouble"),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEmptyOptional() != null) {
                         assertFalse(copy.getEmptyOptional().isPresent(), "empty() must stay empty — must NOT collapse to of(0.0)");

@@ -19,6 +19,11 @@ import org.eclipse.store.afs.nio.types.NioFileSystem;
 import test.microstream.afs.AbstractFileSystemTest;
 
 public class NioFileSystemTest extends AbstractFileSystemTest<NioFileSystem> {
+
+    public NioFileSystemTest() {
+        super("target"); // keep the test directories out of the module root
+    }
+
     @Override
     protected NioFileSystem setupFileSystem() {
         return NioFileSystem.New();

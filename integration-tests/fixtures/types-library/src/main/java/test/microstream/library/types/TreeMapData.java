@@ -30,7 +30,7 @@ public class TreeMapData implements BinaryHandlerTestData {
     private TreeMap<Integer, TreeMap<Integer, TreeMap<Integer, PrimitiveTypes>>> threeMap = new TreeMap<>();
     private TreeMap<Integer, PrimitiveTypes> primitiveTypeTreeMap = new TreeMap<>();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // TreeMap is a SortedMap — entrySet() iterates in comparator-defined key order. assertIterableEquals
     // on entrySet doubles as both a content check and a sort-order check; divergent order after
     // round-trip signals a dropped Comparator (reverse / caseInsensitive probes).
@@ -50,7 +50,7 @@ public class TreeMapData implements BinaryHandlerTestData {
         primitiveTypeTreeMap = new TreeMap<>();
         primitiveTypeTreeMap.put(105, PrimitiveTypes.fillSample());
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyTreeMap = new TreeMap<>();
         reverseTreeMap = createReverseTreeMap();
         caseInsensitiveTreeMap = createCaseInsensitiveTreeMap();
@@ -91,8 +91,7 @@ public class TreeMapData implements BinaryHandlerTestData {
         return primitiveTypeTreeMap;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public TreeMap<Integer, Integer> getEmptyTreeMap() {
         return emptyTreeMap;
     }
@@ -164,7 +163,7 @@ public class TreeMapData implements BinaryHandlerTestData {
                 () -> assertIterableEquals(this.getThreeMap().values(), copy.getThreeMap().values()),
                 () -> assertIterableEquals(this.getPrimitiveTypeTreeMap().values(), copy.getPrimitiveTypeTreeMap().values()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 // assertIterableEquals on entrySet doubles as content + sort-order check —
                 // TreeMap iterates in comparator-defined key order, so divergence flags a dropped Comparator.
                 () -> {

@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class PriorityQueueData implements BinaryHandlerTestData {
     PriorityQueue<String> value = new PriorityQueue<>();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // PriorityQueue's iterator() does NOT guarantee priority order — it traverses the internal heap
     // array in arbitrary layout order. The robust API for "what came out in priority order" is poll().
     // All probes below drain via poll() into a list and compare against expected sequences.
@@ -51,7 +51,7 @@ public class PriorityQueueData implements BinaryHandlerTestData {
         value.add("Java");
         value.add("Python");
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyPQ = new PriorityQueue<>();
         naturalOrderPQ = createNaturalOrderPQ();
         reversePQ = createReversePQ();
@@ -65,8 +65,7 @@ public class PriorityQueueData implements BinaryHandlerTestData {
         return value;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public PriorityQueue<Integer> getEmptyPQ() {
         return emptyPQ;
     }
@@ -132,7 +131,7 @@ public class PriorityQueueData implements BinaryHandlerTestData {
         assertAll("PriorityQueue tests",
                 () -> assertIterableEquals(this.getValue(), copy.getValue()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 // Robust priority-order check: drain via poll() and compare the resulting sequence.
                 () -> {
                     if (this.getEmptyPQ() != null) {

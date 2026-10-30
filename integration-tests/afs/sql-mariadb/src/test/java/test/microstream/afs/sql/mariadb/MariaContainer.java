@@ -24,7 +24,7 @@ public class MariaContainer {
     public static MariaDBContainer mariaDB;
 
     static {
-        mariaDB = new MariaDBContainer("mariadb:latest").withDatabaseName("jpa-test").withPassword("heslo");
+        mariaDB = new MariaDBContainer("mariadb:latest").withDatabaseName("jpa-test").withPassword("test");
         mariaDB.start();
     }
 
@@ -38,7 +38,7 @@ public class MariaContainer {
 
         try {
             dataSource.setUser("root");
-            dataSource.setPassword("heslo");
+            dataSource.setPassword("test");
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }

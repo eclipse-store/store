@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public class PathData implements BinaryHandlerTestData {
     Path value = Paths.get("www.microtream.one");
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // No edge-case fields were added. Background:
     //   BinaryHandlerPath.instanceState (persistence/binary, java/nio/file) serializes via
     //   Path.toUri().toString(). Path.toUri() for a *relative* path resolves it against the

@@ -29,7 +29,7 @@ public class OptionalIntData implements BinaryHandlerTestData {
     @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
     OptionalInt value = OptionalInt.of(0);
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // OptionalInt has two distinct states (empty vs present) backed by isPresent + value.
     // Critical probe: empty() vs of(0). Both have value==0 internally — a handler that fails
     // to persist isPresent would collapse them. equals() is value-based on (isPresent, value),
@@ -50,7 +50,7 @@ public class OptionalIntData implements BinaryHandlerTestData {
     public OptionalIntData fillSampleData() {
         value = OptionalInt.of(44356);
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyOptional = OptionalInt.empty();
         ofZero = OptionalInt.of(0);
         ofIntMin = OptionalInt.of(Integer.MIN_VALUE);
@@ -64,8 +64,7 @@ public class OptionalIntData implements BinaryHandlerTestData {
         return value;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public OptionalInt getEmptyOptional() {
         return emptyOptional;
     }
@@ -93,7 +92,7 @@ public class OptionalIntData implements BinaryHandlerTestData {
         assertAll("OptionalInt tests",
                 () -> assertEquals(this.getValue(), copy.getValue(), "OptionalInt"),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEmptyOptional() != null) {
                         assertFalse(copy.getEmptyOptional().isPresent(), "empty() must stay empty — must NOT collapse to of(0)");

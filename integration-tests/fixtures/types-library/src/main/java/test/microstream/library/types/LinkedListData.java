@@ -29,7 +29,7 @@ public class LinkedListData implements BinaryHandlerTestData {
     private LinkedList<Integer[]> listWithArray = createListWithEmptyArray();
     private LinkedList<Object> objectList;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // LinkedList implements both List and Deque. The probes target the List boundaries
     // (empty / nulls / duplicates / large extent) plus a Deque-specific probe: a mix of
     // addFirst / addLast must round-trip in the exact iteration order.
@@ -46,7 +46,7 @@ public class LinkedListData implements BinaryHandlerTestData {
         listWithArray = createListWithArray();
         objectList = createObjectList();
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyList = new LinkedList<>();
         nullsList = createNullsList();
         duplicatesList = createDuplicatesList();
@@ -119,8 +119,7 @@ public class LinkedListData implements BinaryHandlerTestData {
         return objectList;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public LinkedList<Integer> getEmptyList() {
         return emptyList;
     }
@@ -187,7 +186,7 @@ public class LinkedListData implements BinaryHandlerTestData {
                 () -> assertArrayEquals(this.getListWithArray().get(0), copy.getListWithArray().get(0)),
                 () -> assertIterableEquals(this.getObjectList(), copy.getObjectList()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEmptyList() != null) {
                         assertTrue(copy.getEmptyList().isEmpty(), "empty LinkedList remains empty");

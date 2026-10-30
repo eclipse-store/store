@@ -37,7 +37,7 @@ public class TruncationAfsTest extends AbstractTruncationTest
     public void initFileSystem()
     {
         this.dataSource = new SQLiteDataSource();
-        dataSource.setUrl("jdbc:sqlite:truncation");
+        dataSource.setUrl("jdbc:sqlite:target/truncation");
 
         aFileSystem = SqlFileSystem.New(
                 SqlConnector.Caching(

@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class StackData implements BinaryHandlerTestData {
     private Stack<Integer> stack = new Stack<>();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // Stack extends Vector — storage handler is likely the Vector handler. The probes target the
     // LIFO API: after round-trip pop/peek/search must reflect the original push order, including
     // boundary cases (empty, null entries, duplicates, large extent).
@@ -40,8 +40,7 @@ public class StackData implements BinaryHandlerTestData {
         return stack;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public Stack<Integer> getEmptyStack() {
         return emptyStack;
     }
@@ -68,7 +67,7 @@ public class StackData implements BinaryHandlerTestData {
         stack.push(2);
         stack.push(3);
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyStack = new Stack<>();
         largeStack = createLargeStack();
         nullsStack = createNullsStack();
@@ -130,7 +129,7 @@ public class StackData implements BinaryHandlerTestData {
                     }
                 },
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEmptyStack() != null) {
                         assertTrue(copy.getEmptyStack().isEmpty(), "empty stack remains empty after round-trip");

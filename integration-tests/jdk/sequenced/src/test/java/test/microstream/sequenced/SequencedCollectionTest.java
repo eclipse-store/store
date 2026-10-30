@@ -188,7 +188,7 @@ public class SequencedCollectionTest
     }
 
     @Test
-    @Disabled("https://github.com/microstream-one/internal/issues/55")
+    @Disabled("LinkedHashSet#reversed() is an anonymous local class; the serializer rejects it as non-persistable by design")
     void linkedHashSetReversedViewAsRootTest()
     {
         // LinkedHashSet#reversed() returns a *local anonymous class* — the

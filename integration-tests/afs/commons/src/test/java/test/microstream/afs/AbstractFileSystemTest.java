@@ -226,7 +226,7 @@ public abstract class AbstractFileSystemTest<FS extends AFileSystem>
 	{
 		final AWritableFile wFile1 = this.fileSystem.ensureFilePath(this.filePath1).useWriting();
 		
-		// XXX definition of return value
+		// the return value of the AFS call is not asserted here
 //		assertTrue(wFile1.ensureExists());
 		wFile1.ensureExists();
 		
@@ -271,7 +271,7 @@ public abstract class AbstractFileSystemTest<FS extends AFileSystem>
 				
 		final long size1 = wFile1.size();
 		
-		// XXX definition of return value
+		// the return value of the AFS call is not asserted here
 //		assertTrue(wFile2.parent().ensureExists());
 		wFile2.parent().ensureExists();
 		
@@ -305,7 +305,7 @@ public abstract class AbstractFileSystemTest<FS extends AFileSystem>
 		assertTrue(wFile1.exists());
 		assertTrue(wFile2.exists());
 
-		// XXX definition of return value
+		// the return value of the AFS call is not asserted here
 //		assertTrue(wFile3.parent().ensureExists());
 		wFile3.parent().ensureExists();
 

@@ -25,7 +25,7 @@ public class LocalDateData implements BinaryHandlerTestData
 
     private LocalDate value = LocalDate.MAX;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // LocalDate holds (year, month, day) — proleptic-Gregorian. equals() is value-based on all
     // three. Probes target MIN/MAX year boundaries, the Unix epoch, leap day, and negative year.
     private LocalDate minLocalDate;
@@ -39,7 +39,7 @@ public class LocalDateData implements BinaryHandlerTestData
     {
         this.value = LocalDate.of(2020, 1, 1);
 
-        // ===== proposed edge-cases =====
+        // edge cases
         minLocalDate = LocalDate.MIN;
         maxLocalDate = LocalDate.MAX;
         epochDate = LocalDate.of(1970, 1, 1);
@@ -56,7 +56,7 @@ public class LocalDateData implements BinaryHandlerTestData
         assertAll("LocalDate tests",
                 () -> assertEquals(this.value, copy.getValue()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.minLocalDate != null) {
                         assertEquals(LocalDate.MIN, copy.getMinLocalDate(), "LocalDate.MIN (-999999999-01-01)");
@@ -101,8 +101,7 @@ public class LocalDateData implements BinaryHandlerTestData
         return value;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public LocalDate getMinLocalDate() {
         return minLocalDate;
     }

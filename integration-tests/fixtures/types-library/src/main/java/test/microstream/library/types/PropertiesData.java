@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class PropertiesData implements BinaryHandlerTestData {
     Properties value = new Properties();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // Properties extends Hashtable<Object,Object>. Note on `defaults`:
     //   The Properties handler in persistence/binary intentionally does NOT preserve the protected
     //   `defaults` field (see javadoc on org.eclipse.serializer.persistence.binary.java.util.
@@ -46,7 +46,7 @@ public class PropertiesData implements BinaryHandlerTestData {
     public PropertiesData fillSampleData() {
         value.put("key", "value");
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyProperties = new Properties();
         multiEntryProperties = createMultiEntryProperties();
         specialCharsProperties = createSpecialCharsProperties();
@@ -59,8 +59,7 @@ public class PropertiesData implements BinaryHandlerTestData {
         return value;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public Properties getEmptyProperties() {
         return emptyProperties;
     }
@@ -113,7 +112,7 @@ public class PropertiesData implements BinaryHandlerTestData {
         assertAll("Properties tests",
                 () -> assertEquals(this.value, copy.value),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEmptyProperties() != null) {
                         assertTrue(copy.getEmptyProperties().isEmpty(), "empty Properties remains empty");

@@ -32,7 +32,7 @@ public class SqLiteFileSystemTypeTest extends AbstractTypeFileSystemTest {
 
     @BeforeAll
     public static void beforeAll() {
-        dataSource.setUrl("jdbc:sqlite:microstreamdb");
+        dataSource.setUrl("jdbc:sqlite:target/microstreamdb");
         sqlFileSystem = SqlFileSystem.New(SqlConnector.Caching(SqlProviderSqlite.New(dataSource)));
     }
 

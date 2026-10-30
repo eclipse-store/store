@@ -55,7 +55,7 @@ public class BasicNonPrimitive implements BinaryHandlerTestData {
     private Boolean booleanNull;
     private Character characterNull;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     private Byte byteBoxedMin;
     private Byte byteBoxedMax;
     private Short shortBoxedMin;
@@ -109,7 +109,7 @@ public class BasicNonPrimitive implements BinaryHandlerTestData {
         booleanNull = null;
         characterNull = null;
 
-        // ===== proposed edge-cases =====
+        // edge cases
         byteBoxedMin = Byte.MIN_VALUE;
         byteBoxedMax = Byte.MAX_VALUE;
         shortBoxedMin = Short.MIN_VALUE;
@@ -219,7 +219,7 @@ public class BasicNonPrimitive implements BinaryHandlerTestData {
     public Boolean getBooleanNull() { return booleanNull; }
     public Character getCharacterNull() { return characterNull; }
 
-    // ===== proposed edge-cases — getters =====
+    // edge-case getters
     public Byte getByteBoxedMin() { return byteBoxedMin; }
     public Byte getByteBoxedMax() { return byteBoxedMax; }
     public Short getShortBoxedMin() { return shortBoxedMin; }
@@ -282,7 +282,7 @@ public class BasicNonPrimitive implements BinaryHandlerTestData {
                 () -> assertEquals(this.getBooleanNull(), copy.getBooleanNull(), "boolean null"),
                 () -> assertEquals(this.getCharacterNull(), copy.getCharacterNull(), "character null"),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> assertEquals(this.getByteBoxedMin(), copy.getByteBoxedMin(), "Byte MIN_VALUE"),
                 () -> assertEquals(this.getByteBoxedMax(), copy.getByteBoxedMax(), "Byte MAX_VALUE"),
                 () -> assertEquals(this.getShortBoxedMin(), copy.getShortBoxedMin(), "Short MIN_VALUE"),

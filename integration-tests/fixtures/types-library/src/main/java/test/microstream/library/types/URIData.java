@@ -28,7 +28,7 @@ public class URIData implements BinaryHandlerTestData {
 
     URI uri;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // URI has multiple parsing paths (hierarchical vs opaque, absolute vs relative). The handler is
     // expected to round-trip the raw form — anything reconstructible via new URI(toString()) should
     // survive. The probes below exercise structurally distinct shapes that exercise different code
@@ -46,7 +46,7 @@ public class URIData implements BinaryHandlerTestData {
         try {
             uri = new URL("http://example.com/pages/").toURI();
 
-            // ===== proposed edge-cases =====
+            // edge cases
             opaqueUri = new URI("mailto:user@example.com");
             urnUri = new URI("urn:isbn:0451450523");
             relativeUri = new URI("../path/seg?q=1&r=2");
@@ -66,8 +66,7 @@ public class URIData implements BinaryHandlerTestData {
         return uri;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public URI getOpaqueUri() {
         return opaqueUri;
     }
@@ -103,7 +102,7 @@ public class URIData implements BinaryHandlerTestData {
         assertAll("URI tests",
                 () -> assertEquals(this.getUri(), copy.getUri(), "java.net.URI"),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 // URI.equals is value-based (case-insensitive on scheme/host, decoded on path/query).
                 // We additionally assert toString() equality to catch any lossy normalization that
                 // URI.equals would mask.

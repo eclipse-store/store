@@ -49,7 +49,7 @@ public class SaveBackupCross4ChannelsTest {
 
     @Container
     private final MariaDBContainer MARIA_DB_CONTAINER = new MariaDBContainer("mariadb:latest").withDatabaseName("jpa-test")
-            .withPassword("heslo");
+            .withPassword("test");
 
     @Test
     public void backupTestCross_nio_mysql() throws InterruptedException, SQLException {

@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 public class UUIDData implements BinaryHandlerTestData {
     UUID uuid;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // UUID is backed by two longs (mostSigBits + leastSigBits). Round-trip is long-on-long for both
     // halves. Edge-cases probe (a) boundary bit-patterns and (b) half-asymmetry — if the handler
     // swapped or merged the two longs, mostSigOnly vs leastSigOnly would catch it.
@@ -40,7 +40,7 @@ public class UUIDData implements BinaryHandlerTestData {
     public UUIDData fillSampleData() {
         uuid = UUID.fromString("a96c3d61-0291-4068-b065-1d63d4a94fef");
 
-        // ===== proposed edge-cases =====
+        // edge cases
         nilUuid = new UUID(0L, 0L);
         maxUuid = new UUID(-1L, -1L);
         mostSigOnly = new UUID(0x0123456789ABCDEFL, 0L);
@@ -54,8 +54,7 @@ public class UUIDData implements BinaryHandlerTestData {
         return uuid;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public UUID getNilUuid() {
         return nilUuid;
     }
@@ -83,7 +82,7 @@ public class UUIDData implements BinaryHandlerTestData {
         assertAll("UUID tests",
                 () -> assertEquals(this.getUuid(), copy.getUuid()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 // UUID.equals compares both halves; assertEquals covers value round-trip end-to-end.
                 () -> {
                     if (this.getNilUuid() != null) {

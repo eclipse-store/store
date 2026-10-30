@@ -29,7 +29,7 @@ public class CopyOnWriteArrayListData implements BinaryHandlerTestData {
 
         CopyOnWriteArrayList<PrimitiveTypes> value = new CopyOnWriteArrayList<>();
 
-        // ===== proposed edge-cases (review & cherry-pick) =====
+        // edge cases
         private CopyOnWriteArrayList<Integer> nullElementList = new CopyOnWriteArrayList<>();
         private CopyOnWriteArrayList<String> emptyList = new CopyOnWriteArrayList<>();
         private CopyOnWriteArrayList<Integer> singleElementList = new CopyOnWriteArrayList<>();
@@ -47,8 +47,7 @@ public class CopyOnWriteArrayListData implements BinaryHandlerTestData {
             value.add(p);
             value.add(new PrimitiveTypes());
 
-            // ===== proposed edge-cases =====
-
+            // edge cases
             // COWAL allows null elements (unlike e.g. Collections.synchronizedList wrapping ImmutableCollection)
             nullElementList = new CopyOnWriteArrayList<>();
             nullElementList.add(1);
@@ -103,7 +102,7 @@ public class CopyOnWriteArrayListData implements BinaryHandlerTestData {
         assertAll("CopyOnWriteArrayList tests",
                 () -> assertIterableEquals(this.getValue(), copy.getValue()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> assertIterableEquals(this.nullElementList, copy.nullElementList, "null elements + insertion order"),
                 () -> {
                     assertNotNull(copy.emptyList);

@@ -22,7 +22,7 @@ public class Container {
     public static PostgreSQLContainer pgsql;
 
     static {
-        pgsql = new PostgreSQLContainer("postgres:alpine").withDatabaseName("jpa-test").withPassword("heslo").withUsername("postgres");
+        pgsql = new PostgreSQLContainer("postgres:alpine").withDatabaseName("jpa-test").withPassword("test").withUsername("postgres");
         pgsql.start();
     }
 
@@ -30,7 +30,7 @@ public class Container {
         PGSimpleDataSource dataSource = new PGSimpleDataSource();
         dataSource.setUrl(pgsql.getJdbcUrl());
         dataSource.setUser("postgres");
-        dataSource.setPassword("heslo");
+        dataSource.setPassword("test");
 
         return dataSource;
     }

@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class TreeSetData implements BinaryHandlerTestData {
     TreeSet<String> value = new TreeSet<>();
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // TreeSet is a SortedSet — iteration is in comparator-defined order. assertIterableEquals doubles
     // as both a content-equality check and a sort-order check. The reverse/caseInsensitive probes
     // additionally test whether the handler preserves the Comparator: if the comparator is dropped,
@@ -46,7 +46,7 @@ public class TreeSetData implements BinaryHandlerTestData {
     public TreeSetData fillSampleData() {
         value.add("SomeString");
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyTreeSet = new TreeSet<>();
         intTreeSet = createIntTreeSet();
         reverseTreeSet = createReverseTreeSet();
@@ -56,8 +56,7 @@ public class TreeSetData implements BinaryHandlerTestData {
         return this;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public TreeSet<Integer> getEmptyTreeSet() {
         return emptyTreeSet;
     }
@@ -129,7 +128,7 @@ public class TreeSetData implements BinaryHandlerTestData {
         assertAll("TreeSet tests",
                 () -> assertIterableEquals(this.value, copy.value),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 // assertIterableEquals doubles as a sort-order check: TreeSet's iterator returns
                 // elements in comparator-defined order, so a divergent order points at a dropped
                 // comparator (for reverse/caseInsensitive) or at content corruption.

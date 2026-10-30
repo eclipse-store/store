@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 public class DateData implements BinaryHandlerTestData {
     private Date date;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // java.util.Date is backed by a single long (millis since 1970-01-01T00:00:00 UTC). The handler
     // should preserve that long verbatim — including extreme boundaries, sub-second component, and
     // pre-epoch (negative) values. Equality is checked via getTime() (long-on-long); identity is not
@@ -60,7 +60,7 @@ public class DateData implements BinaryHandlerTestData {
             throw new RuntimeException(e);
         }
 
-        // ===== proposed edge-cases =====
+        // edge cases
         epoch = new Date(0L);
         longMin = new Date(Long.MIN_VALUE);
         longMax = new Date(Long.MAX_VALUE);
@@ -76,8 +76,7 @@ public class DateData implements BinaryHandlerTestData {
         return date;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public Date getEpoch() {
         return epoch;
     }
@@ -121,7 +120,7 @@ public class DateData implements BinaryHandlerTestData {
         assertAll("Date tests",
                 () -> assertEquals(this.getDate().getTime(), copy.getDate().getTime()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 // Date round-trip is long-on-long via getTime().
                 () -> {
                     if (this.getEpoch() != null) {

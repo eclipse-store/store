@@ -14,9 +14,6 @@ package test.microstream.afs.googlecloud.firestore;
  * #L%
  */
 
-import java.util.HashMap;
-import java.util.Map;
-
 import java.time.Duration;
 
 import org.testcontainers.containers.GenericContainer;
@@ -26,7 +23,6 @@ import org.testcontainers.utility.DockerImageName;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.FirestoreOptions;
-import test.microstream.afs.blobstore.BlobStoreFileSystemTest;
 
 public class FirestoreContainer {
 
@@ -43,15 +39,6 @@ public class FirestoreContainer {
     }
 
     public static Firestore createFirestore() {
-        // https://cloud.google.com/storage/docs/reference/libraries#setting_up_authentication
-
-        final Map<String, String> env = new HashMap<>();
-        env.put(
-                "GOOGLE_APPLICATION_CREDENTIALS",
-                "[file-path]"
-        );
-        BlobStoreFileSystemTest.setEnv(env);
-
         final FirestoreOptions firestoreOptions = FirestoreOptions.getDefaultInstance().toBuilder()
                 //.setProjectId("firetest-280612")
                 .setProjectId("microstream")

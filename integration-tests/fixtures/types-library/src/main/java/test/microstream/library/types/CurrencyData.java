@@ -27,7 +27,7 @@ public class CurrencyData implements BinaryHandlerTestData {
 
     Currency currency;
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // Currency is a singleton-per-ISO-4217-code; Currency.getInstance(code) returns the cached
     // instance, so identity is preserved automatically as long as the handler round-trips the
     // currency code string. Probes target the unusual fraction-digit counts (0 for JPY, 3 for
@@ -41,7 +41,7 @@ public class CurrencyData implements BinaryHandlerTestData {
     public CurrencyData fillSampleData() {
         currency = Currency.getInstance(Locale.CANADA);
 
-        // ===== proposed edge-cases =====
+        // edge cases
         eurCurrency = Currency.getInstance("EUR");
         jpyCurrency = Currency.getInstance("JPY");
         bhdCurrency = Currency.getInstance("BHD");
@@ -54,8 +54,7 @@ public class CurrencyData implements BinaryHandlerTestData {
         return currency;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public Currency getEurCurrency() {
         return eurCurrency;
     }
@@ -79,7 +78,7 @@ public class CurrencyData implements BinaryHandlerTestData {
         assertAll("Currency tests",
                 () -> assertEquals(this.getCurrency(), copy.getCurrency(), "Currency"),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 () -> {
                     if (this.getEurCurrency() != null) {
                         assertEquals(Currency.getInstance("EUR"), copy.getEurCurrency());

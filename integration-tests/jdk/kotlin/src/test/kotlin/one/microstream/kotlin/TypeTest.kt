@@ -26,10 +26,8 @@ class TypeTest {
 //    );
 
 
-    //revert after fix: https://github.com/eclipse-store/store/issues/519
     @ParameterizedTest
-    //@EnumSource(TypeEnum::class)
-    @EnumSource(value = TypeEnum::class, names = ["Lazy","LocalDate", "LocalDateTime", "Java_util_Calendar"], mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(TypeEnum::class)
     fun saveAndLoadTest(type: TypeEnum, @TempDir targetDirectory : Path ) {
         //println(type.original.javaClass.simpleName)
         val o = saveToMSAndReload(type.original, type.createEmptyInstance(), targetDirectory)

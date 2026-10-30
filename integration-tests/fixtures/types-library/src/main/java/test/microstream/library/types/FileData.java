@@ -27,7 +27,7 @@ public class FileData implements BinaryHandlerTestData {
     // non-null value so loadDefaultCompare does not NPE on getValue().
     File value = new File("default.txt");
 
-    // ===== proposed edge-cases (review & cherry-pick) =====
+    // edge cases
     // BinaryHandlerFile stores instance.getPath() raw and reconstructs via new File(path).
     // No absolutization (unlike BinaryHandlerPath), so any raw form survives. Probes mirror
     // the Path edge-cases that PathData couldn't assert, since here they actually work.
@@ -42,7 +42,7 @@ public class FileData implements BinaryHandlerTestData {
     public FileData fillSampleData() {
         value = new File("test-fixture.txt");
 
-        // ===== proposed edge-cases =====
+        // edge cases
         emptyFile = new File("");
         relativeFile = new File("a" + File.separator + "b" + File.separator + "c.txt");
         dotsAndDoubleDots = new File("a" + File.separator + "." + File.separator + "b" + File.separator + ".." + File.separator + "c.txt");
@@ -56,8 +56,7 @@ public class FileData implements BinaryHandlerTestData {
         return value;
     }
 
-    // ===== proposed edge-cases — getters =====
-
+    // edge-case getters
     public File getEmptyFile() {
         return emptyFile;
     }
@@ -85,7 +84,7 @@ public class FileData implements BinaryHandlerTestData {
         assertAll("File tests",
                 () -> assertEquals(this.getValue().getName(), copy.getValue().getName()),
 
-                // ===== proposed edge-case verifications =====
+                // edge-case verifications
                 // File.equals compares the raw path string (case-sensitively on Unix, case-insensitively
                 // on Windows). getPath() asserts the lexical form explicitly as an extra catch.
                 () -> {
