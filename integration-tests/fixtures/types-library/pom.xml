@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.eclipse.store</groupId>
+        <artifactId>integration-tests</artifactId>
+        <version>5.0.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>integration-tests-fixtures-types-library</artifactId>
+    <name>EclipseStore Integration Tests - Fixtures - Types Library</name>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
+
+    <!--
+        Sample data for (almost) every type the serializer handles out of the box: each TypeEnum entry
+        fills an instance, stores it and can prove a loaded copy. Shared by the core, afs, jdk and
+        compatibility suites. Store and JUnit are "provided": the consuming test module decides the versions.
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>storage-embedded</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Test fixtures, not a published library: no module-info, so the root module-info-check
+                 (enforce-files-exist, activated by src/main/java) is switched off here. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-files-exist</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

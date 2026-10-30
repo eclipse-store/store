@@ -1,0 +1,121 @@
+# The external test suite (integration-tests/*) plus the gigamap tests on every supported JDK.
+# GA legs gate the build. EA legs run only on schedule / manual dispatch and are informational
+# (continue-on-error): early-access JDKs break on their own from time to time and must not turn
+# the build red. The failure still shows in the run summary and in the test report.
+
+name: Integration tests (JDK matrix)
+
+permissions:
+  contents: read
+  checks: write
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '30 2 * * *'   # after the 02:00 UTC serializer snapshot deploy
+  workflow_dispatch:
+
+concurrency:
+  group: it-jdk-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        run: |
+          GA='{"name":"temurin 17","java":"17","opts":"","experimental":false},
+              {"name":"temurin 21","java":"21","opts":"","experimental":false},
+              {"name":"temurin 21 ZGC","java":"21","opts":"-XX:+UseZGC","experimental":false},
+              {"name":"temurin 25","java":"25","opts":"","experimental":false},
+              {"name":"temurin 25 COH","java":"25","opts":"-XX:+UseCompactObjectHeaders","experimental":false}'
+          EA='{"name":"temurin 27-ea","java":"27-ea","opts":"","experimental":true}'
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "matrix={\"include\":[$GA]}" | tr -d '\n' >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix={\"include\":[$GA,$EA]}" | tr -d '\n' >> "$GITHUB_OUTPUT"
+          fi
+
+  integration-tests:
+    needs: plan
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Align serializer version to matching branch snapshot
+        uses: ./.github/actions/align-serializer-version
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build reactor (no tests)
+        run: >
+          mvn -T 1C -P IT -B clean install -DskipTests --no-transfer-progress -U
+          -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+
+      - name: Run gigamap tests
+        env:
+          JAVA_TOOL_OPTIONS: ${{ matrix.opts }}
+        run: >
+          mvn -B test -pl gigamap -amd --no-transfer-progress
+          -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+
+      - name: Run integration tests (all suites except the slow AFS backends)
+        env:
+          OPTS: ${{ matrix.opts }}
+        # The leg's JVM flags go into the surefire fork through extra.jvm.args, which also replaces the
+        # -XX:-UseCompactObjectHeaders default of the jdk25-plus profile for the COH leg. An empty value
+        # must not override that default, hence the conditional.
+        run: |
+          EXTRA=""
+          if [ -n "$OPTS" ]; then EXTRA="-Dextra.jvm.args=$OPTS"; fi
+          mvn -P IT -B test --no-transfer-progress $EXTRA \
+            -pl 'integration-tests,!integration-tests/afs/kafka' -amd \
+            -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+
+      - name: Dump crash evidence to log
+        if: failure()
+        run: |
+          echo "===== surefire dumpstream / dump files ====="
+          find . -path '*/target/surefire-reports/*' \( -name '*.dumpstream' -o -name '*.dump' \) \
+            -print -exec cat {} \; || true
+          echo "===== JVM fatal error logs (hs_err) ====="
+          find . -name 'hs_err_pid*.log' -print -exec cat {} \; || true
+
+      - name: Upload crash evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-evidence-${{ matrix.name }}
+          path: |
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+            **/hs_err_pid*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Report JUnit results
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: "Integration tests (${{ matrix.name }})"
+          path: '**/target/surefire-reports/TEST-*.xml'
+          reporter: java-junit
+          fail-on-error: false

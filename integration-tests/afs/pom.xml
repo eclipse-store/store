@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.eclipse.store</groupId>
+        <artifactId>integration-tests</artifactId>
+        <version>5.0.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>integration-tests-afs</artifactId>
+    <packaging>pom</packaging>
+    <name>EclipseStore Integration Tests - AFS</name>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
+
+    <!--
+        One module per Abstract File System backend. Every module runs the shared abstract tests from
+        afs/commons (test-jar) against its backend; the backends with external services use Testcontainers,
+        so a Docker daemon is required. Oracle Cloud Object Storage is not covered (no emulator exists).
+    -->
+    <modules>
+        <module>commons</module>
+        <module>nio</module>
+        <module>jimfs</module>
+        <module>sql-sqlite</module>
+        <module>sql-mariadb</module>
+        <module>sql-postgres</module>
+        <!-- sql-oracle: Oracle XE image is amd64 only and Oracle Free hits ORA-12516 (process limit) with this suite;
+             parked 2026-10-30, run manually with -pl integration-tests/afs/sql-oracle -am -->
+        <!-- <module>sql-oracle</module> -->
+        <module>cross</module>
+        <module>aws-s3</module>
+        <module>aws-dynamodb</module>
+        <module>azure</module>
+        <module>googlecloud-firestore</module>
+        <module>kafka</module>
+        <module>redis</module>
+    </modules>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>integration-tests-fixtures-types-library</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>storage-embedded</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.serializer</groupId>
+            <artifactId>base</artifactId>
+            <version>${eclipse.serializer.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.20.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

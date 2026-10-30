@@ -12,12 +12,53 @@
     </parent>
 
     <artifactId>integration-tests</artifactId>
+    <packaging>pom</packaging>
     <name>EclipseStore Integration Tests</name>
     <url>https://projects.eclipse.org/projects/technology.store</url>
+
+    <!--
+        Aggregator of every integration test suite. Only built with the IT profile of the root pom.
+        Nothing below is deployed or published; the modules exist to be executed in CI.
+    -->
+    <modules>
+        <module>fixtures/types-library</module>
+        <module>fixtures/legacy-a</module>
+        <module>fixtures/legacy-b</module>
+        <module>core</module>
+        <module>jdk/records</module>
+        <module>jdk/sealed</module>
+        <module>jdk/immutable-collections</module>
+        <module>jdk/kotlin</module>
+        <module>skills/cache-jcache</module>
+        <module>skills/concurrency</module>
+        <module>skills/configuration</module>
+        <module>skills/custom-type-handlers</module>
+        <module>skills/getting-started</module>
+        <module>skills/housekeeping</module>
+        <module>skills/lazy-loading</module>
+        <module>skills/legacy-type-mapping</module>
+        <module>skills/root-and-object-graph</module>
+        <module>skills/serializer-standalone</module>
+        <module>skills/spring-boot</module>
+        <module>skills/storage-targets-afs</module>
+        <module>skills/storing-data</module>
+        <module>afs</module>
+        <module>cache/spring-hibernate</module>
+        <module>cache/jcache-tck</module>
+        <module>cache/jcache-tck-annotations-cdi</module>
+        <module>cache/jcache-tck-annotations-spring</module>
+        <module>cache/jcache-tck-annotations-guice</module>
+        <module>compatibility/producer</module>
+        <module>compatibility/consumer</module>
+        <module>ui</module>
+        <module>communication-legacy/host</module>
+        <module>communication-legacy/client</module>
+    </modules>
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
         <junit-jupiter.version>6.0.3</junit-jupiter.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
         <!-- Extra JVM args for the test fork; JDK-specific values are set by the profiles below. -->
         <extra.jvm.args></extra.jvm.args>
     </properties>
@@ -43,140 +84,15 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
-
-    <dependencies>
-        <!-- Eclipse Store (reactor siblings) -->
-        <dependency>
-            <groupId>org.eclipse.store</groupId>
-            <artifactId>storage-embedded</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.store</groupId>
-            <artifactId>storage-embedded-configuration</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.store</groupId>
-            <artifactId>storage-embedded-tools-storage-converter</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.store</groupId>
-            <artifactId>gigamap</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.store</groupId>
-            <artifactId>cache</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.store</groupId>
-            <artifactId>storage-restservice-javalin</artifactId>
-            <version>${project.version}</version>
-            <scope>test</scope>
-        </dependency>
-
-        <!-- Eclipse Serializer -->
-        <dependency>
-            <groupId>org.eclipse.serializer</groupId>
-            <artifactId>persistence-binary-jdk8</artifactId>
-            <version>${eclipse.serializer.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.serializer</groupId>
-            <artifactId>configuration-yaml</artifactId>
-            <version>${eclipse.serializer.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.serializer</groupId>
-            <artifactId>configuration-hocon</artifactId>
-            <version>${eclipse.serializer.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.serializer</groupId>
-            <artifactId>nativememory</artifactId>
-            <version>${eclipse.serializer.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.serializer</groupId>
-            <artifactId>serializer</artifactId>
-            <version>${eclipse.serializer.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.serializer</groupId>
-            <artifactId>test-fixtures</artifactId>
-            <version>${eclipse.serializer.version}</version>
-            <scope>test</scope>
-        </dependency>
-
-        <!-- Test libraries -->
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.awaitility</groupId>
-            <artifactId>awaitility</artifactId>
-            <version>4.2.2</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.datafaker</groupId>
-            <artifactId>datafaker</artifactId>
-            <version>2.5.3</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>3.20.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>commons-io</groupId>
-            <artifactId>commons-io</artifactId>
-            <version>2.21.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.javassist</groupId>
-            <artifactId>javassist</artifactId>
-            <version>3.30.2-GA</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>${slf4j.version}</version>
-            <scope>test</scope>
-        </dependency>
-
-        <!-- REST service integration tests -->
-        <dependency>
-            <groupId>org.apache.httpcomponents.client5</groupId>
-            <artifactId>httpclient5</artifactId>
-            <version>5.5.1</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.google.code.gson</groupId>
-            <artifactId>gson</artifactId>
-            <version>2.13.2</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.hamcrest</groupId>
-            <artifactId>hamcrest</artifactId>
-            <version>2.2</version>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
 
     <build>
         <plugins>
@@ -215,5 +131,41 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>jdk21-plus</id>
+            <activation>
+                <jdk>[21,)</jdk>
+            </activation>
+            <modules>
+                <module>jdk/sequenced</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>jdk22-plus</id>
+            <activation>
+                <jdk>[22,)</jdk>
+            </activation>
+            <modules>
+                <!-- needs gigamap-jvector, which the gigamap reactor only builds on JDK 22+ -->
+                <module>skills/gigamap</module>
+            </modules>
+        </profile>
+        <profile>
+            <!--
+                JDK 25+ can run with compact object headers (JEP 519). The serializer accesses object
+                headers directly, so every test fork pins the layout the serializer was built for.
+                The CI matrix has a dedicated leg that re-enables the flag to detect when that changes.
+            -->
+            <id>jdk25-plus</id>
+            <activation>
+                <jdk>[25,)</jdk>
+            </activation>
+            <properties>
+                <extra.jvm.args>-XX:-UseCompactObjectHeaders</extra.jvm.args>
+            </properties>
+        </profile>
+    </profiles>
 
 </project>

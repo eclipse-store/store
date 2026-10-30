@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.eclipse.store</groupId>
+        <artifactId>integration-tests</artifactId>
+        <version>5.0.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>integration-tests-core</artifactId>
+    <name>EclipseStore Integration Tests - Core</name>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
+
+    <dependencies>
+        <!-- Eclipse Store (reactor siblings) -->
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>storage-embedded</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>storage-embedded-configuration</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>storage-embedded-tools-storage-converter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>gigamap</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>storage-restservice-javalin</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>integration-tests-fixtures-types-library</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Eclipse Serializer -->
+        <dependency>
+            <groupId>org.eclipse.serializer</groupId>
+            <artifactId>persistence-binary-jdk8</artifactId>
+            <version>${eclipse.serializer.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.serializer</groupId>
+            <artifactId>configuration-yaml</artifactId>
+            <version>${eclipse.serializer.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.serializer</groupId>
+            <artifactId>configuration-hocon</artifactId>
+            <version>${eclipse.serializer.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.serializer</groupId>
+            <artifactId>nativememory</artifactId>
+            <version>${eclipse.serializer.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.serializer</groupId>
+            <artifactId>serializer</artifactId>
+            <version>${eclipse.serializer.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.serializer</groupId>
+            <artifactId>test-fixtures</artifactId>
+            <version>${eclipse.serializer.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Test libraries -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>4.2.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.datafaker</groupId>
+            <artifactId>datafaker</artifactId>
+            <version>2.5.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.20.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.21.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.javassist</groupId>
+            <artifactId>javassist</artifactId>
+            <version>3.30.2-GA</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- REST service integration tests -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+            <version>5.5.1</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.13.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest</artifactId>
+            <version>2.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>
