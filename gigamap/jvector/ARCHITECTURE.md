@@ -557,6 +557,18 @@ The old manifest stays on disk until the next store and persist.
 
 Only a throwing vectorizer leaves the index as it was. A failure after the clear leaves it partly rebuilt, and the vector file keeps that state.
 
+### 6.7 invalidateGraph
+
+`invalidateGraph()` is the seam for a layer that replaces the stored entities and vectors behind a running index (replication, binary import): the persisted state is current, the transient graph is not. It is `internalRemoveAll` minus every destructive step:
+
+1. Take the write lock (section 8.2).
+2. Close the builder and the graph, which retires the HNSW graph the index was answering from.
+3. Clear `graphRebuilt`, so the next `ensureIndexInitialized()` rebuilds from the vector file exactly as after a start (6.5).
+
+The vector file, the segments of an on-disk index, the PQ codebook, the background managers and the counters all survive — except that the vector file is emptied when the index keeps no files (see below). An on-disk index rejects the call: its graph is served from segments this seam does not retire, and the vectors-versus-segments repair is a load-time concern, not an external state change.
+
+**A derived vector file is emptied — by the next recovery.** An index that keeps no files has a temporary vector file, which holds a derivation of the entities rather than state the caller replaces. Its slots would otherwise keep answering for the state the file was opened with, and the graph rebuilt from them would be built on stale vectors. So the call flags the file and clears the recovery guard, and the access after it empties the file and re-runs the recovery — a full rebuild for such a file, from the current entities. Both halves stay off the caller's apply path, which for a replication layer runs once per applied batch: no slot walk, no vectorization. The clearing may not zero the vector count: the recovery compares the count it ends with against that field, and a zeroed one would make the recovery bump `structuralModCount`, shifting this node's persisted witness away from the writer's until the next import overwrites it, so the change after that would look unchanged. An index that keeps its files is left untouched, as are the segments of an on-disk index, which the call rejects.
+
 ---
 
 ## 7. Flush, persist and background merge (on-disk index)
@@ -678,6 +690,7 @@ A search can be issued while its thread holds the monitor: inside `GigaMap.itera
 - While it waits it increments `exclusiveWaiters`. New searches hold back for it (`awaitNoPendingExclusive`, up to 100 ms), so a stream of readers cannot starve it. The gate is a count, so one waiter leaving does not open it for another.
 - `lockBuilderUnderMonitor(monitorHeld, interruptible)`: the freeze and the optimization give up on an interrupt. `close()` waits on and restores the interrupt.
 - The rebuild, recovery and the PQ switch hold only the monitor and take no `builderLock`. They wait for no lock a write-lock holder needs.
+- `invalidateGraph()` takes only the write lock when the caller holds no monitor, and otherwise the group's locks all-or-nothing under the monitor (like `removeAll`/`reindex`), because replication and merge layers call it from a monitor-holding thread.
 - The merge's publication barrier and `withdrawMerge` take the write lock blocking, but without the monitor.
 
 ### 8.3 Operations that reject the monitor
