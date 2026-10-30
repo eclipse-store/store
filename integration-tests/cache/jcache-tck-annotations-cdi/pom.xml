@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.eclipse.store</groupId>
+        <artifactId>integration-tests</artifactId>
+        <version>5.0.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>integration-tests-cache-jcache-tck-annotations-cdi</artifactId>
+    <name>EclipseStore Integration Tests - Cache - JCache TCK Annotations CDI (Weld)</name>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
+
+    <!--
+        The JSR-107 TCK annotation tests (CDI (Weld)): the published cdi-weld-annotations-test-harness wires the
+        reference annotation interceptors of the TCK to the CDI (Weld) container; the Eclipse Store cache is
+        the CacheManager behind them. Same unpack wiring as the core TCK module, only the annotation tests run.
+    -->
+    <properties>
+        <jcache.version>1.1.1</jcache.version>
+        <maven-surefire-plugin.version>3.5.5</maven-surefire-plugin.version>
+        <CacheManagerImpl>org.eclipse.store.cache.types.CacheManager$Default</CacheManagerImpl>
+        <CacheImpl>org.eclipse.store.cache.types.Cache$Default</CacheImpl>
+        <CacheEntryImpl>org.eclipse.store.cache.types.CacheEntry$Default</CacheEntryImpl>
+        <CacheInvocationContextImpl></CacheInvocationContextImpl>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.eclipse.store</groupId>
+            <artifactId>cache</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>javax.cache</groupId>
+            <artifactId>cache-tests</artifactId>
+            <version>${jcache.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>javax.cache</groupId>
+            <artifactId>cdi-weld-annotations-test-harness</artifactId>
+            <version>${jcache.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>javax.cache</groupId>
+            <artifactId>cache-tests</artifactId>
+            <version>${jcache.version}</version>
+            <classifier>tests</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest-library</artifactId>
+            <version>1.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <testResources>
+            <testResource>
+                <directory>src/test/resources</directory>
+                <filtering>true</filtering>
+            </testResource>
+        </testResources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>unpack-tck-tests</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>unpack-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.testOutputDirectory}</outputDirectory>
+                            <includeArtifactIds>cache-tests</includeArtifactIds>
+                            <includeClassifiers>tests</includeClassifiers>
+                            <includeScope>test</includeScope>
+                            <excludes>META-INF/**</excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <dependencies>
+                    <!-- The TCK is JUnit 4; the JUnit Platform provider that surefire auto-detects elsewhere
+                         in the reactor would find nothing (JUnit 6 has no vintage engine). -->
+                    <dependency>
+                        <groupId>org.apache.maven.surefire</groupId>
+                        <artifactId>surefire-junit4</artifactId>
+                        <version>${maven-surefire-plugin.version}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <systemPropertyVariables>
+                        <java.net.preferIPv4Stack>true</java.net.preferIPv4Stack>
+                        <javax.cache.CacheManager>${CacheManagerImpl}</javax.cache.CacheManager>
+                        <javax.cache.Cache>${CacheImpl}</javax.cache.Cache>
+                        <javax.cache.Cache.Entry>${CacheEntryImpl}</javax.cache.Cache.Entry>
+                        <javax.cache.annotation.CacheInvocationContext>${CacheInvocationContextImpl}</javax.cache.annotation.CacheInvocationContext>
+                    </systemPropertyVariables>
+                    <includes>
+                        <include>**/annotation/*Test.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

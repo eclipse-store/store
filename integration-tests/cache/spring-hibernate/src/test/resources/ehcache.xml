@@ -1,0 +1,13 @@
+<config
+        xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+        xmlns='http://www.ehcache.org/v3'
+        xsi:schemaLocation="
+        http://www.ehcache.org/v3 http://www.ehcache.org/schema/ehcache-core-3.0.xsd">
+
+    <cache alias="employee">
+        <key-type>java.lang.Long</key-type>
+        <value-type>one.microstream.data.Employee</value-type>
+        <heap unit="entries">50000</heap>
+    </cache>
+
+</config>

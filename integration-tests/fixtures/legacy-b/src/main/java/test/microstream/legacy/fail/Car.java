@@ -1,0 +1,30 @@
+package test.microstream.legacy.fail;
+
+/*-
+ * #%L
+ * EclipseStore Integration Tests - Fixtures - Legacy B
+ * %%
+ * Copyright (C) 2023 - 2026 MicroStream Software
+ * %%
+ * This program and the accompanying materials are made
+ * available under the terms of the Eclipse Public License 2.0
+ * which is available at https://www.eclipse.org/legal/epl-2.0/
+ * 
+ * SPDX-License-Identifier: EPL-2.0
+ * #L%
+ */
+
+public class Car {
+
+    private String size;
+
+    private final Radio radio = new Radio("Kenwood");
+
+    @Override
+    public String toString() {
+        return "Car{" +
+                "size='" + size + '\'' +
+                ", radio=" + radio +
+                '}';
+    }
+}
