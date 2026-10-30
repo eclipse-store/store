@@ -70,6 +70,7 @@ Both modes use the same vector file. The flag matters in two places only:
 | `VectorFile` (+`Default`) | Memory-mapped vectors, one slot per ordinal, seqlock readers, epochs, crash recovery (section 3.1). |
 | `MappedVectorValues` (+`Caching`) | `RandomAccessVectorValues` over the vector file; `Caching` keeps a per-query `OrdinalVectorCache`. |
 | `GenerationVectorValues` | Score source of a live builder; after a freeze it keeps the freeze-time vectors of its nodes (copy-on-write). |
+| `ReusableVectorValues` | Build-scoped scratch over a null-safe vector source. jVector gives each worker independent operand copies; mapped reads fill their destinations without allocating a vector per comparison. Search caches and retained vectors do not use it. |
 | `NullSafeVectorValues` | Returns a placeholder vector (`PLACEHOLDER_COMPONENT = 1e-6f` per component) for an absent ordinal, so traversal never meets `null`. |
 | `SegmentVectorValues` | Maps a segment's dense local ordinals to global ordinals for scoring. |
 | `DiskIndexManager` (+`Default`) | Manifest commit, segment write and load, retirement of a rejected manifest. |
