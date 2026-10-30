@@ -121,6 +121,37 @@ if (storer.hasPendingData())
 
 Calling `commit()` also flushes all pending data.
 
+== Error Handling
+
+If a `store()` call throws, for example because the object graph contains an instance that cannot be persisted, the batch holds incomplete data.
+Such a batch is never written, because committing it would persist a broken object graph:
+
+* Further `store()` calls, `flush()`, `commit()` and `close()` throw a `PersistenceException` with the original failure as cause.
+* The background flush skips the batch and logs the failure once.
+* `hasPendingData()` keeps returning `true`.
+
+This applies to the whole batch, including data that other threads stored before the failure.
+Call `clear()` to discard the pending data; the `BatchStorer` can then be used again.
+Data that should still be persisted has to be stored again after `clear()`:
+
+[source, java]
+----
+try
+{
+    storer.store(data);
+}
+catch(final RuntimeException e)
+{
+    storer.clear();     // discards the whole pending batch
+    // fix or remove the failing object, then store again what must be persisted
+    storer.store(data);
+}
+----
+
+In a try-with-resources block, `close()` throws if a store failed and the batch was not cleared.
+
+A failed write, for example an I/O error during the flush, does not block the batch: flushing again retries the write.
+
 == When to Use
 
 The `BatchStorer` is particularly useful when:
