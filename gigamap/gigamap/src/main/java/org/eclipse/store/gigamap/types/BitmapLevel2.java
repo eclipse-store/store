@@ -902,9 +902,56 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	// Compression //
 	////////////////
 	
-	private static int ensureCompressedEntries(final long level2Address)
+	/*
+	 * Copies all standalone level1 segments into one new block, in index order. Returns 0L if there are none.
+	 * Compressing in place overwrites a segment's uncompressed data, so #compress works on these copies: until the
+	 * new level2 block is complete, the current block must stay usable in case anything fails.
+	 */
+	private static long copyStandaloneSegments(final long level2Address)
+	{
+		final long indexArrayStart = getIndexArrayStartAddress(level2Address);
+		final long indexArrayBound = getIndexArrayBoundAddressEffective(level2Address);
+
+		int standaloneCount = 0;
+		for(long a = indexArrayStart; a < indexArrayBound; a += POINTER_LENGTH)
+		{
+			if(XMemory.get_long(a) > 0L)
+			{
+				standaloneCount++;
+			}
+		}
+		if(standaloneCount == 0)
+		{
+			return 0L;
+		}
+
+		final long copiesAddress = XMemory.allocate((long)standaloneCount * LEVEL1_STANDALONE_TOTAL_LENGTH);
+		try
+		{
+			long copyAddress = copiesAddress;
+			for(long a = indexArrayStart; a < indexArrayBound; a += POINTER_LENGTH)
+			{
+				final long level1Address = XMemory.get_long(a);
+				if(level1Address > 0L)
+				{
+					XMemory.copyRange(level1Address, copyAddress, LEVEL1_STANDALONE_TOTAL_LENGTH);
+					copyAddress += LEVEL1_STANDALONE_TOTAL_LENGTH;
+				}
+			}
+		}
+		catch(final Throwable t)
+		{
+			XMemory.free(copiesAddress);
+			throw t;
+		}
+
+		return copiesAddress;
+	}
+
+	private static int ensureCompressedEntries(final long level2Address, final long copiesAddress)
 	{
 		int totalEntriesLength = 0;
+		long copyAddress = copiesAddress;
 		
 		final long indexArrayStart = getIndexArrayStartAddress(level2Address);
 		final long indexArrayBound = getIndexArrayBoundAddressEffective(level2Address);
@@ -933,8 +980,9 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 				continue;
 			}
 			
-			// standalone segments gets compressed in place and has its total length added.
-			totalEntriesLength += compressLevel1SegmentInPlace(level1EntryAddress);
+			// the copy of a standalone segment gets compressed in place and has its total length added.
+			totalEntriesLength += compressLevel1SegmentInPlace(copyAddress);
+			copyAddress += LEVEL1_STANDALONE_TOTAL_LENGTH;
 		}
 		
 		return totalEntriesLength;
@@ -1029,33 +1077,62 @@ public class BitmapLevel2 extends AbstractStateChangeFlagged implements Unpersis
 	{
 		// note: every index from 0 to (including) highestLevel2Index gets an entry, even if it's just a header dummy.
 		final int highestLevel2Index = getHighestLevel2Index(level2Address);
-		final int entriesTotalLength = ensureCompressedEntries(level2Address);
-		
-		// must allocate enough memory to contain the base values plus all entries (headers) plus all the entry data.
-		final int requiredLevel2TotalLength = BASE_LENGTH + entriesTotalLength;
 
-		final long newLevel2Address = allocateLevel2Block(requiredLevel2TotalLength);
-		
-		// level1 segments are iterated and copied or compressed to the target
-		final long newEntriesStartAddress = toLevel2EntriesStartAddress(newLevel2Address);
-		final long newIndexArrayStart     = getIndexArrayStartAddress(newLevel2Address);
-		final long indexArrayStart        = getIndexArrayStartAddress(level2Address);
-		final int  indexArrayOffsetBound  = (highestLevel2Index + 1) * POINTER_LENGTH;
-		long targetEntryAddress = newEntriesStartAddress;
-		for(int indexArrayOffset = 0; indexArrayOffset < indexArrayOffsetBound; indexArrayOffset += POINTER_LENGTH)
+		// Nothing below may modify the current block or its segments: a failure (e.g. an OutOfMemoryError from
+		// a native allocation) must leave it intact, since it stays in use.
+		final long copiesAddress = copyStandaloneSegments(level2Address);
+		try
 		{
-			final long newIndexAddress    = newIndexArrayStart + indexArrayOffset;
-			final long sourceEntryAddress = XMemory.get_long(indexArrayStart + indexArrayOffset);
-			targetEntryAddress += compressEntry(sourceEntryAddress, targetEntryAddress, newIndexAddress);
+			final int entriesTotalLength = ensureCompressedEntries(level2Address, copiesAddress);
+
+			// must allocate enough memory to contain the base values plus all entries (headers) plus all the entry data.
+			final int requiredLevel2TotalLength = BASE_LENGTH + entriesTotalLength;
+
+			final long newLevel2Address = allocateLevel2Block(requiredLevel2TotalLength);
+			try
+			{
+				// level1 segments are iterated and copied or compressed to the target
+				final long newEntriesStartAddress = toLevel2EntriesStartAddress(newLevel2Address);
+				final long newIndexArrayStart     = getIndexArrayStartAddress(newLevel2Address);
+				final long indexArrayStart        = getIndexArrayStartAddress(level2Address);
+				final int  indexArrayOffsetBound  = (highestLevel2Index + 1) * POINTER_LENGTH;
+				long targetEntryAddress = newEntriesStartAddress;
+				long copyAddress        = copiesAddress;
+				for(int indexArrayOffset = 0; indexArrayOffset < indexArrayOffsetBound; indexArrayOffset += POINTER_LENGTH)
+				{
+					final long newIndexAddress = newIndexArrayStart + indexArrayOffset;
+					long sourceEntryAddress = XMemory.get_long(indexArrayStart + indexArrayOffset);
+					if(sourceEntryAddress > 0L)
+					{
+						// standalone segments are read from their compressed copies, in the same order.
+						sourceEntryAddress = copyAddress;
+						copyAddress += LEVEL1_STANDALONE_TOTAL_LENGTH;
+					}
+					targetEntryAddress += compressEntry(sourceEntryAddress, targetEntryAddress, newIndexAddress);
+				}
+
+				setTotalLength(newLevel2Address, requiredLevel2TotalLength);       // new total length, of course.
+				setLevel3Index(newLevel2Address, getLevel3Index(level2Address));   // unchanged, just copied.
+				setHighestLevel2Index(newLevel2Address, highestLevel2Index);       // unchanged, just copied.
+				setSegmentCount(newLevel2Address, getSegmentCount(level2Address)); // unchanged, just copied.
+				setStandaloneSegmentCount(newLevel2Address, 0);                    // standalone segments are now 0, of course.
+
+				return newLevel2Address;
+			}
+			catch(final Throwable t)
+			{
+				// the new block only holds entries inside itself, no standalone segment pointers.
+				XMemory.free(newLevel2Address);
+				throw t;
+			}
 		}
-		
-		setTotalLength(newLevel2Address, requiredLevel2TotalLength);       // new total length, of course.
-		setLevel3Index(newLevel2Address, getLevel3Index(level2Address));   // unchanged, just copied.
-		setHighestLevel2Index(newLevel2Address, highestLevel2Index);       // unchanged, just copied.
-		setSegmentCount(newLevel2Address, getSegmentCount(level2Address)); // unchanged, just copied.
-		setStandaloneSegmentCount(newLevel2Address, 0);                    // standalone segments are now 0, of course.
-		
-		return newLevel2Address;
+		finally
+		{
+			if(copiesAddress != 0L)
+			{
+				XMemory.free(copiesAddress);
+			}
+		}
 	}
 	
 	private static int compressEntry(
