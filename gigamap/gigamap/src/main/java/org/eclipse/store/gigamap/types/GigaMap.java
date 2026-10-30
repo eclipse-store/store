@@ -1075,6 +1075,10 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	 * {@link Storer#commit()} - see the concurrency notes on {@link #store()}, which apply with that added
 	 * span. Registering with a {@link Storer} and committing it from a different thread, or mutating this
 	 * instance in between, is not safe.
+	 * <p>
+	 * A deferred commit retains change markers when newer mutations have been admitted since registration,
+	 * so its callback does not discard work that it did not serialize. This is a conservative safeguard,
+	 * not transaction isolation, and does not replace the caller's mutation-through-commit lock.
 	 *
 	 * @param storing the {@link Persister} or {@link Storer} to store this instance through
 	 * @return the objectId of this instance
@@ -1655,6 +1659,9 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		private transient int addingLevel3Index;
 				
 		private transient Persister storeContext;
+
+		// A deferred commit may only clear the mutation generation that it serialized.
+		private transient long mutationVersion;
 
 		// Entities mutated in-place via apply()/update() that need explicit re-storing.
 		// Uses WeakReferences so removed entities can be garbage-collected.
@@ -2780,6 +2787,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					);
 				}
 			}
+			this.mutationVersion++;
 		}
 
 		private void checkSelfHeldReader()
@@ -3152,8 +3160,18 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 				}
 			}
 
-			// must clear state change markers as soon as there is at least one either "changed" or "new" marker. So almost always.
-			storer.registerCommitListener(this);
+			// Clear only the generation registered by this storer; retain later changes for the next store.
+			final long storedMutationVersion = this.mutationVersion;
+			storer.registerCommitListener(() ->
+			{
+				synchronized(this)
+				{
+					if(this.mutationVersion == storedMutationVersion)
+					{
+						this.onAfterCommit();
+					}
+				}
+			});
 		}
 						
 		@Override
