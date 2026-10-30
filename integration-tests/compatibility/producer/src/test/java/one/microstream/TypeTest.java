@@ -14,8 +14,15 @@ package one.microstream;
  * #L%
  */
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.stream.Stream;
 
+import org.eclipse.serializer.persistence.exceptions.PersistenceExceptionTypeNotPersistable;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -51,8 +58,26 @@ public class TypeTest {
 
         Object original = type.getOriginal();
         Path actualDirectory = targetDirectory.resolve(original.getClass().getSimpleName());
-        storage = startStorage(original, actualDirectory);
-        storage.storeRoot();
+        try {
+            storage = startStorage(original, actualDirectory);
+            storage.storeRoot();
+        } catch (PersistenceExceptionTypeNotPersistable e) {
+            // the producer release has no type handler for this type yet (e.g. Throwable in 1.0):
+            // nothing to compare, the consumer skips the missing storage as well
+            if (storage != null && storage.isRunning()) {
+                storage.shutdown();
+            }
+            deleteRecursively(actualDirectory);
+            Assumptions.abort("not persistable with this Eclipse Store release: " + e.getMessage());
+        }
         storage.shutdown();
+    }
+
+    private static void deleteRecursively(Path dir) {
+        try (Stream<Path> paths = Files.walk(dir)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }

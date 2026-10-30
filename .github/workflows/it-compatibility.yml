@@ -1,6 +1,6 @@
 # Storage compatibility, no manual version input:
 #  - release-to-snapshot: a storage written by every released minor line (latest patch each, read from
-#    Maven Central metadata at run time) is opened by the current snapshot.
+#    Maven Central metadata at run time) on JDK 17 is opened by the current snapshot on JDK 25.
 #  - jdk-cross: a storage written on one JDK is opened on another with the same snapshot (both directions).
 
 name: Integration tests (compatibility)
@@ -59,9 +59,13 @@ jobs:
     name: "${{ matrix.version }} -> snapshot"
     steps:
       - uses: actions/checkout@v6
+      # Two JDKs: the released version writes on JDK 17 (every release supports it; 1.0 - 1.2 still use
+      # sun.misc.Unsafe.ensureClassInitialized, which JDK 22 removed), the snapshot reads on JDK 25.
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: |
+            17
+            25
           distribution: 'temurin'
           cache: 'maven'
       - name: Align serializer version to matching branch snapshot
@@ -69,19 +73,24 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build reactor dependencies (no tests)
-        run: >
-          mvn -T 1C -P IT -B clean install -DskipTests -pl "$COMPAT_MODULES" -am --no-transfer-progress -U
-          -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
-      - name: Write storages with Eclipse Store ${{ matrix.version }}
-        run: >
-          mvn -P IT -B test -pl integration-tests/compatibility/producer --no-transfer-progress
-          -Dcompatibility.producer.version=${{ matrix.version }} -Dcompatibility.storage.dir="$STORAGE_DIR"
-          -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
-      - name: Read them with the current snapshot
-        run: >
-          mvn -P IT -B test -pl integration-tests/compatibility/consumer --no-transfer-progress
-          -Dcompatibility.storage.dir="$STORAGE_DIR"
-          -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+        run: |
+          export JAVA_HOME="$JAVA_HOME_25_X64"; export PATH="$JAVA_HOME/bin:$PATH"
+          mvn -T 1C -P IT -B clean install -DskipTests -pl "$COMPAT_MODULES" -am --no-transfer-progress -U \
+            -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+      - name: Write storages with Eclipse Store ${{ matrix.version }} on JDK 17
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"; export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -P IT -B test -pl integration-tests/compatibility/producer --no-transfer-progress \
+            -Dcompatibility.producer.version=${{ matrix.version }} -Dcompatibility.storage.dir="$STORAGE_DIR" \
+            -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+      - name: Read them with the current snapshot on JDK 25
+        run: |
+          export JAVA_HOME="$JAVA_HOME_25_X64"; export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -P IT -B test -pl integration-tests/compatibility/consumer --no-transfer-progress \
+            -Dcompatibility.storage.dir="$STORAGE_DIR" \
+            -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
       - name: Report JUnit results
         if: always()
         uses: dorny/test-reporter@v2

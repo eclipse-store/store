@@ -14,10 +14,12 @@ package one.microstream;
  * #L%
  */
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -45,6 +47,8 @@ public class ReadTypeTest {
         }
 
         Object o = type.createEmptyInstance();
+        Assumptions.assumeTrue(Files.isDirectory(targetDirectory.resolve(o.getClass().getSimpleName())),
+            "the producer release could not persist this type, nothing to read");
         Object loaded = saveToMSAndReload(o);
 
         type.getOriginal().proveResults(loaded);
