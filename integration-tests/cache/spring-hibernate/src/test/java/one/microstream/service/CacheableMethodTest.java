@@ -14,7 +14,10 @@ package one.microstream.service;
  * #L%
  */
 
+import javax.cache.Caching;
+
 import one.microstream.DemoApplication;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -46,6 +49,13 @@ class CacheableMethodTest {
 
     @Autowired
     private EmployeeService employeeService;
+
+    @BeforeEach
+    void clearCache() {
+        // The JCache CacheManager is a JVM singleton: another test class in this JVM may already have
+        // filled employee_cache via the same @Cacheable method, which would make the first call below a hit.
+        Caching.getCachingProvider().getCacheManager().getCache("employee_cache").clear();
+    }
 
     @Test
     void loadDataWithCacheableTest() {
