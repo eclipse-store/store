@@ -43,7 +43,7 @@ public class HashMapLoadTest
 
     @Test
     //@RepeatedTest(1000)
-    @Disabled("https://github.com/microstream-one/microstream-private/issues/715")
+    @Disabled("LazyHashMap with LazySegmentUnloader does not load all objects from the new storage")
     void lazyHashMap() throws InterruptedException
     {
         LazyHashMap<Integer, TypeRegister> bigLazyHashMap = new LazyHashMap<>(5, new LazySegmentUnloader.Timed(500));

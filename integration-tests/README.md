@@ -2,13 +2,13 @@
 
 Everything under this directory is test code that exercises the Eclipse Store reactor as a user would. It is
 only built with the `IT` profile of the root pom and never deployed. It replaces the former external
-`microstream-test` suite and the Jenkins jobs that ran it.
+test suite and the Jenkins jobs that ran it.
 
 | Module | Suite | Needs | Jenkins job it replaces |
 |---|---|---|---|
 | `core` | storage engine, GigaMap, Lazy collections, REST service, recovery, legacy mapping, ... | – | (already here) |
-| `fixtures/types-library` | sample data for (almost) every handled type (`TypeEnum`), shared by the other suites | – | microstream-test-api |
-| `fixtures/legacy-a`, `fixtures/legacy-b` | two shapes of the same classes for legacy type mapping | – | microstream-test-api |
+| `fixtures/types-library` | sample data for (almost) every handled type (`TypeEnum`), shared by the other suites | – | external fixture library |
+| `fixtures/legacy-a`, `fixtures/legacy-b` | two shapes of the same classes for legacy type mapping | – | external fixture library |
 | `jdk/*` | records, sealed classes, immutable and sequenced collections, Kotlin interop | JDK-gated profiles | vmt |
 | `skills/*` | sample applications of the eclipse-store-skills guides, verified against the snapshot | Docker for `storage-targets-afs` | vmt |
 | `afs/*` | one module per Abstract File System backend, all running the shared abstract tests from `afs/commons` (`sql-oracle` parked) | Docker (Testcontainers) | afs-all-in-one, afs-all-in-one-slow |

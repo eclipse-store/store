@@ -76,7 +76,7 @@ public class EnumerationLTMTest
 
 
         assertThrows(PersistenceExceptionConsistencyObjectId.class, () -> storage.start());
-        // TODO could be changed after this issue will be resolved: https://github.com/microstream-one/internal/issues/45
+        // can be changed once a root enum no longer prevents legacy type mapping
 
 //        assertEquals( EnumerationOrig.FIRST.getName(), eCopy.getName());
 //        assertEquals( EnumerationOrig.FIRST.getValue(), eCopy.getValue());

@@ -77,7 +77,7 @@ import test.eclipse.store.configuration.CustomerGenerator;
  * This test trims the scenario to the smallest configuration that still
  * triggers it.
  */
-@Disabled("https://github.com/microstream-one/internal/issues/52")
+@Disabled("continuous backup writes a duplicate CREATION entry into the transactions log after housekeeping on reopen")
 class BackupTxLogDuplicateBugRepro
 {
 

@@ -15,7 +15,7 @@ package test.eclipse.store.fixtures;
  */
 
 import org.junit.jupiter.api.Test;
-import test.microstream.library.TypeEnum;
+import test.eclipse.store.library.TypeEnum;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 

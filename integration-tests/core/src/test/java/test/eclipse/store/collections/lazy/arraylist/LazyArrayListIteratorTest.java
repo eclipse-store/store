@@ -35,7 +35,7 @@ public class LazyArrayListIteratorTest
     static void init()
     {
         final Class<?>[] declaredClass = LazyArrayList.class.getDeclaredClasses();
-        final Optional<Class<?>> opt = Stream.of(declaredClass).filter(e -> e.getName().equals("one.microstream.collections.lazy.LazyArrayList$Itr")).findFirst();
+        final Optional<Class<?>> opt = Stream.of(declaredClass).filter(e -> e.getName().equals(LazyArrayList.class.getName() + "$Itr")).findFirst();
         if (opt.isPresent()) {
             clazz = opt.get();
         }

@@ -67,7 +67,7 @@ class BackupDirectoryTest
 
 
     /**
-     * https://github.com/microstream-one/microstream/issues/197
+     * Regression: the type dictionary was not recreated after the backup directory had been deleted.
      *
      * @param secondBackup
      * @throws InterruptedException

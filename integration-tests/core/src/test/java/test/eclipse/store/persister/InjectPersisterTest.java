@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * https://docs.microstream.one/manual/storage/customizing/optional-storage-manager-reference-in-entities.html
+ * https://docs.eclipsestore.io/manual/storage/customizing/optional-storage-manager-reference-in-entities.html
  */
 public class InjectPersisterTest
 {

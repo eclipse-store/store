@@ -64,14 +64,14 @@ class DeletionDirectoryBehaviorTest
     private static final ByteSize DATA_FILE_MAX = ByteSize.New(2, ByteUnit.KiB);
 
     @Test
-    @Disabled("https://github.com/microstream-one/internal/issues/56")
+    @Disabled("StorageObjectRestorer does not restore an object's references")
     void recoverableFromDeletionDirectorySingleChannel(@TempDir final Path workDir) throws IOException
     {
         assertRecoverableThroughDeletionDirectory(workDir, 1);
     }
 
     @Test
-    @Disabled("https://github.com/microstream-one/internal/issues/56")
+    @Disabled("StorageObjectRestorer does not restore an object's references")
     void recoverableFromDeletionDirectoryMultiChannel(@TempDir final Path workDir) throws IOException
     {
         assertRecoverableThroughDeletionDirectory(workDir, 4);
@@ -158,7 +158,7 @@ class DeletionDirectoryBehaviorTest
     }
 
     @Test
-    @Disabled("https://github.com/microstream-one/internal/issues/52")
+    @Disabled("continuous backup writes a duplicate CREATION entry into the transactions log after housekeeping on reopen")
     void continuousBackupReflectsCurrentLiveStorageNotArchive(@TempDir final Path workDir)
             throws IOException, NoSuchAlgorithmException, InterruptedException
     {

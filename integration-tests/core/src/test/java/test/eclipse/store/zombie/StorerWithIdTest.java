@@ -213,7 +213,7 @@ public class StorerWithIdTest
             list.add(s);
             list.add("world");
             list.add("test");
-            list.add("microstream");
+            list.add("eclipse-store");
             list.add("zombie");
         }
 

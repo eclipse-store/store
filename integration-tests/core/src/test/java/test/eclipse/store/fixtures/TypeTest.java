@@ -19,8 +19,8 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import test.microstream.library.TypeEnum;
-import test.microstream.library.types.BinaryHandlerTestData;
+import test.eclipse.store.library.TypeEnum;
+import test.eclipse.store.library.types.BinaryHandlerTestData;
 
 import java.nio.file.Path;
 

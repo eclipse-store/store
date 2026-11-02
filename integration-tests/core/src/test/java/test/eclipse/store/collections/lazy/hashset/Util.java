@@ -2,7 +2,7 @@ package test.eclipse.store.collections.lazy.hashset;
 
 /*-
  * #%L
- * MicroStream Base
+ * EclipseStore Integration Tests
  * %%
  * Copyright (C) 2019 - 2022 MicroStream Software
  * %%

@@ -2,7 +2,7 @@ package test.eclipse.store.various;
 
 /*-
  * #%L
- * EclipseStore GigaMap
+ * EclipseStore Integration Tests
  * %%
  * Copyright (C) 2023 - 2025 MicroStream Software
  * %%

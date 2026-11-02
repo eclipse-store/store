@@ -182,7 +182,7 @@ public class MapOfTest
     }
 
     @Test
-    @Disabled("https://github.com/microstream-one/internal/issues/54")
+    @Disabled("Map.entry(k, v) (KeyValueHolder) is on the non-persistable list")
     void mapEntryStandaloneTest()
     {
         // Map.entry(...) returns KeyValueHolder — its own immutable Map.Entry.

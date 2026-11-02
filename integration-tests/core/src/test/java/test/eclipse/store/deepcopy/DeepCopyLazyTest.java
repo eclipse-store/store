@@ -37,7 +37,7 @@ import org.junit.jupiter.api.io.TempDir;
  * defects, not produce a green run.
  */
 
-@Disabled("https://github.com/microstream-one/internal/issues/53")
+@Disabled("ObjectCopier.copy fails on graphs containing a stored Lazy: ObjectId already set")
 public class DeepCopyLazyTest
 {
 

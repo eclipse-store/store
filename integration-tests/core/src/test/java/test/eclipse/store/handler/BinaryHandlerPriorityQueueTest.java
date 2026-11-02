@@ -29,7 +29,7 @@ public class BinaryHandlerPriorityQueueTest
     Path storagePath;
 
     /**
-     * test for issue: https://github.com/microstream-one/microstream-private/issues/580
+     * Regression: an empty java.util.PriorityQueue caused an IllegalArgumentException when loaded.
      * Load empty PriorityQueue
      */
     @Test

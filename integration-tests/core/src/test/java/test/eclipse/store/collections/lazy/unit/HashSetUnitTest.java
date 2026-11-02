@@ -64,7 +64,7 @@ public class HashSetUnitTest
     @Test
     void contains()
     {
-        String value = "Hi Microstream";
+        String value = "Hi Eclipse Store";
 
         LazyHashSet<String> lazyHashSet = Util.generateLazyHashSet(10, 100);
         lazyHashSet.add(value);
@@ -74,7 +74,7 @@ public class HashSetUnitTest
     @Test
     void remove()
     {
-        String value = "Hi Microstream";
+        String value = "Hi Eclipse Store";
         LazyHashSet<String> lazyHashSet = Util.generateLazyHashSet(10, 100);
         lazyHashSet.add(value);
         assertTrue(lazyHashSet.remove(value));

@@ -19,7 +19,7 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.opentest4j.MultipleFailuresError;
-import test.microstream.library.TypeRegister;
+import test.eclipse.store.library.TypeRegister;
 
 import java.nio.file.Path;
 
