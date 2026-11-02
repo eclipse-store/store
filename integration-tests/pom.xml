@@ -143,16 +143,6 @@
             </modules>
         </profile>
         <profile>
-            <id>jdk22-plus</id>
-            <activation>
-                <jdk>[22,)</jdk>
-            </activation>
-            <modules>
-                <!-- needs gigamap-jvector, which the gigamap reactor only builds on JDK 22+ -->
-                <module>skills/gigamap</module>
-            </modules>
-        </profile>
-        <profile>
             <!--
                 JDK 25+ can run with compact object headers (JEP 519). The serializer accesses object
                 headers directly, so every test fork pins the layout the serializer was built for.
@@ -162,6 +152,10 @@
             <activation>
                 <jdk>[25,)</jdk>
             </activation>
+            <modules>
+                <!-- needs gigamap-jvector, which compiles with release 25 -->
+                <module>skills/gigamap</module>
+            </modules>
             <properties>
                 <extra.jvm.args>-XX:-UseCompactObjectHeaders</extra.jvm.args>
             </properties>
