@@ -26,24 +26,10 @@ public class PathData implements BinaryHandlerTestData {
     Path value = Paths.get("www.microtream.one");
 
     // edge cases
-    // No edge-case fields were added. Background:
-    //   BinaryHandlerPath.instanceState (persistence/binary, java/nio/file) serializes via
-    //   Path.toUri().toString(). Path.toUri() for a *relative* path resolves it against the
-    //   default directory first (per JDK javadoc), so every relative Path is silently turned
-    //   into an absolute path with the producer's CWD prepended. Deserialization
-    //   (Paths.get(URI.create(...))) reconstructs the absolute form. Net effect: relative
-    //   Paths do not round-trip, and the persisted binary is CWD-dependent across machines
-    //   and releases.
-    //
-    //   The existing assertion sidesteps this by comparing only toFile().getName() (the
-    //   last segment), which survives absolutization. Probes that would assert Path.equals
-    //   or toString() on relative paths cannot pass under the current handler; absolute
-    //   paths in turn cannot be made portable across OS / user.dir / release for the
-    //   compatibility/producer* lane. Both approaches were tried and dropped.
-    //
-    //   A standalone reproducer of the absolutization is in
-    //   test.microstream.PathRelativeRoundTripReproTest (currently @Disabled until the
-    //   handler is fixed in serializer's BinaryHandlerPath).
+    // No edge-case fields: BinaryHandlerPath persists Path.toUri().toString(), and Path.toUri()
+    // resolves a relative path against the current directory first. Relative paths therefore do
+    // not round-trip and absolute paths are not portable across OS / user.dir / release, so the
+    // assertion only compares the last segment (toFile().getName()).
 
     private static File getTempDirectory() {
         return new File(getTempDirectoryPath());
