@@ -65,17 +65,32 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # gigamap/jvector, gigamap/codegen-jvector-test and demos/product-recommendations compile with
+      # release 25; the legs below 25 leave them out (the IT aggregator drops skills/gigamap itself).
+      - name: Scope the reactor to what the JDK can build
+        id: scope
+        run: |
+          MAJOR="${{ matrix.java }}"; MAJOR="${MAJOR%%[.-]*}"
+          if [ "$MAJOR" -lt 25 ]; then
+            echo "exclude=!gigamap/jvector,!gigamap/codegen-jvector-test,!demos/product-recommendations" >> "$GITHUB_OUTPUT"
+          else
+            echo "exclude=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build reactor (no tests)
-        run: >
-          mvn -T 1C -P IT -B clean install -DskipTests --no-transfer-progress -U
-          -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+        env:
+          EXCLUDE: ${{ steps.scope.outputs.exclude }}
+        run: |
+          mvn -T 1C -P IT -B clean install -DskipTests --no-transfer-progress -U ${EXCLUDE:+-pl "$EXCLUDE"} \
+            -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
 
       - name: Run gigamap tests
         env:
           JAVA_TOOL_OPTIONS: ${{ matrix.opts }}
-        run: >
-          mvn -B test -pl gigamap -amd --no-transfer-progress
-          -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+          EXCLUDE: ${{ steps.scope.outputs.exclude }}
+        run: |
+          mvn -B test -pl "gigamap${EXCLUDE:+,$EXCLUDE}" -amd --no-transfer-progress \
+            -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
 
       - name: Run integration tests (all suites except the slow AFS backends)
         env:
