@@ -1,5 +1,10 @@
 = SQLite
 
+[WARNING]
+====
+The SQL file system (`afs-sql`) is *deprecated since 4.3.0* and will be removed in 5.0.0. There is no replacement.
+====
+
 [source, xml, subs=attributes+]
 ----
 <dependency>

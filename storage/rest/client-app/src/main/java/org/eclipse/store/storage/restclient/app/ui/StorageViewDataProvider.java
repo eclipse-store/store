@@ -31,6 +31,12 @@ import org.eclipse.store.storage.restclient.types.StorageView;
 import org.eclipse.store.storage.restclient.types.StorageViewElement;
 
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0.
+ * Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin} instead, see
+ * {@link org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration}.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface StorageViewDataProvider<F> extends HierarchicalDataProvider<StorageViewElement, F>
 {
 	public static <F> StorageViewDataProvider<F> New(final StorageView storageView)

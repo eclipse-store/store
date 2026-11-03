@@ -11,6 +11,7 @@
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+@SuppressWarnings("removal")
 module integrations.spring.boot3.console {
     requires jakarta.annotation;
     requires org.slf4j;

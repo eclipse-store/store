@@ -28,6 +28,10 @@ import org.eclipse.serializer.collections.EqHashEnum;
 import org.eclipse.serializer.collections.types.XGettingEnum;
 import org.eclipse.serializer.io.BufferProvider;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlIoHandler extends AIoHandler
 {
 	public SqlConnector connector();

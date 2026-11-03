@@ -160,13 +160,13 @@ These are the different modules that make up {product-name}.
 |File system implementation for the non-blocking IO implementation (java.nio.file) of the JDK.
 
 |afs-oraclecloud-objectstorage
-|File system implementation for Oracle Cloud Services (Object Storage).
+|*Deprecated since 4.3.0, will be removed in 5.0.0.* File system implementation for Oracle Cloud Services (Object Storage).
 
 |afs-redis
 |File system implementation for Redis.
 
 |afs-sql
-|File system implementation for SQL databases.
+|*Deprecated since 4.3.0, will be removed in 5.0.0.* File system implementation for SQL databases.
 
 |cache
 |JSR-107 (JCache) implementation for {product-name}.
@@ -214,7 +214,7 @@ These are the different modules that make up {product-name}.
 |Abstract REST client interface, which serves as a Java wrapper for the xref:storage:rest-interface/rest-api.adoc[REST API].
 
 |storage-restclient-app
-|Executable xref:storage:rest-interface/client-gui.adoc[client app] with web user interface, which connects to a REST service.
+|*Deprecated since 4.3.0, will be removed in 5.0.0.* Executable xref:storage:rest-interface/client-gui.adoc[client app] with web user interface, which connects to a REST service.
 
 |storage-restclient-jersey
 |REST client implementation which utilizes Jersey as a webservice framework.

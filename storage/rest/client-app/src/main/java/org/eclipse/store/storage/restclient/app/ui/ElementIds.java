@@ -14,6 +14,12 @@ package org.eclipse.store.storage.restclient.app.ui;
  * #L%
  */
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0.
+ * Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin} instead, see
+ * {@link org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration}.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface ElementIds
 {
 	String TAB_STATISTICS    = "tab-statistics";

@@ -24,6 +24,10 @@ import java.util.Arrays;
 import javax.sql.DataSource;
 
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlProviderHana extends SqlProvider
 {
 	public static enum StoreType
