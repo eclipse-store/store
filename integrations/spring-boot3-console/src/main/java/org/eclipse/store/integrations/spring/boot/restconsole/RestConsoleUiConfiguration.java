@@ -19,6 +19,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0, together with the Vaadin based
+ * storage REST client GUI it imports. Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin}
+ * instead.
+ */
+@SuppressWarnings("removal")
+@Deprecated(since = "4.3.0", forRemoval = true)
 @ConditionalOnProperty(value = "org.eclipse.store.console.ui.enabled", havingValue = "true", matchIfMissing = true)
 @Configuration
 @Import(RestClientAppAutoConfiguration.class)

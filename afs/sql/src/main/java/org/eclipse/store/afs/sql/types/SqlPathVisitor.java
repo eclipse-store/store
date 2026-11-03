@@ -14,7 +14,11 @@ package org.eclipse.store.afs.sql.types;
  * #L%
  */
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
 @FunctionalInterface
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlPathVisitor
 {
 	public void visitItem(String itemName);

@@ -24,8 +24,14 @@ import com.vaadin.flow.router.RouteNotFoundError;
 
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0.
+ * Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin} instead, see
+ * {@link org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration}.
+ */
 @Route(value = "404", layout = RootLayout.class)
 @PageTitle("404 - " + RootLayout.PAGE_TITLE)
+@Deprecated(since = "4.3.0", forRemoval = true)
 public class RouteNotFoundView extends RouteNotFoundError
 {
 	public RouteNotFoundView()

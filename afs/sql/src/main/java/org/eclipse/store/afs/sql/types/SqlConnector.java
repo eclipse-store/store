@@ -40,6 +40,10 @@ import org.eclipse.serializer.reference.Reference;
 import org.eclipse.serializer.typing.KeyValue;
 
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlConnector
 {
 	public long fileSize(SqlPath file);

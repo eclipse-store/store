@@ -30,7 +30,10 @@ package org.eclipse.store.afs.sql.types;
  * <blockquote><pre>
  * SqlPath.set(SqlPathSeparatorProvider.New("_", '_'));
  * </pre></blockquote>
+ *
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
  */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlPathSeparatorProvider
 {
 	final static String DIRECTORY_TABLE_NAME_SEPARATOR_DEFAULT      = "$";

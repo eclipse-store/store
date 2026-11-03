@@ -34,6 +34,12 @@ import com.vaadin.flow.theme.lumo.Lumo;
 
 
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0.
+ * Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin} instead, see
+ * {@link org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration}.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public class RootLayout extends VerticalLayout
 	implements RouterLayout, BeforeEnterObserver
 {

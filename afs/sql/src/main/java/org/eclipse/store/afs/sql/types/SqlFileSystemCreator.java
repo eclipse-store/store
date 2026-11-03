@@ -25,6 +25,10 @@ import org.eclipse.serializer.configuration.exceptions.ConfigurationException;
 import org.eclipse.serializer.configuration.types.Configuration;
 import org.eclipse.serializer.configuration.types.ConfigurationBasedCreator;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public abstract class SqlFileSystemCreator extends ConfigurationBasedCreator.Abstract<AFileSystem>
 {
 	protected SqlFileSystemCreator(final String name)

@@ -20,9 +20,15 @@ import com.vaadin.flow.component.page.Push;
 import com.vaadin.flow.theme.Theme;
 import com.vaadin.flow.theme.lumo.Lumo;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0.
+ * Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin} instead, see
+ * {@link org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration}.
+ */
 @Push
 @Theme(themeClass = Lumo.class, variant = Lumo.DARK)
 @CssImport("./styles/shared-styles.css")
+@Deprecated(since = "4.3.0", forRemoval = true)
 public final class AppShell implements AppShellConfigurator
 {
 
