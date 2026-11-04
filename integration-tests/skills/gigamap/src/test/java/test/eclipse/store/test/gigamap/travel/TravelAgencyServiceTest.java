@@ -9,7 +9,7 @@ package test.eclipse.store.test.gigamap.travel;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -25,10 +25,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.eclipse.store.gigamap.jvector.VectorSearchResult;
+import org.eclipse.store.gigamap.types.IndexerString;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -52,6 +55,16 @@ class TravelAgencyServiceTest
 
             List<Accommodation> czech = svc.byCountry("CZ");
             assertEquals(5, czech.size(), "expected 5 CZ accommodations");
+
+            // Pagination: two pages of 3 and the rest, no overlap, nothing lost
+            List<Accommodation> page1 = svc.byCountry("CZ", 0, 3);
+            List<Accommodation> page2 = svc.byCountry("CZ", 3, 3);
+            assertEquals(3, page1.size());
+            assertEquals(2, page2.size());
+            Set<UUID> paged = new HashSet<>();
+            page1.forEach(a -> paged.add(a.id()));
+            page2.forEach(a -> paged.add(a.id()));
+            assertEquals(5, paged.size(), "pages must not overlap");
 
             List<Accommodation> hotels = svc.byType(Accommodation.Type.HOTEL);
             assertEquals(4, hotels.size());
@@ -105,12 +118,14 @@ class TravelAgencyServiceTest
         }
 
         // ---- second session: reload, verify durability + idempotent ensure --
+        // The storage shutdown of the first session closed the Lucene and vector
+        // indices; reopening in the same JVM must not hit Lucene's write.lock.
         try (TravelAgencyService svc = new TravelAgencyService(storageDir, luceneDir))
         {
             assertEquals(10, svc.root().accommodations().size());
             assertEquals(1,  svc.root().reservations().size());
 
-            // Lucene results survive (the on-disk index reopens)
+            // Lucene results survive (the index at the named location reopens)
             List<Accommodation> hits = svc.textSearch("description:Danube", 10);
             assertEquals(3, hits.size());
 
@@ -180,6 +195,61 @@ class TravelAgencyServiceTest
                 "the moved entity should be gone from the CZ index");
             assertEquals(1, svc.byCountry("DE").size());
             assertNotEquals(0, id.variant());
+        }
+    }
+
+    /** An index registered after the data exists is back-filled (skill Pattern B / Example 6). */
+    private static final IndexerString<Accommodation> nameIndex = new IndexerString.Abstract<>()
+    {
+        @Override public String name() { return "accommodation.name"; }
+        @Override protected String getString(Accommodation a) { return a.name(); }
+    };
+
+    @Test
+    void index_registered_on_a_populated_map_is_backfilled_and_reindex_repairs_a_direct_mutation(@TempDir Path tmp)
+        throws IOException
+    {
+        Path storageDir = tmp.resolve("storage");
+        Path luceneDir  = tmp.resolve("lucene");
+        Files.createDirectories(storageDir);
+        Files.createDirectories(luceneDir);
+
+        try (TravelAgencyService svc = new TravelAgencyService(storageDir, luceneDir))
+        {
+            SampleData.seed().forEach(svc::addAccommodation);
+
+            // ensure() on a populated map back-fills the new index from every entity
+            svc.root().accommodations().index().bitmap().ensure(nameIndex);
+            svc.root().accommodations().store();
+
+            List<Accommodation> grand = svc.root().accommodations()
+                .query(nameIndex.startsWith("Grand")).toList();
+            assertEquals(1, grand.size());
+            assertEquals("Grand Praha", grand.get(0).name());
+
+            // A direct mutation bypasses the indices: the old key still answers ...
+            Accommodation a = grand.get(0);
+            a.setCity("Brno");                                   // WRONG in application code
+            svc.storage().store(a);                              // GigaMap did not track it
+            assertEquals(2, svc.root().accommodations()
+                .query(AccommodationIndices.city.is("Praha")).count(), "stale index still lists Praha");
+
+            // ... until reindex() rebuilds every index from the current entity state
+            svc.root().accommodations().reindex();
+            svc.root().accommodations().store();
+            assertEquals(1, svc.root().accommodations()
+                .query(AccommodationIndices.city.is("Praha")).count());
+            assertEquals(1, svc.root().accommodations()
+                .query(AccommodationIndices.city.is("Brno")).count());
+        }
+
+        // The later-registered index and the rebuilt ones survive a restart; ensure() is a no-op now
+        try (TravelAgencyService svc = new TravelAgencyService(storageDir, luceneDir))
+        {
+            svc.root().accommodations().index().bitmap().ensure(nameIndex);
+            assertEquals(1, svc.root().accommodations().query(nameIndex.startsWith("Grand")).count());
+            assertEquals(1, svc.root().accommodations()
+                .query(AccommodationIndices.city.is("Brno")).count());
         }
     }
 }
