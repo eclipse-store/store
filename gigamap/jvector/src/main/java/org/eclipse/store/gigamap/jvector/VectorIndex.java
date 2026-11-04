@@ -4488,6 +4488,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 return;
             }
+            // Taken before the slot is overwritten: a failed synchronous graph replace restores them, see
+            // restoreAfterFailedReplace.
+            final boolean restorable  = vector != null && !this.isEventualIndexing();
+            final float[] previous    = restorable && wasPresent ? file.read(ordinal) : null;
+            final long    previousKey = file.key(ordinal);
             this.writeSlot(file, ordinal, vector, key);
 
             if(this.isEventualIndexing())
@@ -4516,7 +4521,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     // vec→vec' or null→vec. The repair scores through the vector file, so its ForkJoin
                     // workers never need the monitor this thread holds, whichever the vectorizer.
-                    final VectorFloat<?> vf = this.vectorTypeSupport.createFloatVector(vector);
+                    final VectorFloat<?> vf      = this.vectorTypeSupport.createFloatVector(vector);
+                    final boolean        wasLive = restorable && isLiveNode(currentBuilder, ordinal);
                     try
                     {
                         this.internalReplaceGraphNode(currentBuilder, ordinal, vf);
@@ -4529,6 +4535,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         this.setOwner(ordinal, currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal));
                         throw e;
                     }
+                    catch(final RuntimeException | Error e)
+                    {
+                        this.restoreAfterFailedReplace(currentBuilder, ordinal, previous, previousKey, wasLive, e);
+                        throw e;
+                    }
                     this.setOwner(ordinal, true);
                 }
                 this.markDirtyForBackgroundManagers(1);
@@ -4536,6 +4547,101 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
 
             this.markContentChanged();
             this.requestFlushIfDue();
+        }
+
+        private static boolean isLiveNode(
+            final GraphIndexBuilder target ,
+            final int               ordinal
+        )
+        {
+            return target != null
+                && graphOf(target).containsNode(ordinal)
+                && !graphOf(target).getDeletedNodes().get(ordinal)
+            ;
+        }
+
+        /**
+         * Undoes a synchronous replace whose graph step failed. The map keeps the replaced entity, so the index
+         * must keep its vector: the slot gets the previous vector and key back, the node the replace left behind
+         * is purged - possibly half-inserted, which no search reaches and a persist rejects - and the previous
+         * node is inserted again if it was live. A restore that fails as well is escalated as a failed graph
+         * operation and added to {@code failure} as suppressed.
+         *
+         * @param target      the builder the replace ran on
+         * @param ordinal     the entity's ordinal
+         * @param previous    the vector the slot held before, or {@code null}
+         * @param previousKey the key the slot held before
+         * @param wasLive     whether the ordinal was a live node of {@code target} before
+         * @param failure     the failure of the replace, rethrown by the caller
+         */
+        private void restoreAfterFailedReplace(
+            final GraphIndexBuilder target     ,
+            final int               ordinal    ,
+            final float[]           previous   ,
+            final long              previousKey,
+            final boolean           wasLive    ,
+            final Throwable         failure
+        )
+        {
+            try
+            {
+                this.writeSlot(this.vectorFile, ordinal, previous, previousKey);
+                if(target == null)
+                {
+                    return;
+                }
+                final OnHeapGraphIndex graph = graphOf(target);
+                if(graph.containsNode(ordinal))
+                {
+                    target.markNodeDeleted(ordinal);
+                }
+                this.untrackPqCode(ordinal);
+                final VectorFloat<?> restored = wasLive && previous != null
+                    ? this.vectorTypeSupport.createFloatVector(previous)
+                    : null
+                ;
+                if(graph.entryNode() == null)
+                {
+                    // No insertion has completed in this graph, so no node links to this one. jVector's purge
+                    // dereferences the entry node; removeNode does not need one.
+                    final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
+                    lock.lock();
+                    try
+                    {
+                        graph.removeNode(ordinal);
+                    }
+                    finally
+                    {
+                        lock.unlock();
+                    }
+                    if(restored != null)
+                    {
+                        this.insertSingle(target, ordinal, restored);
+                    }
+                }
+                else if(restored != null)
+                {
+                    this.replaceDeletedNode(target, ordinal, restored);
+                }
+                else
+                {
+                    this.removeDeletedNodes(target);
+                }
+            }
+            catch(final RuntimeException | Error restoreFailure)
+            {
+                // The VM may throw one shared OutOfMemoryError, which cannot suppress itself.
+                if(restoreFailure != failure)
+                {
+                    failure.addSuppressed(restoreFailure);
+                }
+                LOG.error("Vector index '{}' could not undo a failed update of ordinal {}; its search results may be"
+                    + " wrong until the graph is rebuilt (reindex() rebuilds it now)", this.name, ordinal, restoreFailure);
+                this.graphOperationFailed(restoreFailure instanceof final RuntimeException r
+                    ? r
+                    : new RuntimeException(restoreFailure)
+                );
+            }
         }
 
         private List<? extends E> toList(final Iterable<? extends E> entities)
