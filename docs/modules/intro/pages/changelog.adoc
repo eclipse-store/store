@@ -1,6 +1,71 @@
 = Changelog
 
 
+== 4.3.0
+
+=== Features
+
+* GigaMap JVector
+** Segmented on-disk vector index over a memory-mapped vector file https://github.com/eclipse-store/store/pull/861[[861]]
+** Compression formats and in-memory PQ scoring, `enablePqCompression` now actually produces a compressed index, and update to jvector 4.0.0-rc.9 https://github.com/eclipse-store/store/pull/825[[825]] https://github.com/eclipse-store/store/pull/834[[834]]
+** Reduced boxing and allocation in search, disk graph writing and index bookkeeping https://github.com/eclipse-store/store/pull/849[[849]] https://github.com/eclipse-store/store/pull/850[[850]] https://github.com/eclipse-store/store/pull/851[[851]] https://github.com/eclipse-store/store/pull/852[[852]] https://github.com/eclipse-store/store/pull/853[[853]] https://github.com/eclipse-store/store/pull/854[[854]]
+* GigaMap: `store(Persister)` is widened to `store(PersistenceStoring)`, so a `Storer` can be passed https://github.com/eclipse-store/store/pull/789[[789]]
+* New VanillaJS viewer for the REST service https://github.com/eclipse-store/store/pull/822[[822]]
+* Type handlers may supply one legacy handler per persisted layout https://github.com/eclipse-serializer/serializer/pull/320[[320]]
+
+=== Bugfixes
+
+* Storage
+** Power-loss corruption caused by a housekeeping transfer after a store https://github.com/eclipse-store/store/pull/778[[778]]
+** Channel-barrier waiters are released on a disruption https://github.com/eclipse-store/store/pull/781[[781]]
+** Storage lock-file manager reworked (lifecycle, exclusion, scheduling) https://github.com/eclipse-store/store/pull/783[[783]]
+** Binary import and export failure handling hardened https://github.com/eclipse-store/store/pull/792[[792]]
+** Reindex disables the missing files check https://github.com/eclipse-store/store/pull/839[[839]]
+** S3 connector no longer hands the AWS SDK a single-use content stream provider https://github.com/eclipse-store/store/pull/836[[836]]
+* Serializer
+** Storing and committing after a failed store is rejected until `clear()` is called https://github.com/eclipse-serializer/serializer/pull/322[[322]]
+** `LazyHashMap` and `LazyArrayList` segments stay dirty until the store is committed, and storing unloaded `LazyArrayList` segments into another storage is rejected https://github.com/eclipse-serializer/serializer/pull/321[[321]] https://github.com/eclipse-serializer/serializer/pull/323[[323]]
+** Crash-safe type dictionary export, coalesced to one export per store commit https://github.com/eclipse-serializer/serializer/pull/313[[313]] https://github.com/eclipse-serializer/serializer/pull/315[[315]]
+** Direct buffers are kept reachable while in use https://github.com/eclipse-store/store/pull/786[[786]] https://github.com/eclipse-serializer/serializer/pull/311[[311]]
+** `HashTable` field offsets are read from `HashTable` instead of `EqHashTable`, and `HashMapIdObject.toString()` works on an empty map https://github.com/eclipse-serializer/serializer/pull/312[[312]] https://github.com/eclipse-serializer/serializer/pull/319[[319]]
+* GigaMap index correctness
+** Bitmap indices: total length mismatch on restart after removing entities from a compressed index, intact level2 block when compression fails, and reset of the add cache when a level2 block was rebuilt or freed https://github.com/eclipse-store/store/pull/821[[821]] https://github.com/eclipse-store/store/pull/866[[866]] https://github.com/eclipse-store/store/pull/867[[867]]
+** An index failure during `apply()` / `update()` no longer deletes the committed entity https://github.com/eclipse-store/store/pull/810[[810]]
+** Entity ids are derived with long arithmetic and no longer wrap at 2^31 https://github.com/eclipse-store/store/pull/806[[806]]
+** Numeric binary indexers reject null keys with a designed exception instead of a raw `NullPointerException` https://github.com/eclipse-store/store/pull/805[[805]]
+** The composite index key carrier is cleared before every indexer invocation https://github.com/eclipse-store/store/pull/798[[798]]
+** `Condition.and()` / `or()` no longer modify the receiver chain, and a query registered as its own sub-query no longer recurses infinitely https://github.com/eclipse-store/store/pull/802[[802]] https://github.com/eclipse-store/store/pull/803[[803]]
+** The entity locator no longer misses entities in evicted lazy segments https://github.com/eclipse-store/store/pull/799[[799]]
+* GigaMap consistency and concurrency
+** `set()` into a slot emptied by `removeById` no longer causes size drift or a `ClassCastException`, and a segment is released when a removal empties it https://github.com/eclipse-store/store/pull/793[[793]] https://github.com/eclipse-store/store/pull/797[[797]]
+** The equalator no longer decides whether `set` / `replace` writes at all https://github.com/eclipse-store/store/pull/800[[800]]
+** Heap eviction no longer deletes from the backing store, and `removeAll()` purges evicted entries https://github.com/eclipse-store/store/pull/801[[801]]
+** The `Iterable` passed to `addAll` and to constraint registration is materialized and traversed exactly once https://github.com/eclipse-store/store/pull/788[[788]] https://github.com/eclipse-store/store/pull/791[[791]]
+** Index registration waits for open readers, like entity mutation does https://github.com/eclipse-store/store/pull/787[[787]]
+* GigaMap reindex and index registration
+** Registration and redefinition build the index before registering it, also for vector indices https://github.com/eclipse-store/store/pull/812[[812]] https://github.com/eclipse-store/store/pull/841[[841]]
+** `reindex()` re-validates unique constraints, no longer truncates the whole bitmap index group on failure, and is failure-safe for vector and Lucene indices https://github.com/eclipse-store/store/pull/811[[811]] https://github.com/eclipse-store/store/pull/814[[814]] https://github.com/eclipse-store/store/pull/855[[855]] https://github.com/eclipse-store/store/pull/863[[863]]
+* GigaMap JVector
+** Persisting an empty vector index is a no-op instead of a `NullPointerException` https://github.com/eclipse-store/store/pull/824[[824]]
+** A newly registered vector index is populated exactly once, and deferred builder operations no longer add an ordinal twice after a persist https://github.com/eclipse-store/store/pull/796[[796]] https://github.com/eclipse-store/store/pull/809[[809]]
+** Lock order deadlock in the vector index https://github.com/eclipse-store/store/pull/848[[848]]
+** A deleted node is re-inserted when an add reuses its id https://github.com/eclipse-store/store/pull/865[[865]]
+** The result of a computed vectorizer is copied at the index boundary, so vectorizers may reuse a buffer https://github.com/eclipse-store/store/pull/862[[862]] https://github.com/eclipse-store/store/pull/863[[863]]
+* GigaMap Lucene: `query(Query)` on an empty map returns an empty result instead of throwing `numHits must be > 0` https://github.com/eclipse-store/store/pull/795[[795]]
+
+=== Deprecations
+
+* `afs-sql` and `afs-oraclecloud-objectstorage` (including the `afs-oraclecloud-parent` module) are deprecated and will be removed in 5.0.0, there is no replacement
+* The Vaadin based REST client GUI (`storage-restclient-app` and `storage-restclient-app-standalone-assembly`) and the console UI of `integrations-spring-boot3-console` are deprecated and will be removed in 5.0.0, use the xref:storage:rest-interface/client-gui.adoc[bundled Storage Viewer] of `storage-restservice-javalin` instead https://github.com/eclipse-store/store/pull/822[[822]]
+
+=== Other changes
+
+* Dependency updates: Spring Boot, Jetty, Jackson, Vaadin and the AFS connector dependencies https://github.com/eclipse-store/store/pull/815[[815]] https://github.com/eclipse-store/store/pull/816[[816]] https://github.com/eclipse-store/store/pull/817[[817]] https://github.com/eclipse-store/store/pull/820[[820]] https://github.com/eclipse-store/store/pull/858[[858]] https://github.com/eclipse-store/store/pull/875[[875]]
+* The SparkJava REST service implementation was removed https://github.com/eclipse-store/store/pull/819[[819]]
+* `MMapDirectoryCreator` is now final https://github.com/eclipse-store/store/pull/840[[840]]
+* Documentation: storer and `BatchStorer` behaviour after a failed store, and corrected Lucene index code samples https://github.com/eclipse-store/store/pull/784[[784]] https://github.com/eclipse-store/store/pull/871[[871]]
+
+
 == 4.2.0
 
 === Features

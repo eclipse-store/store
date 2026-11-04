@@ -39,7 +39,7 @@ It is made up of the following modules:
 |REST client implementation which utilizes Jersey as a webservice framework.
 
 |storage-restclient-app
-|Client app with web user interface, which connects to a REST service and provides a simple UI to navigate through the Object Graph from the root.
+|*Deprecated since 4.3.0, will be removed in 5.0.0, use the bundled Storage Viewer of storage-restservice-javalin instead.* Client app with web user interface, which connects to a REST service and provides a simple UI to navigate through the Object Graph from the root.
 
 |storage-restclient-app-standalone
 |A standalone executable running from command line encapsulating the Client app from storage-restclient-app.

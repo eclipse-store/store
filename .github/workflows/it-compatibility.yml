@@ -1,0 +1,154 @@
+# Storage compatibility, no manual version input:
+#  - release-to-snapshot: a storage written by every released minor line (latest patch each, read from
+#    Maven Central metadata at run time) on JDK 17 is opened by the current snapshot on JDK 25.
+#  - jdk-cross: a storage written on one JDK is opened on another with the same snapshot (both directions).
+
+name: Integration tests (compatibility)
+
+permissions:
+  contents: read
+  checks: write
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'integration-tests/compatibility/**'
+      - '.github/workflows/it-compatibility.yml'
+
+env:
+  COMPAT_MODULES: integration-tests/compatibility/producer,integration-tests/compatibility/consumer
+  STORAGE_DIR: ${{ github.workspace }}/compat-storage
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - name: Latest patch of every released minor line
+        id: pick
+        run: |
+          set -euo pipefail
+          curl -sSf https://repo1.maven.org/maven2/org/eclipse/store/storage-embedded/maven-metadata.xml > meta.xml
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import re, json
+          vs = re.findall(r'<version>([^<]+)</version>', open('meta.xml').read())
+          rel = [v for v in vs if re.fullmatch(r'\d+\.\d+\.\d+', v)]      # skip betas / RCs
+          key = lambda v: tuple(int(x) for x in v.split('.'))
+          latest = {}
+          for v in rel:
+              minor = v.rsplit('.', 1)[0]
+              if minor not in latest or key(v) > key(latest[minor]): latest[minor] = v
+          picked = sorted(set(latest.values()), key=key)
+          print('matrix=' + json.dumps({'version': picked}))
+          print('picked', picked, file=__import__('sys').stderr)
+          EOF
+
+  release-to-snapshot:
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.versions.outputs.matrix) }}
+    name: "${{ matrix.version }} -> snapshot"
+    steps:
+      - uses: actions/checkout@v6
+      # Two JDKs: the released version writes on JDK 17 (every release supports it; 1.0 - 1.2 still use
+      # sun.misc.Unsafe.ensureClassInitialized, which JDK 22 removed), the snapshot reads on JDK 25.
+      - uses: actions/setup-java@v5
+        with:
+          java-version: |
+            17
+            25
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Align serializer version to matching branch snapshot
+        uses: ./.github/actions/align-serializer-version
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build reactor dependencies (no tests)
+        run: |
+          export JAVA_HOME="$JAVA_HOME_25_X64"; export PATH="$JAVA_HOME/bin:$PATH"
+          mvn -T 1C -P IT -B clean install -DskipTests -pl "$COMPAT_MODULES" -am --no-transfer-progress -U \
+            -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+      - name: Write storages with Eclipse Store ${{ matrix.version }} on JDK 17
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"; export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -P IT -B test -pl integration-tests/compatibility/producer --no-transfer-progress \
+            -Dcompatibility.producer.version=${{ matrix.version }} -Dcompatibility.storage.dir="$STORAGE_DIR" \
+            -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+      - name: Read them with the current snapshot on JDK 25
+        run: |
+          export JAVA_HOME="$JAVA_HOME_25_X64"; export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -P IT -B test -pl integration-tests/compatibility/consumer --no-transfer-progress \
+            -Dcompatibility.storage.dir="$STORAGE_DIR" \
+            -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+      - name: Report JUnit results
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: "Compatibility ${{ matrix.version }} -> snapshot"
+          path: 'integration-tests/compatibility/**/target/surefire-reports/TEST-*.xml'
+          reporter: java-junit
+          fail-on-error: false
+
+  jdk-cross:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { from: '17', to: '25' }
+          - { from: '25', to: '17' }
+    name: "JDK ${{ matrix.from }} -> ${{ matrix.to }}"
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up JDK ${{ matrix.to }} (reader) and JDK ${{ matrix.from }} (writer, default)
+        uses: actions/setup-java@v5
+        with:
+          # the last entry becomes the default JAVA_HOME; the other is exposed as JAVA_HOME_<ver>_X64
+          java-version: |
+            ${{ matrix.to }}
+            ${{ matrix.from }}
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Align serializer version to matching branch snapshot
+        uses: ./.github/actions/align-serializer-version
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build reactor dependencies (no tests)
+        run: >
+          mvn -T 1C -P IT -B clean install -DskipTests -pl "$COMPAT_MODULES" -am --no-transfer-progress -U
+          -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+      - name: Write storages on JDK ${{ matrix.from }} with the current snapshot
+        run: >
+          mvn -P IT -B test -pl integration-tests/compatibility/producer --no-transfer-progress
+          -Dcompatibility.producer.version=${{ env.PROJECT_VERSION }} -Dcompatibility.storage.dir="$STORAGE_DIR"
+          -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+        env:
+          PROJECT_VERSION: 5.0.0-SNAPSHOT
+      - name: Read them on JDK ${{ matrix.to }}
+        run: |
+          export JAVA_HOME="$JAVA_HOME_${{ matrix.to }}_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -P IT -B test -pl integration-tests/compatibility/consumer --no-transfer-progress \
+            -Dcompatibility.storage.dir="$STORAGE_DIR" \
+            -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+      - name: Report JUnit results
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: "Compatibility JDK ${{ matrix.from }} -> ${{ matrix.to }}"
+          path: 'integration-tests/compatibility/**/target/surefire-reports/TEST-*.xml'
+          reporter: java-junit
+          fail-on-error: false

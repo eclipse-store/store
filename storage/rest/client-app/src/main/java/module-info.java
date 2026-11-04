@@ -11,6 +11,10 @@
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. Use the Vanilla-JS storage viewer of storage-restservice-javalin instead.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 module org.eclipse.store.storage.restclient.app {
 	exports org.eclipse.store.storage.restclient.app.types;
 	exports org.eclipse.store.storage.restclient.app.ui;

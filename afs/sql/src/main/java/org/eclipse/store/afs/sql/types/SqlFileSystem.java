@@ -28,6 +28,10 @@ import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.io.XIO;
 
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlFileSystem extends AFileSystem, AResolver<SqlPath, SqlPath>
 {
 	public static SqlPath toPath(

@@ -19,6 +19,10 @@ import javax.sql.DataSource;
 import org.eclipse.serializer.configuration.types.Configuration;
 
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public class SqlFileSystemCreatorHana extends SqlFileSystemCreator
 {
 	public SqlFileSystemCreatorHana()

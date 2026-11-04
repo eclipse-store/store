@@ -19,6 +19,10 @@ import static org.eclipse.serializer.util.X.notNull;
 import org.eclipse.serializer.afs.types.AFile;
 import org.eclipse.serializer.afs.types.AReadableFile;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlReadableFile extends AReadableFile, SqlFileWrapper
 {
     public static SqlReadableFile New(
