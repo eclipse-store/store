@@ -51,7 +51,7 @@ jobs:
         with:
           name: cucumber-report
           path: |
-            integration-tests/ui/target/cucumber/
+            integration-tests/ui/target/cucumber.html
             integration-tests/ui/target/cucumber.json
           if-no-files-found: ignore
           retention-days: 14
