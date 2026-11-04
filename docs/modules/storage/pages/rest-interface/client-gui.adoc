@@ -49,7 +49,7 @@ place both behind a common reverse proxy.
 [WARNING]
 ====
 The standalone Vaadin client (`storage-restclient-app` and
-`storage-restclient-app-standalone-assembly`) is *deprecated and scheduled for removal*. It pulls in
+`storage-restclient-app-standalone-assembly`) is *deprecated since 4.3.0 and scheduled for removal in 5.0.0*. It pulls in
 Vaadin and Spring, which makes it heavyweight to run and hard to embed into existing projects. Use the
 *bundled Storage Viewer* described above instead.
 ====

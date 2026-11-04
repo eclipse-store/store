@@ -37,7 +37,13 @@ import com.vaadin.flow.server.VaadinSession;
 import jakarta.servlet.http.HttpServletResponse;
 
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0.
+ * Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin} instead, see
+ * {@link org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration}.
+ */
 @Route(value = "error", layout = RootLayout.class)
+@Deprecated(since = "4.3.0", forRemoval = true)
 public class InternalErrorView extends VerticalLayout
 	implements HasDynamicTitle, HasErrorParameter<Exception>, BeforeEnterObserver
 {

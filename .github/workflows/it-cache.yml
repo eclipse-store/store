@@ -1,0 +1,58 @@
+# JCache: the JSR-107 TCK against the Eclipse Store cache, and the Spring Boot + Hibernate L2 cache
+# application against MySQL in Testcontainers.
+
+name: Integration tests (cache)
+
+permissions:
+  contents: read
+  checks: write
+
+on:
+  push:
+    branches: [ '**' ]
+    paths:
+      - 'cache/**'
+      - 'integration-tests/cache/**'
+      - 'integration-tests/pom.xml'
+      - 'pom.xml'
+      - '.github/workflows/it-cache.yml'
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+env:
+  CACHE_MODULES: integration-tests/cache/jcache-tck,integration-tests/cache/jcache-tck-annotations-cdi,integration-tests/cache/jcache-tck-annotations-spring,integration-tests/cache/jcache-tck-annotations-guice,integration-tests/cache/spring-hibernate
+
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Align serializer version to matching branch snapshot
+        uses: ./.github/actions/align-serializer-version
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build reactor dependencies (no tests)
+        run: >
+          mvn -T 1C -P IT -B clean install -DskipTests -pl "$CACHE_MODULES" -am --no-transfer-progress -U
+          -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+      - name: Run cache tests
+        run: >
+          mvn -P IT -B test -pl "$CACHE_MODULES" --no-transfer-progress
+          -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+      - name: Report JUnit results
+        if: always()
+        uses: dorny/test-reporter@v2
+        with:
+          name: "Cache results"
+          path: 'integration-tests/cache/**/target/surefire-reports/TEST-*.xml'
+          reporter: java-junit
+          fail-on-error: false

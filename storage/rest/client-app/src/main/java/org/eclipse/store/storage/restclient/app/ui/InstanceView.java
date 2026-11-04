@@ -33,7 +33,13 @@ import com.vaadin.flow.router.HasDynamicTitle;
 import com.vaadin.flow.router.Route;
 
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0.
+ * Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin} instead, see
+ * {@link org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration}.
+ */
 @Route(value = "instance", layout = RootLayout.class)
+@Deprecated(since = "4.3.0", forRemoval = true)
 public class InstanceView extends VerticalLayout implements HasDynamicTitle
 {
 	public InstanceView()

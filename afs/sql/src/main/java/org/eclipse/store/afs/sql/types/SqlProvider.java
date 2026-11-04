@@ -36,6 +36,10 @@ import org.eclipse.serializer.chars.VarString;
 import org.eclipse.serializer.exceptions.IORuntimeException;
 
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlProvider
 {
 	public final static String IDENTIFIER_COLUMN_NAME   = "identifier" ;

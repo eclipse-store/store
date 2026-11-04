@@ -11,6 +11,10 @@
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 module org.eclipse.store.afs.sql
 {
 	exports org.eclipse.store.afs.sql.types;

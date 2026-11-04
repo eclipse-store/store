@@ -27,7 +27,13 @@ import org.springframework.stereotype.Component;
 
 import com.vaadin.flow.i18n.I18NProvider;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0.
+ * Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin} instead, see
+ * {@link org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration}.
+ */
 @Component
+@Deprecated(since = "4.3.0", forRemoval = true)
 public class ApplicationI18NProvider implements I18NProvider
 {
 	private final Map<Locale, ResourceBundle> bundles = new HashMap<>();

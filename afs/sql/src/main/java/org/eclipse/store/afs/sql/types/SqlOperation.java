@@ -17,7 +17,11 @@ package org.eclipse.store.afs.sql.types;
 import java.sql.Connection;
 import java.sql.SQLException;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
 @FunctionalInterface
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlOperation<T>
 {
 	public T execute(Connection connection) throws SQLException;

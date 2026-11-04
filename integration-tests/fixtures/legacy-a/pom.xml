@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.eclipse.store</groupId>
+        <artifactId>integration-tests</artifactId>
+        <version>5.0.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>integration-tests-fixtures-legacy-a</artifactId>
+    <name>EclipseStore Integration Tests - Fixtures - Legacy A</name>
+    <url>https://projects.eclipse.org/projects/technology.store</url>
+
+    <!--
+        Version A of the legacy-mapping sample classes. legacy-b declares the same fully qualified
+        class names with a different shape; the two must never share a classpath or module path.
+    -->
+
+    <build>
+        <plugins>
+            <!-- Test fixtures, not a published library: no module-info, so the root module-info-check
+                 (enforce-files-exist, activated by src/main/java) is switched off here. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-files-exist</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

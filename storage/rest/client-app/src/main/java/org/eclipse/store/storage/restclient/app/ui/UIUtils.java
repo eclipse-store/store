@@ -16,6 +16,12 @@ package org.eclipse.store.storage.restclient.app.ui;
 
 import com.vaadin.flow.component.orderedlayout.ThemableLayout;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0.
+ * Use the Vanilla-JS storage viewer of {@code storage-restservice-javalin} instead, see
+ * {@link org.eclipse.store.storage.restclient.app.types.RestClientAppAutoConfiguration}.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 final class UIUtils
 {
 	public static <L extends ThemableLayout> L compact(

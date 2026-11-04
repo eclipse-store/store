@@ -16,6 +16,10 @@ package org.eclipse.store.afs.sql.types;
 
 import org.eclipse.serializer.afs.types.AItem;
 
+/**
+ * @deprecated Deprecated since 4.3.0 and scheduled for removal in 5.0.0. There is no replacement.
+ */
+@Deprecated(since = "4.3.0", forRemoval = true)
 public interface SqlItemWrapper extends AItem
 {
 	public SqlPath path();
