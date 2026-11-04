@@ -4488,9 +4488,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 return;
             }
-            // An in-place update (update/apply) passes the mutated entity as both, and the map keeps it when an
-            // index fails; set/replace keep the replaced entity. So only the latter restore the previous slot
-            // after a failed synchronous graph replace, see restoreAfterFailedReplace.
+            // An in-place update (update/apply) passes the mutated entity as both, and the map keeps it in memory
+            // when an index fails (and removes it only if the failure rejects the entity itself); set/replace keep the
+            // replaced entity. So only the latter restore the previous slot after a failed synchronous graph
+            // replace, see restoreAfterFailedReplace.
             final boolean inPlace     = replacedEntity == entity;
             final boolean restorable  = vector != null && !this.isEventualIndexing() && !inPlace;
             final float[] previous    = restorable && wasPresent ? file.read(ordinal) : null;
@@ -4539,9 +4540,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             // Hides the copies with the previous vector. A reinsert that failed after registering
                             // the node leaves it live but incomplete; the recovery failure was escalated.
                             this.setOwner(ordinal, isLiveNode(currentBuilder, ordinal));
-                            // The index keeps the update, so it records it like a successful one.
-                            this.markDirtyForBackgroundManagers(1);
-                            this.markContentChanged();
+                            // Recorded like a successful update only where the map retains and stores the mutated
+                            // entity: GigaMap.internalApply does so for a RuntimeException, not for an Error. Left
+                            // unrecorded, the next store does not commit the slot and the next start repairs it from
+                            // the entity as stored.
+                            if(e instanceof RuntimeException)
+                            {
+                                this.markDirtyForBackgroundManagers(1);
+                                this.markContentChanged();
+                            }
                         }
                         else
                         {

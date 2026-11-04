@@ -440,12 +440,15 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
                     index.internalUpdate(entityId, replacedEntity, entity);
                 }
             }
-            finally
+            catch(final RuntimeException e)
             {
-                // Also after a failure: an index can keep a change, e.g. an in-place update the map keeps, and the
-                // next store reaches it only through this group.
+                // An index can keep a change after a failure, e.g. an in-place update the map retains, and the next
+                // store reaches it only through this group. Not after an Error: the map then does not store the
+                // mutated entity either, see VectorIndex.Default.internalUpdate.
                 this.markStateChangeChildren();
+                throw e;
             }
+            this.markStateChangeChildren();
         }
 
         @Override
