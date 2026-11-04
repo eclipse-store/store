@@ -4488,9 +4488,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 return;
             }
-            // Taken before the slot is overwritten: a failed synchronous graph replace restores them, see
-            // restoreAfterFailedReplace.
-            final boolean restorable  = vector != null && !this.isEventualIndexing();
+            // An in-place update (update/apply) passes the mutated entity as both, and the map keeps it when an
+            // index fails; set/replace keep the replaced entity. So only the latter restore the previous slot
+            // after a failed synchronous graph replace, see restoreAfterFailedReplace.
+            final boolean inPlace     = replacedEntity == entity;
+            final boolean restorable  = vector != null && !this.isEventualIndexing() && !inPlace;
             final float[] previous    = restorable && wasPresent ? file.read(ordinal) : null;
             final long    previousKey = file.key(ordinal);
             this.writeSlot(file, ordinal, vector, key);
@@ -4527,17 +4529,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     {
                         this.internalReplaceGraphNode(currentBuilder, ordinal, vf);
                     }
-                    catch(final GraphReachability.NodesLostException e)
-                    {
-                        // A repair around the insert lost other nodes. This entity's owner must still follow
-                        // its new vector: live if the node is in the live graph, else hidden, never an older
-                        // copy with the old vector.
-                        this.setOwner(ordinal, currentBuilder != null && graphOf(currentBuilder).containsNode(ordinal));
-                        throw e;
-                    }
                     catch(final RuntimeException | Error e)
                     {
-                        this.restoreAfterFailedReplace(currentBuilder, ordinal, previous, previousKey, wasLive, e);
+                        // Also for a repair that lost other nodes (NodesLostException): the replace may have
+                        // completed, but the map acts on the failure all the same.
+                        if(inPlace)
+                        {
+                            this.reinsertAfterFailedReplace(currentBuilder, ordinal, vf, e);
+                            // Hides the copies with the previous vector. A reinsert that failed after registering
+                            // the node leaves it live but incomplete; the recovery failure was escalated.
+                            this.setOwner(ordinal, isLiveNode(currentBuilder, ordinal));
+                            // The index keeps the update, so it records it like a successful one.
+                            this.markDirtyForBackgroundManagers(1);
+                            this.markContentChanged();
+                        }
+                        else
+                        {
+                            this.restoreAfterFailedReplace(currentBuilder, ordinal, previous, previousKey, wasLive, e);
+                        }
                         throw e;
                     }
                     this.setOwner(ordinal, true);
@@ -4561,11 +4570,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Undoes a synchronous replace whose graph step failed. The map keeps the replaced entity, so the index
-         * must keep its vector: the slot gets the previous vector and key back, the node the replace left behind
-         * is purged - possibly half-inserted, which no search reaches and a persist rejects - and the previous
-         * node is inserted again if it was live. A restore that fails as well is escalated as a failed graph
-         * operation and added to {@code failure} as suppressed.
+         * Undoes a synchronous replace of set/replace whose graph step failed. The map keeps the replaced entity,
+         * so the index must keep its vector: the slot gets the previous vector and key back and the node is reset
+         * to the previous one if it was live (see {@link #resetNodeAfterFailedReplace}).
          *
          * @param target      the builder the replace ran on
          * @param ordinal     the entity's ordinal
@@ -4575,73 +4582,137 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * @param failure     the failure of the replace, rethrown by the caller
          */
         private void restoreAfterFailedReplace(
-            final GraphIndexBuilder target     ,
-            final int               ordinal    ,
-            final float[]           previous   ,
-            final long              previousKey,
-            final boolean           wasLive    ,
+            final GraphIndexBuilder target      ,
+            final int               ordinal     ,
+            final float[]           previous    ,
+            final long              previousKey ,
+            final boolean           wasLive     ,
             final Throwable         failure
         )
         {
             try
             {
                 this.writeSlot(this.vectorFile, ordinal, previous, previousKey);
-                if(target == null)
-                {
-                    return;
-                }
-                final OnHeapGraphIndex graph = graphOf(target);
-                if(graph.containsNode(ordinal))
-                {
-                    target.markNodeDeleted(ordinal);
-                }
-                this.untrackPqCode(ordinal);
-                final VectorFloat<?> restored = wasLive && previous != null
+                this.resetNodeAfterFailedReplace(target, ordinal, wasLive && previous != null
                     ? this.vectorTypeSupport.createFloatVector(previous)
                     : null
-                ;
-                if(graph.entryNode() == null)
-                {
-                    // No insertion has completed in this graph, so no node links to this one. jVector's purge
-                    // dereferences the entry node; removeNode does not need one.
-                    final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
-                    lock.lock();
-                    try
-                    {
-                        graph.removeNode(ordinal);
-                    }
-                    finally
-                    {
-                        lock.unlock();
-                    }
-                    if(restored != null)
-                    {
-                        this.insertSingle(target, ordinal, restored);
-                    }
-                }
-                else if(restored != null)
-                {
-                    this.replaceDeletedNode(target, ordinal, restored);
-                }
-                else
-                {
-                    this.removeDeletedNodes(target);
-                }
+                );
             }
             catch(final RuntimeException | Error restoreFailure)
             {
-                // The VM may throw one shared OutOfMemoryError, which cannot suppress itself.
-                if(restoreFailure != failure)
-                {
-                    failure.addSuppressed(restoreFailure);
-                }
-                LOG.error("Vector index '{}' could not undo a failed update of ordinal {}; its search results may be"
-                    + " wrong until the graph is rebuilt (reindex() rebuilds it now)", this.name, ordinal, restoreFailure);
-                this.graphOperationFailed(restoreFailure instanceof final RuntimeException r
-                    ? r
-                    : new RuntimeException(restoreFailure)
-                );
+                this.recoveryFailed(ordinal, failure, restoreFailure);
             }
+        }
+
+        /**
+         * Completes a synchronous replace of an in-place update whose graph step failed. The map keeps the
+         * mutated entity, so the slot keeps its new vector and the node is reset to it (see
+         * {@link #resetNodeAfterFailedReplace}).
+         *
+         * @param target  the builder the replace ran on
+         * @param ordinal the entity's ordinal
+         * @param vf      the entity's new vector, which the slot holds
+         * @param failure the failure of the replace, rethrown by the caller
+         */
+        private void reinsertAfterFailedReplace(
+            final GraphIndexBuilder target ,
+            final int               ordinal,
+            final VectorFloat<?>    vf     ,
+            final Throwable         failure
+        )
+        {
+            try
+            {
+                this.resetNodeAfterFailedReplace(target, ordinal, vf);
+            }
+            catch(final RuntimeException | Error reinsertFailure)
+            {
+                this.recoveryFailed(ordinal, failure, reinsertFailure);
+            }
+        }
+
+        /**
+         * Purges what a failed replace left of {@code ordinal} in {@code target} - possibly a half-inserted node,
+         * which searches may not reach and which can make a persist fail - and inserts the node again with
+         * {@code vf}, if given.
+         * Even a replace that completed before its repair failed is redone: a half-inserted node cannot be told
+         * from a complete one.
+         *
+         * @param target  the builder the replace ran on, or {@code null}
+         * @param ordinal the entity's ordinal
+         * @param vf      the vector to insert the node with, or {@code null} to leave it out
+         */
+        private void resetNodeAfterFailedReplace(
+            final GraphIndexBuilder target ,
+            final int               ordinal,
+            final VectorFloat<?>    vf
+        )
+        {
+            if(target == null)
+            {
+                return;
+            }
+            final OnHeapGraphIndex graph = graphOf(target);
+            if(graph.containsNode(ordinal))
+            {
+                target.markNodeDeleted(ordinal);
+            }
+            this.untrackPqCode(ordinal);
+            if(graph.entryNode() == null)
+            {
+                // No insertion has completed in this graph, so no node links to this one. jVector's purge
+                // dereferences the entry node; removeNode does not need one.
+                final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
+                lock.lock();
+                try
+                {
+                    graph.removeNode(ordinal);
+                }
+                finally
+                {
+                    lock.unlock();
+                }
+                if(vf != null)
+                {
+                    this.insertSingle(target, ordinal, vf);
+                }
+            }
+            else if(vf != null)
+            {
+                this.replaceDeletedNode(target, ordinal, vf);
+            }
+            else
+            {
+                this.removeDeletedNodes(target);
+            }
+        }
+
+        /**
+         * Handles a failure while recovering from a failed replace: attached to the replace's failure as suppressed
+         * and escalated as a failed graph operation.
+         */
+        private void recoveryFailed(
+            final int       ordinal        ,
+            final Throwable failure        ,
+            final Throwable recoveryFailure
+        )
+        {
+            // The VM may throw one shared OutOfMemoryError, which cannot suppress itself.
+            if(recoveryFailure != failure)
+            {
+                failure.addSuppressed(recoveryFailure);
+            }
+            if(recoveryFailure instanceof GraphReachability.NodesLostException)
+            {
+                // Logged and escalated by repairLiveGraph already.
+                return;
+            }
+            LOG.error("Vector index '{}' could not recover from a failed update of ordinal {}; its search results may"
+                + " be wrong until the graph is rebuilt (reindex() rebuilds it now)", this.name, ordinal, recoveryFailure);
+            this.graphOperationFailed(recoveryFailure instanceof final RuntimeException r
+                ? r
+                : new RuntimeException(recoveryFailure)
+            );
         }
 
         private List<? extends E> toList(final Iterable<? extends E> entities)

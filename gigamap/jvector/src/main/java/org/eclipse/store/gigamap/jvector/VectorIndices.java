@@ -433,11 +433,19 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             final CustomConstraints<? super E> customConstraints
         )
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            try
             {
-                index.internalUpdate(entityId, replacedEntity, entity);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    index.internalUpdate(entityId, replacedEntity, entity);
+                }
             }
-            this.markStateChangeChildren();
+            finally
+            {
+                // Also after a failure: an index can keep a change, e.g. an in-place update the map keeps, and the
+                // next store reaches it only through this group.
+                this.markStateChangeChildren();
+            }
         }
 
         @Override
