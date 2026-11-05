@@ -1639,6 +1639,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * the load sets the flag, since the segments hold the graph and the live in-memory graph
          * starts empty. One whose load was rejected rebuilds into the live graph, which then owns
          * every entity it holds.
+         * <p>
+         * An in-memory index rebuilds again after a failed graph operation: first the graph is dropped
+         * ({@link #dropGraphForRebuild}), which, unlike the rebuild, takes {@code builderLock.writeLock()}
+         * under the monitor, the way the builder-swapping paths do. A thread holding the read lock never
+         * attempts it.
          *
          * @throws RebuildAbandonedException (an {@link IllegalStateException}) if the graph still needs
          *                                   its rebuild and {@link #close()} has been requested, so the
@@ -1648,7 +1653,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void ensureGraphRebuilt()
         {
-            if(this.graphRebuilt && !this.graphRebuildRequired)
+            // A thread holding the read lock (a nested search) never goes for the monitor while the graph is rebuilt:
+            // a writer under the monitor waits for that read lock. The drop a failed operation requested is left
+            // to the next access.
+            if(this.graphRebuilt && (!this.graphRebuildRequired || this.builderLock.getReadHoldCount() > 0))
             {
                 return;
             }
@@ -1717,8 +1725,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.graphRebuildRequired = false;
                 this.graphRebuilt         = false;
                 final GraphIndexBuilder dropped = this.builder;
-                this.closeSearcherPools();
                 this.initializeInMemoryBuilder();
+                // Closes the pool of the graph dropped first.
                 this.initializeSearcherPool();
                 this.closeUnpublishedBuilder(dropped, null);
                 LOG.warn("Rebuilding the graph of '{}' from its vectors after a failed graph operation", this.name);
@@ -4539,14 +4547,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 return;
             }
-            // An in-place update (update/apply) passes the mutated entity as both, and the map keeps it in memory
-            // when an index fails (and removes it only if the failure rejects the entity itself); set/replace keep the
-            // replaced entity. So only the latter restore the previous slot after a failed synchronous graph
-            // replace, see restoreAfterFailedReplace.
-            final boolean inPlace     = replacedEntity == entity;
-            final boolean restorable  = vector != null && !this.isEventualIndexing() && !inPlace;
-            final float[] previous    = restorable && wasPresent ? file.read(ordinal) : null;
-            final long    previousKey = file.key(ordinal);
+            // For a failed synchronous graph replace, taken before the slot is overwritten. An in-place update
+            // (update/apply) passes the mutated entity as both, and the map keeps it in memory when an index fails
+            // (and removes it only if the failure rejects the entity itself); set/replace keep the replaced entity,
+            // whose previous slot is then restored.
+            final boolean        inPlace     = replacedEntity == entity;
+            final boolean        sync        = vector != null && !this.isEventualIndexing();
+            final VectorFloat<?> vf          = sync ? this.vectorTypeSupport.createFloatVector(vector) : null;
+            final float[]        previous    = sync && !inPlace && wasPresent ? file.read(ordinal) : null;
+            final long           previousKey = file.key(ordinal);
             this.writeSlot(file, ordinal, vector, key);
 
             if(this.isEventualIndexing())
@@ -4575,8 +4584,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     // vec→vec' or null→vec. The repair scores through the vector file, so its ForkJoin
                     // workers never need the monitor this thread holds, whichever the vectorizer.
-                    final VectorFloat<?> vf      = this.vectorTypeSupport.createFloatVector(vector);
-                    final boolean        wasLive = restorable && isLiveNode(currentBuilder, ordinal);
+                    final boolean wasLive = !inPlace && isLiveNode(currentBuilder, ordinal);
                     try
                     {
                         this.internalReplaceGraphNode(currentBuilder, ordinal, vf);
@@ -4584,10 +4592,25 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     catch(final RuntimeException | Error e)
                     {
                         // Also for a repair that lost other nodes (NodesLostException): the replace may have
-                        // completed, but the map acts on the failure all the same.
+                        // completed, but the map acts on the failure all the same. In place, the slot keeps the
+                        // new vector and the node is reset to it; otherwise both go back to the previous state.
+                        try
+                        {
+                            if(!inPlace)
+                            {
+                                this.writeSlot(file, ordinal, previous, previousKey);
+                            }
+                            this.resetNodeAfterFailedReplace(currentBuilder, ordinal, inPlace
+                                ? vf
+                                : wasLive && previous != null ? this.vectorTypeSupport.createFloatVector(previous) : null
+                            );
+                        }
+                        catch(final RuntimeException | Error recoveryFailure)
+                        {
+                            this.recoveryFailed(ordinal, e, recoveryFailure);
+                        }
                         if(inPlace)
                         {
-                            this.reinsertAfterFailedReplace(currentBuilder, ordinal, vf, e);
                             // Hides the copies with the previous vector. A reinsert that failed after registering
                             // the node leaves it live but incomplete; the recovery failure was escalated.
                             this.setOwner(ordinal, isLiveNode(currentBuilder, ordinal));
@@ -4600,10 +4623,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                                 this.markDirtyForBackgroundManagers(1);
                                 this.markContentChanged();
                             }
-                        }
-                        else
-                        {
-                            this.restoreAfterFailedReplace(currentBuilder, ordinal, previous, previousKey, wasLive, e);
                         }
                         throw e;
                     }
@@ -4628,68 +4647,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Undoes a synchronous replace of set/replace whose graph step failed. The map keeps the replaced entity,
-         * so the index must keep its vector: the slot gets the previous vector and key back and the node is reset
-         * to the previous one if it was live (see {@link #resetNodeAfterFailedReplace}).
-         *
-         * @param target      the builder the replace ran on
-         * @param ordinal     the entity's ordinal
-         * @param previous    the vector the slot held before, or {@code null}
-         * @param previousKey the key the slot held before
-         * @param wasLive     whether the ordinal was a live node of {@code target} before
-         * @param failure     the failure of the replace, rethrown by the caller
-         */
-        private void restoreAfterFailedReplace(
-            final GraphIndexBuilder target      ,
-            final int               ordinal     ,
-            final float[]           previous    ,
-            final long              previousKey ,
-            final boolean           wasLive     ,
-            final Throwable         failure
-        )
-        {
-            try
-            {
-                this.writeSlot(this.vectorFile, ordinal, previous, previousKey);
-                this.resetNodeAfterFailedReplace(target, ordinal, wasLive && previous != null
-                    ? this.vectorTypeSupport.createFloatVector(previous)
-                    : null
-                );
-            }
-            catch(final RuntimeException | Error restoreFailure)
-            {
-                this.recoveryFailed(ordinal, failure, restoreFailure);
-            }
-        }
-
-        /**
-         * Completes a synchronous replace of an in-place update whose graph step failed. The map keeps the
-         * mutated entity, so the slot keeps its new vector and the node is reset to it (see
-         * {@link #resetNodeAfterFailedReplace}).
-         *
-         * @param target  the builder the replace ran on
-         * @param ordinal the entity's ordinal
-         * @param vf      the entity's new vector, which the slot holds
-         * @param failure the failure of the replace, rethrown by the caller
-         */
-        private void reinsertAfterFailedReplace(
-            final GraphIndexBuilder target ,
-            final int               ordinal,
-            final VectorFloat<?>    vf     ,
-            final Throwable         failure
-        )
-        {
-            try
-            {
-                this.resetNodeAfterFailedReplace(target, ordinal, vf);
-            }
-            catch(final RuntimeException | Error reinsertFailure)
-            {
-                this.recoveryFailed(ordinal, failure, reinsertFailure);
-            }
-        }
-
-        /**
          * Purges what a failed replace left of {@code ordinal} in {@code target} - possibly a half-inserted node,
          * which searches may not reach and which can make a persist fail - and inserts the node again with
          * {@code vf}, if given.
@@ -4711,37 +4668,68 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 return;
             }
             final OnHeapGraphIndex graph = graphOf(target);
+            if(graph.entryNode() == null)
+            {
+                this.removeNodesWithoutEntry(graph, ordinal);
+                this.untrackPqCode(ordinal);
+                if(vf != null)
+                {
+                    this.insertSingle(target, ordinal, vf);
+                }
+                return;
+            }
             if(graph.containsNode(ordinal))
             {
                 target.markNodeDeleted(ordinal);
             }
             this.untrackPqCode(ordinal);
-            if(graph.entryNode() == null)
-            {
-                // No insertion has completed in this graph, so no node links to this one. jVector's purge
-                // dereferences the entry node; removeNode does not need one.
-                final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
-                lock.lock();
-                try
-                {
-                    graph.removeNode(ordinal);
-                }
-                finally
-                {
-                    lock.unlock();
-                }
-                if(vf != null)
-                {
-                    this.insertSingle(target, ordinal, vf);
-                }
-            }
-            else if(vf != null)
+            if(vf != null)
             {
                 this.replaceDeletedNode(target, ordinal, vf);
             }
             else
             {
                 this.removeDeletedNodes(target);
+            }
+        }
+
+        /**
+         * Removes the nodes of {@code ordinals} from a graph without an entry node, under the structure lock
+         * exclusive. No insertion has completed in such a graph, so no node links to them; jVector's purge
+         * dereferences the entry node, removeNode needs none and clears the deleted bit too.
+         */
+        private void removeNodesWithoutEntry(
+            final OnHeapGraphIndex graph   ,
+            final int...           ordinals
+        )
+        {
+            final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
+            lock.lock();
+            try
+            {
+                for(final int ordinal : ordinals)
+                {
+                    graph.removeNode(ordinal);
+                }
+            }
+            finally
+            {
+                lock.unlock();
+            }
+        }
+
+        /**
+         * Adds {@code other} to {@code failure} as suppressed, unless they are the same: the VM may throw one shared
+         * OutOfMemoryError, which cannot suppress itself.
+         */
+        private static void suppress(
+            final Throwable failure,
+            final Throwable other
+        )
+        {
+            if(other != failure)
+            {
+                failure.addSuppressed(other);
             }
         }
 
@@ -4755,11 +4743,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final Throwable recoveryFailure
         )
         {
-            // The VM may throw one shared OutOfMemoryError, which cannot suppress itself.
-            if(recoveryFailure != failure)
-            {
-                failure.addSuppressed(recoveryFailure);
-            }
+            suppress(failure, recoveryFailure);
             if(recoveryFailure instanceof GraphReachability.NodesLostException)
             {
                 // Logged and escalated by repairLiveGraph already.
@@ -9561,99 +9545,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         @Override
         public void applyGraphAdd(final int ordinal)
         {
-            // Called from the background indexing worker thread (not from GigaMap's
-            // synchronized methods), so we use builderLock.readLock() to coordinate
-            // with freezes and maintenance (writeLock).
-            this.lockRebuiltGraphForCallback();
-            try
-            {
-                if(BackgroundTaskManager.isApplyingDiscardedOperation())
-                {
-                    // Polled before the index was cleared, applied only now: stale.
-                    return;
-                }
-                final GraphIndexBuilder target = this.builder;
-                try
-                {
-                    this.applyAdd(target, ordinal, this.vectorFile.read(ordinal));
-                }
-                catch(final RuntimeException | Error e)
-                {
-                    if(!this.reapplyAfterFailedOperation(target, new int[]{ordinal}, e))
-                    {
-                        throw e;
-                    }
-                }
-            }
-            finally
-            {
-                this.builderLock.readLock().unlock();
-            }
+            this.applyWithRetry(new int[]{ordinal}, target -> this.applyAdd(target, ordinal, this.vectorFile.read(ordinal)));
         }
 
         @Override
         public void applyGraphBatchAdd(final int[] ordinals)
         {
-            // Acquires the lock once for the entire batch, avoiding per-entry lock overhead.
-            this.lockRebuiltGraphForCallback();
-            try
-            {
-                if(BackgroundTaskManager.isApplyingDiscardedOperation())
-                {
-                    return;
-                }
-                // One generation for the whole batch, read once, see applyGraphUpdate. In parallel, like the
-                // sync path: the vectors come from the file, without a lock. An entity that has lost its vector
-                // since is skipped; the operation that removed it follows in the queue.
-                final GraphIndexBuilder target = this.builder;
-                try
-                {
-                    this.insertBatch(target, ordinals, index -> this.fileVectorOf(ordinals[index]));
-                }
-                catch(final RuntimeException | Error e)
-                {
-                    if(!this.reapplyAfterFailedOperation(target, ordinals, e))
-                    {
-                        throw e;
-                    }
-                }
-            }
-            finally
-            {
-                this.builderLock.readLock().unlock();
-            }
+            // In parallel, like the sync path: the vectors come from the file, without a lock. An entity that has lost
+            // its vector since is skipped; the operation that removed it follows in the queue.
+            this.applyWithRetry(ordinals, target -> this.insertBatch(target, ordinals, index -> this.vectorOf(ordinals[index])));
         }
 
         @Override
         public void applyGraphUpdate(final int ordinal)
         {
-            this.lockRebuiltGraphForCallback();
-            try
-            {
-                if(BackgroundTaskManager.isApplyingDiscardedOperation())
-                {
-                    return;
-                }
-                // One generation, captured once. This callback holds only the read lock, and the
-                // in-memory PQ switch publishes a replacement while holding neither - so reading
-                // this.builder again further down could land on the other side of that publication.
-                final GraphIndexBuilder target = this.builder;
-                try
-                {
-                    this.applyUpdate(target, ordinal, this.vectorFile.read(ordinal));
-                }
-                catch(final RuntimeException | Error e)
-                {
-                    if(!this.reapplyAfterFailedOperation(target, new int[]{ordinal}, e))
-                    {
-                        throw e;
-                    }
-                }
-            }
-            finally
-            {
-                this.builderLock.readLock().unlock();
-            }
+            this.applyWithRetry(new int[]{ordinal}, target -> this.applyUpdate(target, ordinal, this.vectorFile.read(ordinal)));
         }
 
         @Override
@@ -9675,66 +9581,74 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * The vector the vector file holds for {@code ordinal} now, or {@code null} for none.
-         */
-        private VectorFloat<?> fileVectorOf(final int ordinal)
-        {
-            final float[] vector = this.vectorFile.read(ordinal);
-            return vector == null ? null : this.vectorTypeSupport.createFloatVector(vector);
-        }
-
-        /**
-         * Applies an eventual-indexing operation on the ordinals in {@code target} again after it failed, from the
-         * vectors the file holds now: the map holds the change already, and the worker took the operation off the
-         * queue. What the failure left of the nodes - possibly half-inserted - is purged and the nodes are inserted
-         * again (see {@link #resetNodeAfterFailedReplace}). By the worker, under {@code builderLock.readLock()}.
+         * Applies an eventual-indexing operation on the ordinals, from the background worker thread rather than
+         * GigaMap's synchronized methods, under {@code builderLock.readLock()} to coordinate with freezes and
+         * maintenance (writeLock), once for a whole batch. The builder is read once: the in-memory PQ switch
+         * publishes a replacement while holding neither lock, so a second read could land on the other side of it.
+         * <p>
+         * A failed operation is applied again from the vectors the file holds now, as the map holds the change
+         * already and the worker took the operation off the queue: what the failure left of the nodes - possibly
+         * half-inserted - is purged and the nodes are inserted again. If that fails too, the failure is rethrown with
+         * the retry's attached, which escalates it.
          *
-         * @param target   the builder the operation ran on
-         * @param ordinals the ordinals of the operation
-         * @param failure  the failure of the operation
-         * @return whether the operation is applied now; if not, the failure of the second attempt is added to
-         *         {@code failure} as suppressed, and the caller rethrows it, which escalates it
+         * @param ordinals  the ordinals of the operation
+         * @param operation the operation on the builder
          */
-        private boolean reapplyAfterFailedOperation(
-            final GraphIndexBuilder target  ,
-            final int[]             ordinals,
-            final Throwable         failure
+        private void applyWithRetry(
+            final int[]                       ordinals ,
+            final Consumer<GraphIndexBuilder> operation
         )
         {
+            this.lockRebuiltGraphForCallback();
             try
             {
-                if(ordinals.length == 1)
+                if(BackgroundTaskManager.isApplyingDiscardedOperation())
                 {
-                    this.resetNodeAfterFailedReplace(target, ordinals[0], this.fileVectorOf(ordinals[0]));
+                    // Polled before the index was cleared, applied only now: stale.
+                    return;
                 }
-                else
+                final GraphIndexBuilder target = this.builder;
+                try
                 {
-                    this.resetBatchAfterFailedInsert(target, ordinals);
+                    operation.accept(target);
+                }
+                catch(final RuntimeException | Error e)
+                {
+                    try
+                    {
+                        if(ordinals.length == 1)
+                        {
+                            this.resetNodeAfterFailedReplace(target, ordinals[0], this.vectorOf(ordinals[0]));
+                        }
+                        else
+                        {
+                            this.resetBatchAfterFailedInsert(target, ordinals);
+                        }
+                    }
+                    catch(final RuntimeException | Error retryFailure)
+                    {
+                        suppress(e, retryFailure);
+                        if(e instanceof Error)
+                        {
+                            // The background task manager reports only a RuntimeException as a failed operation.
+                            this.graphOperationFailed(new RuntimeException(e));
+                        }
+                        throw e;
+                    }
+                    if(e instanceof Error)
+                    {
+                        LOG.error("A graph operation of vector index '{}' failed and was applied again", this.name, e);
+                    }
+                    else
+                    {
+                        LOG.warn("A graph operation of vector index '{}' failed and was applied again", this.name, e);
+                    }
                 }
             }
-            catch(final RuntimeException | Error retryFailure)
+            finally
             {
-                // The VM may throw one shared OutOfMemoryError, which cannot suppress itself.
-                if(retryFailure != failure)
-                {
-                    failure.addSuppressed(retryFailure);
-                }
-                if(failure instanceof Error)
-                {
-                    // The background task manager reports only a RuntimeException as a failed operation.
-                    this.graphOperationFailed(new RuntimeException(failure));
-                }
-                return false;
+                this.builderLock.readLock().unlock();
             }
-            if(failure instanceof Error)
-            {
-                LOG.error("A graph operation of vector index '{}' failed and was applied again", this.name, failure);
-            }
-            else
-            {
-                LOG.warn("A graph operation of vector index '{}' failed and was applied again", this.name, failure);
-            }
-            return true;
         }
 
         /**
@@ -9753,20 +9667,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final OnHeapGraphIndex graph = graphOf(target);
             if(graph.entryNode() == null)
             {
-                // As in resetNodeAfterFailedReplace: no insertion has completed, and jVector's purge needs an entry.
-                final ReentrantReadWriteLock.WriteLock lock = this.structureLock.writeLock();
-                lock.lock();
-                try
-                {
-                    for(final int ordinal : ordinals)
-                    {
-                        graph.removeNode(ordinal);
-                    }
-                }
-                finally
-                {
-                    lock.unlock();
-                }
+                this.removeNodesWithoutEntry(graph, ordinals);
             }
             else
             {
@@ -9783,7 +9684,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.untrackPqCode(ordinal);
             }
             // Purges the nodes marked above once, then inserts every ordinal that has a vector.
-            this.insertBatch(target, ordinals, index -> this.fileVectorOf(ordinals[index]));
+            this.insertBatch(target, ordinals, index -> this.vectorOf(ordinals[index]));
         }
 
         @Override
