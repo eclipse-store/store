@@ -964,6 +964,83 @@ class VectorIndexFailedGraphInsertTest
     // locking
 
     /**
+     * A mutation that waits for the write lock to drop the graph for a required rebuild is interrupted: it must keep
+     * waiting rather than go on against the graph known to lack a change, and keep the interrupt for its caller.
+     */
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void dropForARequiredRebuild_interruptedWhileWaitingForTheWriteLock_stillRebuilds() throws Exception
+    {
+        final Random                     random      = new Random(24);
+        final GigaMap<Doc>               map         = map(random);
+        final VectorIndex<Doc>           index       = register(map, config().build());
+        final ReentrantReadWriteLock     lock        = (ReentrantReadWriteLock)read(index, "builderLock");
+        final CountDownLatch             readLocked  = new CountDownLatch(1);
+        final CountDownLatch             release     = new CountDownLatch(1);
+        final AtomicReference<Throwable> failure     = new AtomicReference<>();
+        final AtomicReference<Boolean>   interrupted = new AtomicReference<>();
+        final Doc                        neu         = new Doc(vector(random));
+
+        final Thread reader = new Thread(() ->
+        {
+            lock.readLock().lock(); // a search in flight
+            try
+            {
+                readLocked.countDown();
+                release.await();
+            }
+            catch(final Throwable t)
+            {
+                failure.compareAndSet(null, t);
+            }
+            finally
+            {
+                lock.readLock().unlock();
+            }
+        });
+        reader.setDaemon(true);
+        reader.start();
+        readLocked.await();
+
+        write(index, "graphRebuildRequired", true);
+        final Thread mutator = new Thread(() ->
+        {
+            try
+            {
+                map.set(ID, neu);
+            }
+            catch(final Throwable t)
+            {
+                failure.compareAndSet(null, t);
+            }
+            interrupted.set(Thread.currentThread().isInterrupted());
+        });
+        mutator.setDaemon(true);
+        mutator.start();
+
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        while((Integer)read(index, "exclusiveWaiters") == 0)
+        {
+            assertTrue(System.nanoTime() < deadline, "the mutation never waited for the write lock");
+            Thread.sleep(5);
+        }
+        mutator.interrupt();
+        mutator.join(300);
+        assertTrue(mutator.isAlive(), "the interrupted mutation went on against the graph that lacks a change");
+        assertTrue(rebuildRequired(index));
+
+        release.countDown();
+        reader.join(20_000);
+        mutator.join(20_000);
+        assertFalse(mutator.isAlive());
+        assertNull(failure.get());
+        assertEquals(Boolean.TRUE, interrupted.get(), "the interrupt was lost");
+        assertFalse(rebuildRequired(index));
+        assertTrue(finds(index, ID, neu.vector));
+        assertConsistent(map, index);
+    }
+
+    /**
      * A nested search (its thread holds the read lock) while a rebuild is required, and a mutation under the monitor
      * that waits for the write lock to drop the graph: the nested search must not wait for the monitor.
      */

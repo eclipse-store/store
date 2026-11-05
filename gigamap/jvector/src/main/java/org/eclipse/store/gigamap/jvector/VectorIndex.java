@@ -1699,9 +1699,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          * Replaces the live graph of an in-memory index, after a graph operation failed (see
          * {@link #graphRebuildRequired}), with an empty one and makes the rebuild from the vector file due, which
          * the caller then runs. Under the parent monitor; takes {@code builderLock.writeLock()}, so no search
-         * traverses the graph dropped. Leaves the rebuild required where it cannot take the lock: on a thread
-         * holding the read lock (a search whose vectorizer reaches the map), which could never get it, and when
-         * interrupted while waiting.
+         * traverses the graph dropped. Leaves the rebuild required on a thread holding the read lock (a nested
+         * search), which could never get the write lock. Waits through an interrupt, which it keeps for the caller:
+         * a caller that gave up would go on against the graph known to lack a change, and the wait is only for the
+         * searches in flight.
          *
          * @param monitorHeld whether this thread held the monitor before it took it for this
          */
@@ -1711,10 +1712,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 return;
             }
-            if(!this.lockBuilderUnderMonitor(monitorHeld, true))
-            {
-                return;
-            }
+            this.lockBuilderUnderMonitor(monitorHeld, false);
             try
             {
                 // Waiting for the lock can have released the monitor.
