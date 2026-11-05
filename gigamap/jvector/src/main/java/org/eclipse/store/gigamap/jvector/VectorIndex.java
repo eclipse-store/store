@@ -10292,6 +10292,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 this.graphOperationFailed(e);
                 throw e;
             }
+            catch(final Error e)
+            {
+                // The repair takes every orphan out of the graph before it inserts them again, and an Error ends the
+                // inserts: the orphans not inserted yet are missing, unnoticed by a caller whose own recovery succeeds.
+                LOG.error("Vector index '{}' failed in a reachability repair; graph nodes may be missing until the graph"
+                    + " is rebuilt (reindex() rebuilds it now)", this.name, e);
+                this.graphOperationFailed(new RuntimeException(e));
+                throw e;
+            }
         }
 
         private static OnHeapGraphIndex graphOf(final GraphIndexBuilder builder)

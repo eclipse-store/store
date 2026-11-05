@@ -22,10 +22,13 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import io.github.jbellis.jvector.graph.GraphIndexBuilder;
+import io.github.jbellis.jvector.graph.NodeArray;
+import io.github.jbellis.jvector.graph.NodesIterator;
 import io.github.jbellis.jvector.graph.OnHeapGraphIndex;
 import io.github.jbellis.jvector.graph.similarity.BuildScoreProvider;
 import io.github.jbellis.jvector.graph.similarity.ScoreFunction;
 import io.github.jbellis.jvector.graph.similarity.SearchScoreProvider;
+import io.github.jbellis.jvector.util.FixedBitSet;
 import io.github.jbellis.jvector.util.PhysicalCoreExecutor;
 import io.github.jbellis.jvector.vector.VectorizationProvider;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
@@ -120,12 +123,13 @@ class VectorIndexFailedGraphInsertTest
     }
 
     /**
-     * Delegates; the next {@link #remaining} insertions fail when they score their first neighbour, which jVector does
-     * after it registered the node.
+     * Delegates; after {@link #skip} insertions, the next {@link #remaining} insertions fail when they score their first
+     * neighbour, which jVector does after it registered the node.
      */
     static final class FailingScoreProvider implements BuildScoreProvider
     {
         final BuildScoreProvider delegate ;
+        final AtomicInteger      skip      = new AtomicInteger();
         final AtomicInteger      remaining = new AtomicInteger();
         final AtomicInteger      fired     = new AtomicInteger();
         volatile boolean         error     ;
@@ -151,7 +155,8 @@ class VectorIndexFailedGraphInsertTest
         public SearchScoreProvider searchProviderFor(final VectorFloat<?> vector)
         {
             final SearchScoreProvider provider = this.delegate.searchProviderFor(vector);
-            if(this.remaining.getAndUpdate(n -> Math.max(0, n - 1)) == 0)
+            if(this.skip.getAndUpdate(n -> Math.max(0, n - 1)) > 0
+                || this.remaining.getAndUpdate(n -> Math.max(0, n - 1)) == 0)
             {
                 return provider;
             }
@@ -830,6 +835,131 @@ class VectorIndexFailedGraphInsertTest
         final Field                 count = BackgroundTaskManager.class.getDeclaredField("persistenceChangeCount");
         count.setAccessible(true);
         return ((AtomicInteger)count.get(tasks)).get() >= threshold;
+    }
+
+    // parallel batches: completed, half-inserted and not yet started nodes at once
+
+    static final int PARALLEL_BATCH = 2 * ParallelGraphInsertion.MIN_PARALLEL_NODES;
+
+    @Test
+    void eventual_failedParallelBatchAdd_isAppliedAgainByTheWorker()
+    {
+        final Random       random = new Random(25);
+        final GigaMap<Doc> map    = map(random);
+        try(final VectorIndex<Doc> index = register(map, config().eventualIndexing(true).build()))
+        {
+            index.optimize();
+            final FailingScoreProvider provider = failNextInserts(index, 1);
+            provider.skip.set(PARALLEL_BATCH / 4); // after some inserts of the batch have completed
+            map.addAll(docs(random, PARALLEL_BATCH));
+            drain(index);
+
+            assertEquals(1, provider.fired.get(), "injected failures");
+            assertFalse(rebuildRequired(index), "the retry did not suffice");
+            assertEquals(COUNT + PARALLEL_BATCH, map.size());
+            assertConsistent(map, index);
+        }
+    }
+
+    @Test
+    void addAll_failedParallelInsert_rollsBack_andTheNextAddAllUnderTheReclaimedIdsIsFound()
+    {
+        final Random           random = new Random(26);
+        final GigaMap<Doc>     map    = map(random);
+        final VectorIndex<Doc> index  = register(map, config().build());
+
+        final FailingScoreProvider provider = failNextInserts(index, 1);
+        provider.skip.set(PARALLEL_BATCH / 4);
+        assertInjected(assertThrows(RuntimeException.class, () -> map.addAll(docs(random, PARALLEL_BATCH))), provider, 1);
+        assertEquals(COUNT, map.size(), "the batch was rolled back");
+
+        map.addAll(docs(random, PARALLEL_BATCH));
+        assertEquals(COUNT + PARALLEL_BATCH, map.size());
+        assertConsistent(map, index);
+    }
+
+    // an Error while the reachability repair inserts its orphans again
+
+    /**
+     * Cuts every edge into {@code node}, so the next reachability repair finds it unreachable, takes it out of the graph
+     * and inserts it again. Returns the node.
+     */
+    static int orphan(final VectorIndex<Doc> index, final int avoid)
+    {
+        final OnHeapGraphIndex graph = (OnHeapGraphIndex)((GraphIndexBuilder)read(index, "builder")).getGraph();
+        final int              entry = graph.entryNode().node;
+        int node = 5;
+        while(node == entry || node == avoid)
+        {
+            node++;
+        }
+        final FixedBitSet cut = new FixedBitSet(graph.getIdUpperBound());
+        cut.set(node);
+        for(int level = 0; level <= graph.getMaxLevel(); level++)
+        {
+            final int layer = level;
+            final int[] referrers = graph.nodeStream(layer).filter(candidate ->
+            {
+                for(final NodesIterator it = graph.getNeighborsIterator(layer, candidate); it.hasNext();)
+                {
+                    if(it.nextInt() == cut.nextSetBit(0))
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }).toArray();
+            for(final int referrer : referrers)
+            {
+                graph.replaceDeletedNeighbors(layer, referrer, cut, new NodeArray(1));
+            }
+        }
+        return node;
+    }
+
+    /**
+     * The update's own insert succeeds, the repair after it fails with an Error while it inserts an orphan again: the
+     * orphan is out of the graph, and the failure must be escalated although the update's recovery succeeds.
+     */
+    @Test
+    void set_errorWhileTheRepairInsertsAnOrphanAgain_isEscalated()
+    {
+        final Random           random = new Random(27);
+        final GigaMap<Doc>     map    = map(random);
+        final VectorIndex<Doc> index  = register(map, config().build());
+        final int              lost   = orphan(index, (int)ID);
+
+        final FailingScoreProvider provider = failNextInserts(index, 1);
+        provider.skip.set(1);
+        provider.error = true;
+        assertInjected(assertThrows(OutOfMemoryError.class, () -> map.set(ID, new Doc(vector(random)))), provider, 1);
+        assertTrue(rebuildRequired(index), "the orphan lost by the repair was not escalated");
+
+        assertTrue(finds(index, lost, map.get(lost).vector), "the orphan is still missing");
+        assertConsistent(map, index);
+    }
+
+    @Test
+    void eventual_errorWhileTheRepairInsertsAnOrphanAgain_isEscalated()
+    {
+        final Random       random = new Random(28);
+        final GigaMap<Doc> map    = map(random);
+        try(final VectorIndex<Doc> index = register(map, config().eventualIndexing(true).build()))
+        {
+            index.optimize();
+            final int lost = orphan(index, (int)ID);
+
+            final FailingScoreProvider provider = failNextInserts(index, 1);
+            provider.skip.set(1);
+            provider.error = true;
+            map.set(ID, new Doc(vector(random)));
+            drain(index);
+            assertEquals(1, provider.fired.get(), "injected failures");
+            assertTrue(rebuildRequired(index), "the orphan lost by the repair was not escalated");
+
+            assertTrue(finds(index, lost, map.get(lost).vector), "the orphan is still missing");
+            assertConsistent(map, index);
+        }
     }
 
     // a required rebuild and the operations that replace the graph anyway
