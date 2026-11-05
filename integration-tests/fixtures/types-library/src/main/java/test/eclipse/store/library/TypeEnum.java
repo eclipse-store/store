@@ -55,7 +55,9 @@ public enum TypeEnum {
     HashTableEclipseStore(new HashTableMSData().fillSampleData(), HashTableMSData::new),
     IdentityHashMap(new IdentityHashMapData().fillSampleData(), IdentityHashMapData::new),
     InetAddress(new IntetAddressData().fillSampleData(), IntetAddressData::new),
-    Lazy(new LazyData().fillSampleData(), LazyData::new),
+    // A Lazy reference binds to the storage that first persists it, so a shared instance would be
+    // carried, possibly unloaded, into every further storage. Hand out a fresh instance per call.
+    Lazy(() -> new LazyData().fillSampleData(), LazyData::new),
     LimitList(new LimitListData().fillSampleData(), LimitListData::new),
     LinkedHashMap(new LinkedHashMapData().fillSampleData(), LinkedHashMapData::new),
     LinkedHashSet(new LinkedHashSetData().fillSampleData(), LinkedHashSetData::new),
@@ -88,16 +90,20 @@ public enum TypeEnum {
     LocalDateTime(new LocalDateTimeData().fillSampleData(), LocalDateTimeData::new),
     LocalDate(new LocalDateData().fillSampleData(), LocalDateData::new);
 
-    final private BinaryHandlerTestData original;
+    final private Supplier<BinaryHandlerTestData> original;
     final private Supplier<?> instanceSupplier;
 
     TypeEnum(BinaryHandlerTestData original, Supplier<?> copy) {
+        this(() -> original, copy);
+    }
+
+    TypeEnum(Supplier<BinaryHandlerTestData> original, Supplier<?> copy) {
         this.original = original;
         this.instanceSupplier = copy;
     }
 
     public BinaryHandlerTestData getOriginal() {
-        return original;
+        return original.get();
     }
 
     public Object createEmptyInstance() {
