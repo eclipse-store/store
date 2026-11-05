@@ -433,9 +433,25 @@ Iterable<KeyValue<String, ? extends VectorIndex<E>>>
             final CustomConstraints<? super E> customConstraints
         )
         {
-            for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+            try
             {
-                index.internalUpdate(entityId, replacedEntity, entity);
+                for(final VectorIndex.Internal<E> index : this.vectorIndices.values())
+                {
+                    index.internalUpdate(entityId, replacedEntity, entity);
+                }
+            }
+            catch(final RuntimeException e)
+            {
+                // An in-place update (the mutated entity passed as both) is retained and stored by the map after a
+                // RuntimeException, so the indices keep it too, and the next store reaches them only through this
+                // group. Not after an Error, which the map does not store, nor for set/replace, which keep the
+                // replaced entity: this failure must not get an index updated before the failing one stored with the
+                // replacement (a later store that reaches the group still does).
+                if(replacedEntity == entity)
+                {
+                    this.markStateChangeChildren();
+                }
+                throw e;
             }
             this.markStateChangeChildren();
         }
