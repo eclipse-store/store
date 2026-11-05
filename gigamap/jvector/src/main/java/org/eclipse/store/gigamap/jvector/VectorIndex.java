@@ -4616,8 +4616,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                             this.setOwner(ordinal, isLiveNode(currentBuilder, ordinal));
                             // Recorded like a successful update only where the map retains and stores the mutated
                             // entity: GigaMap.internalApply does so for a RuntimeException, not for an Error. Left
-                            // unrecorded, the next store does not commit the slot and the next start repairs it from
-                            // the entity as stored.
+                            // unrecorded, this update does not get the slot committed; a later change of the index
+                            // that a store reaches does, as the map never stores the entity after an Error.
                             if(e instanceof RuntimeException)
                             {
                                 this.markDirtyForBackgroundManagers(1);
@@ -9630,7 +9630,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         suppress(e, retryFailure);
                         if(e instanceof Error)
                         {
-                            // The background task manager reports only a RuntimeException as a failed operation.
+                            // The background task manager logs and reports only a RuntimeException as a failed
+                            // operation.
+                            LOG.error("A graph operation of vector index '{}' failed, and so did applying it again",
+                                this.name, e);
                             this.graphOperationFailed(new RuntimeException(e));
                         }
                         throw e;
