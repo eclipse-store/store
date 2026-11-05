@@ -743,7 +743,7 @@ class BackgroundTaskManager
      */
     private boolean abandonedByClose(
         final String    task,
-        final Exception e
+        final Throwable e
     )
     {
         if(!RebuildAbandonedException.isCause(e))
@@ -960,12 +960,15 @@ class BackgroundTaskManager
                 cb.graphOperationApplied();
             }
         }
-        catch(final RuntimeException e)
+        catch(final RuntimeException | Error e)
         {
+            // An Error too, and not thrown on: it would end the batch or drain applying the queue, and the
+            // operations behind it would wait for the next enqueue. Reported, the index rebuilds what the
+            // operation left.
             if(!this.abandonedByClose("Indexing operation", e))
             {
                 LOG.error("Error applying indexing operation for '{}': {}", this.name, e.getMessage(), e);
-                cb.graphOperationFailed(e);
+                cb.graphOperationFailed(e instanceof final RuntimeException runtime ? runtime : new RuntimeException(e));
                 // The failed operation counted no change, so without this neither a scheduled
                 // nor the shutdown persist would run for it: the graph would stay without the
                 // change until some later mutation.
@@ -1018,8 +1021,9 @@ class BackgroundTaskManager
 
             LOG.debug("Background optimization completed for '{}'", this.name);
         }
-        catch(final Exception e)
+        catch(final Exception | Error e)
         {
+            // An Error too: thrown out of the periodic task, it would cancel every later run without a trace.
             if(!this.abandonedByClose("Background optimization", e))
             {
                 LOG.error("Background optimization failed for '{}': {}", this.name, e.getMessage(), e);
@@ -1087,8 +1091,10 @@ class BackgroundTaskManager
 
             LOG.debug("Background persistence completed for '{}'", this.name);
         }
-        catch(final Exception e)
+        catch(final Exception | Error e)
         {
+            // An Error too: thrown out of the periodic task, it would cancel every later run without a trace, and
+            // out of a requested persist it would be lost unlogged.
             if(!this.abandonedByClose("Background persistence", e))
             {
                 LOG.error("Background persistence failed for '{}': {}", this.name, e.getMessage(), e);
