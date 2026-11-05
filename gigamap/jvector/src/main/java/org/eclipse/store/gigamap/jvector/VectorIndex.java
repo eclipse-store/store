@@ -9630,8 +9630,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         suppress(e, retryFailure);
                         if(e instanceof Error)
                         {
-                            // The background task manager logs and reports only a RuntimeException as a failed
-                            // operation.
+                            // The background task manager logs and reports a failed operation only for a
+                            // RuntimeException.
                             LOG.error("A graph operation of vector index '{}' failed, and so did applying it again",
                                 this.name, e);
                             this.graphOperationFailed(new RuntimeException(e));
@@ -9699,6 +9699,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(this.configuration.onDisk())
             {
                 this.consolidationRequired = true;
+                // Also below the change threshold: a failure counts no change, so neither a scheduled nor the
+                // shutdown persist would come for it.
+                final BackgroundTaskManager manager = this.backgroundTaskManager;
+                if(manager != null)
+                {
+                    manager.markPersistRequired();
+                }
             }
             else if(this.graphRebuilt)
             {

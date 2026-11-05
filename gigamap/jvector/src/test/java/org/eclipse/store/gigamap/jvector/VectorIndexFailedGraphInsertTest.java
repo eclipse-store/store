@@ -758,6 +758,80 @@ class VectorIndexFailedGraphInsertTest
         }
     }
 
+    /**
+     * An Error escapes the background task manager's failure handling, so the index itself must make the persist
+     * that rebuilds the on-disk index due, as the manager does for a RuntimeException, also below the threshold.
+     */
+    @Test
+    void eventual_failedAddWithAnErrorAndFailedRetry_onDisk_makesAPersistDue(@TempDir final Path dir) throws Exception
+    {
+        final Random random = new Random(22);
+        try(final EmbeddedStorageManager manager = EmbeddedStorage.start(dir.resolve("storage")))
+        {
+            final GigaMap<Doc> map = map(random);
+            manager.setRoot(map);
+            manager.storeRoot();
+            final VectorIndex<Doc> index = register(map, config().eventualIndexing(true).onDisk(true)
+                .indexDirectory(dir.resolve("index"))
+                .persistenceIntervalMs(3_600_000L)
+                .minChangesBetweenPersists(1_000)
+                .build());
+            map.store();
+            index.persistToDisk();
+
+            final FailingScoreProvider provider = failNextInserts(index, 2);
+            provider.error = true;
+            map.add(new Doc(vector(random)));
+            drain(index);
+            assertEquals(2, provider.fired.get(), "injected failures");
+            assertTrue(consolidationRequired(index), "the Error was not escalated");
+
+            assertTrue(persistDue(index, 1_000), "no persist made due");
+        }
+    }
+
+    /** the synchronous recovery of a failed set fails too: the escalation must make the persist due as well */
+    @Test
+    void set_failedInsertAndFailedRestore_onDisk_makesAPersistDue(@TempDir final Path dir) throws Exception
+    {
+        final Random random = new Random(23);
+        try(final EmbeddedStorageManager manager = EmbeddedStorage.start(dir.resolve("storage")))
+        {
+            final GigaMap<Doc> map = map(random);
+            manager.setRoot(map);
+            manager.storeRoot();
+            final VectorIndex<Doc> index = register(map, config().onDisk(true)
+                .indexDirectory(dir.resolve("index"))
+                .persistenceIntervalMs(3_600_000L)
+                .minChangesBetweenPersists(1_000)
+                .build());
+            map.store();
+            index.persistToDisk();
+            map.set(ID, new Doc(vector(random))); // live in the live graph, so the restore inserts it again
+            final float[] oldVector = map.get(ID).vector;
+
+            final FailingScoreProvider provider = failNextInserts(index, 2);
+            final RuntimeException     failure  = assertThrows(RuntimeException.class, () -> map.set(ID, new Doc(vector(random))));
+            assertInjected(failure, provider, 2);
+            assertTrue(consolidationRequired(index), "the failure was not escalated");
+            assertTrue(persistDue(index, 1_000), "no persist made due");
+
+            index.persistToDisk();
+            assertFalse(consolidationRequired(index));
+            assertTrue(finds(index, ID, oldVector));
+            assertConsistent(map, index);
+        }
+    }
+
+    /** whether the background task manager counts at least {@code threshold} changes, i.e. a persist is due */
+    static boolean persistDue(final VectorIndex<Doc> index, final int threshold) throws ReflectiveOperationException
+    {
+        final BackgroundTaskManager tasks = ((VectorIndex.Default<Doc>)index).backgroundTaskManager;
+        final Field                 count = BackgroundTaskManager.class.getDeclaredField("persistenceChangeCount");
+        count.setAccessible(true);
+        return ((AtomicInteger)count.get(tasks)).get() >= threshold;
+    }
+
     // a required rebuild and the operations that replace the graph anyway
 
     @Test
