@@ -22,10 +22,12 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.awaitility.Awaitility.await;
 import static org.eclipse.store.gigamap.jvector.VectorIndexFailedGraphInsertTest.ID;
@@ -53,6 +55,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class VectorIndexBackgroundErrorTest
 {
     static final Duration WITHIN = Duration.ofSeconds(20);
+
+    /** the changes the background task manager counts towards the next optimization */
+    static int optimizationChanges(final BackgroundTaskManager manager) throws ReflectiveOperationException
+    {
+        final Field field = BackgroundTaskManager.class.getDeclaredField("optimizationChangeCount");
+        field.setAccessible(true);
+        return ((AtomicInteger)field.get(manager)).get();
+    }
 
     @Test
     void eventual_removeFailingWithAnError_isEscalated_andTheWorkerGoesOn()
@@ -106,7 +116,10 @@ class VectorIndexBackgroundErrorTest
             .build()))
         {
             final BackgroundTaskManager manager = ((VectorIndex.Default<Doc>)index).backgroundTaskManager;
-            final long                  before  = manager.getOptimizationCount();
+            // The registration's back-fill counts as changes: let that optimization run and nothing be due any more
+            // before the failure is armed, or it would repair the orphan first.
+            await().atMost(WITHIN).until(() -> manager.getOptimizationCount() > 0 && optimizationChanges(manager) == 0);
+            final long before = manager.getOptimizationCount();
             orphan(index, (int)ID);
             final FailingScoreProvider provider = failNextInserts(index, 1);
             provider.skip.set(1); // the add's own insert; the optimization's repair inserts the orphan next
@@ -151,7 +164,8 @@ class VectorIndexBackgroundErrorTest
                 // a set whose insert and restore fail: escalated, the next background persist consolidates
                 failNextInserts(index, 2);
                 assertThrows(RuntimeException.class, () -> map.set(ID, new Doc(vector(random))));
-                assertTrue(consolidationRequired(index));
+                // escalated, unless a background persist has consolidated already, which only the failed attempt allows
+                assertTrue(consolidationRequired(index) || !once.get(), "the failure was not escalated");
 
                 await().atMost(WITHIN).until(() -> !once.get() && !consolidationRequired(index));
             }
