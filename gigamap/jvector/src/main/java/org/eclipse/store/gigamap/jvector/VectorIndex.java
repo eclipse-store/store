@@ -2629,6 +2629,12 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     this.recoverVectors(file);
                 }
                 this.vectorsRecovered = true;
+                if(this.forceFlush && this.backgroundTaskManager != null)
+                {
+                    // The persist a rejected load or dropped segments need, which the load leaves to this first
+                    // use (see initializeIndex).
+                    this.backgroundTaskManager.markPersistRequired();
+                }
                 if(this.legacyLayout)
                 {
                     // Loaded from a layout before the vector file: the record must be written in the current
@@ -3035,10 +3041,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.committedWitness = null;
             this.forceFlush       = true;
             this.graphRebuilt     = false;
-            if(this.backgroundTaskManager != null)
-            {
-                this.backgroundTaskManager.markPersistRequired();
-            }
         }
 
         private void initializeIndex()
@@ -3202,8 +3204,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // nothing to schedule against. Such an index is not stranded, though: close() calls
             // doPersistToDisk directly for it, which flushes the rebuilt graph over the rejected files.
             // The gap is a process that is killed rather than closed, which repeats the work on the next
-            // start.
-            if(diskRebuildPending && this.backgroundTaskManager != null)
+            // start. Either way only an index used since the start writes (see persist): one that was not has
+            // nothing rebuilt to write, and the next start does the same as this one. So an index whose vectors
+            // are still to be recovered has the persist scheduled by that recovery (ensureVectorsRecovered).
+            if(diskRebuildPending && this.vectorsRecovered && this.backgroundTaskManager != null)
             {
                 this.backgroundTaskManager.markPersistRequired();
             }
@@ -5950,6 +5954,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             if(!this.configuration.onDisk())
             {
+                return true;
+            }
+            if(kind != PersistKind.EXPLICIT && !this.vectorsRecovered)
+            {
+                // Not used since the start, so nothing in memory to write: its vectors are still to be recovered.
+                // Recovering them here would load entities lazily through the storage, on the background thread,
+                // which a storage shutting down meanwhile keeps locked while it waits for this index to close.
+                // The first use recovers them, and the persist after it writes.
                 return true;
             }
             // A first look without any lock, so an idle tick costs nothing. Decided again under the
