@@ -167,8 +167,8 @@ public interface StorageTaskBroker
 		// maintenance task, kept to coalesce concurrent gate requests and to detect tail-adjacency
 		// (see issueCoalescingStorageFlush / issueOnDemandStorageFlush). Only maintenance-carrying
 		// barriers register here (the coalesce condition additionally checks carriesMaintenance()
-		// - the canonical invariant lives on that accessor). Accessed only under this broker's
-		// monitor.
+		// - the canonical invariant lives on that accessor). Cleared at the next enqueue once
+		// processed (see uncheckedEnqueueTask). Accessed only under this broker's monitor.
 		private StorageRequestTaskStorageFlush         pendingStorageFlush      ;
 		private StorageRequestTaskDurabilityMaintenance pendingStorageMaintenance;
 
@@ -291,6 +291,14 @@ public interface StorageTaskBroker
 			/* (15.02.2019 TM)FIXME: That single-head queue is dangerous. Probably the source for some hangups.
 			 * Just build a proper queue with head and tail, ffs.
 			 */
+			// A processed pending flush is never reused, but it would keep every later task reachable
+			// through the task chain, including load results and store data.
+			if(this.pendingStorageFlush != null && this.pendingStorageFlush.isProcessed())
+			{
+				this.pendingStorageFlush       = null;
+				this.pendingStorageMaintenance = null;
+			}
+
 			final StorageTask currentHead;
 			(currentHead = this.currentHead).setNext(nextTask);
 			this.currentHead = newHeadTask;
