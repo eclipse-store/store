@@ -21,6 +21,7 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import io.github.jbellis.jvector.graph.GraphIndexBuilder;
 import io.github.jbellis.jvector.quantization.NVQuantization;
 import io.github.jbellis.jvector.quantization.ProductQuantization;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
@@ -213,6 +214,50 @@ class VectorIndexTrainingErrorTest
         {
             final GigaMap<Doc> map = manager.root();
             assertConsistent(map, VectorIndexFailedGraphInsertTest.index(map));
+        }
+    }
+
+    /**
+     * In-memory PQ on disk keeps its codes in a sidecar file, whose absence a load takes for a loss: the graph written
+     * without codes after a failed training must still be adopted by the next start, not rebuilt on every start.
+     */
+    @Test
+    void persist_inMemoryPqOnDisk_trainingFailingWithAnError_isAdoptedAfterARestart(@TempDir final Path dir)
+    {
+        final Random random  = new Random(4);
+        final Path   storage = dir.resolve("storage");
+        final VectorIndexConfiguration configuration = config()
+            .onDisk(true)
+            .indexDirectory(dir.resolve("index"))
+            .approximateScoring(ApproximateScoring.PQ_IN_MEMORY)
+            .pqSubspaces(2)
+            .optimizationIntervalMs(3_600_000)
+            .build();
+        try(final EmbeddedStorageManager manager = EmbeddedStorage.start(storage))
+        {
+            final GigaMap<Doc> map = map(random);
+            manager.setRoot(map);
+            manager.storeRoot();
+            final VectorIndex<Doc> index = register(map, configuration);
+            map.store();
+            final FailingPq pq = new FailingPq((PQCompressionManager)read(index, "pqManager"));
+            write(index, "pqManager", pq);
+
+            index.persistToDisk();
+            assertEquals(1, pq.trainings.get(), "trainings");
+            map.store();
+        }
+        for(int start = 1; start <= 2; start++)
+        {
+            try(final EmbeddedStorageManager manager = EmbeddedStorage.start(storage))
+            {
+                final GigaMap<Doc>     map   = manager.root();
+                final VectorIndex<Doc> index = VectorIndexFailedGraphInsertTest.index(map);
+                assertConsistent(map, index);
+                // a rejected load rebuilds every entity into the live graph; an adopted one leaves it empty
+                final GraphIndexBuilder live = (GraphIndexBuilder)read(index, "builder");
+                assertEquals(0, live.getGraph().size(0), "start " + start + " rebuilt the index instead of loading it");
+            }
         }
     }
 
