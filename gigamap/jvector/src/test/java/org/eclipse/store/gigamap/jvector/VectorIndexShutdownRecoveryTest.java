@@ -150,7 +150,8 @@ class VectorIndexShutdownRecoveryTest
     void untouchedIndex_scheduledPersistDoesNotRecover(@TempDir final Path dir) throws Exception
     {
         final Path storage = dir.resolve("storage");
-        store(storage, onDisk(dir.resolve("index")).persistenceIntervalMs(20).build());
+        // No change threshold: every tick persists, which a rejected load makes due, used or not.
+        store(storage, onDisk(dir.resolve("index")).persistenceIntervalMs(20).minChangesBetweenPersists(0).build());
         deleteIndexFiles(dir.resolve("index"));
 
         session(storage, map ->
