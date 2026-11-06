@@ -9625,15 +9625,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                     }
                     catch(final RuntimeException | Error retryFailure)
                     {
+                        // The background task manager logs and reports it, an Error too.
                         suppress(e, retryFailure);
-                        if(e instanceof Error)
-                        {
-                            // The background task manager logs and reports a failed operation only for a
-                            // RuntimeException.
-                            LOG.error("A graph operation of vector index '{}' failed, and so did applying it again",
-                                this.name, e);
-                            this.graphOperationFailed(new RuntimeException(e));
-                        }
                         throw e;
                     }
                     if(e instanceof Error)
