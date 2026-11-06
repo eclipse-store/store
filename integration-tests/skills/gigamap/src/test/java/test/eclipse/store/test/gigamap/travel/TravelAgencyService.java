@@ -9,7 +9,7 @@ package test.eclipse.store.test.gigamap.travel;
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  * #L%
  */
@@ -24,16 +24,22 @@ import org.eclipse.store.gigamap.jvector.VectorIndex;
 import org.eclipse.store.gigamap.jvector.VectorIndexConfiguration;
 import org.eclipse.store.gigamap.jvector.VectorIndices;
 import org.eclipse.store.gigamap.jvector.VectorSearchResult;
+import org.eclipse.store.gigamap.lucene.DirectoryCreator;
 import org.eclipse.store.gigamap.lucene.LuceneContext;
 import org.eclipse.store.gigamap.lucene.LuceneIndex;
 import org.eclipse.store.gigamap.lucene.LuceneSearchResult;
 import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.IndexLocation;
+import org.eclipse.store.gigamap.types.IndexLocations;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 public class TravelAgencyService implements AutoCloseable
 {
     public static final String VECTOR_INDEX_NAME = "accommodation-features";
+
+    /** Named index location: the storage remembers only the name, the application binds the directory. */
+    public static final String LUCENE_LOCATION = "travel-fulltext";
 
     private final EmbeddedStorageManager   storage;
     private final AppRoot                  root;
@@ -42,6 +48,10 @@ public class TravelAgencyService implements AutoCloseable
 
     public TravelAgencyService(Path storageDir, Path luceneDir)
     {
+        // Named locations are resolved when the index is created or loaded, so the
+        // binding has to exist before the storage starts (skill: index-locations).
+        IndexLocations.bind(LUCENE_LOCATION, luceneDir);
+
         this.storage = EmbeddedStorage.start(new AppRoot(), storageDir);
         this.root    = (AppRoot) storage.root();
 
@@ -52,7 +62,8 @@ public class TravelAgencyService implements AutoCloseable
         if (existingLucene == null)
         {
             LuceneContext<Accommodation> ctx = LuceneContext.New(
-                luceneDir, new AccommodationDocumentPopulator());
+                DirectoryCreator.MMap(IndexLocation.Named(LUCENE_LOCATION)),
+                new AccommodationDocumentPopulator());
             this.luceneIndex = root.accommodations().index()
                 .register(LuceneIndex.Category(ctx));
         }
@@ -71,6 +82,8 @@ public class TravelAgencyService implements AutoCloseable
                 .register(VectorIndices.Category());
         }
 
+        // Embedded vectorizer: the vector is a field of the entity, so an in-memory
+        // index simply re-reads it at each start and needs no index directory.
         VectorIndexConfiguration cfg = VectorIndexConfiguration
             .forSmallDataset(FeatureVectors.DIMENSION);
 
@@ -79,6 +92,8 @@ public class TravelAgencyService implements AutoCloseable
     }
 
     public AppRoot root() { return root; }
+
+    public EmbeddedStorageManager storage() { return storage; }
 
     // -------------------------------------------------------------- write API
 
@@ -126,6 +141,14 @@ public class TravelAgencyService implements AutoCloseable
         return root.accommodations()
             .query(AccommodationIndices.country.is(country))
             .toList();
+    }
+
+    /** One page of a country's accommodations (skill: GigaQuery has no skip/limit, use toList(offset, limit)). */
+    public List<Accommodation> byCountry(String country, int offset, int limit)
+    {
+        return root.accommodations()
+            .query(AccommodationIndices.country.is(country))
+            .toList(offset, limit);
     }
 
     public List<Accommodation> byType(Accommodation.Type type)
@@ -212,9 +235,9 @@ public class TravelAgencyService implements AutoCloseable
     @Override
     public void close()
     {
-        // Lucene holds an on-disk write.lock that storage.close() does NOT
-        // release; close it explicitly so the same JVM can reopen the index.
-        try { luceneIndex.close(); } catch (Exception ignore) {}
+        // Shutting the storage down closes every index group of the loaded maps
+        // (Lucene releases its write.lock, the vector index its files), so the same
+        // JVM can reopen both without an explicit luceneIndex.close() / vectorIndex.close().
         storage.close();
     }
 }

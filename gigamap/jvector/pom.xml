@@ -23,6 +23,8 @@
         <!-- memory-mapped vector file (foreign memory API) and jVector's MemorySegmentReader need Java 22+;
              this module and the modules that use it target Java 25, the rest of Eclipse Store stays at 17 -->
         <maven.compiler.release>25</maven.compiler.release>
+        <!-- no reruns: a test failing now and then here can be a real graph defect, which a rerun records as a pass -->
+        <surefire.rerunFailingTestsCount>0</surefire.rerunFailingTestsCount>
     </properties>
 
     <dependencies>
@@ -51,6 +53,13 @@
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
             <version>4.2.2</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- the index logs a failed graph operation it repairs; without a binder that log is lost in a test run -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

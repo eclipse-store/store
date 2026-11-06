@@ -26,7 +26,7 @@ import org.junit.platform.suite.api.Suite;
 @IncludeEngines("cucumber")
 @SelectClasspathResource("test/eclipse/store/ui")
 @ConfigurationParameter(key = GLUE_PROPERTY_NAME, value = "test.eclipse.store.ui")
-@ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber, json:target/cucumber.json")
+@ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber.html, json:target/cucumber.json")
 public class RunCucumberTest
 {
 }
