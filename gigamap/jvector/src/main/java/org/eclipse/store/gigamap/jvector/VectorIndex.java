@@ -1838,7 +1838,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             {
                 manager.trainFrom(sample);
             }
-            catch(final RuntimeException e)
+            catch(final RuntimeException | Error e)
             {
                 LOG.warn("PQ training failed for '{}', staying on exact scoring", this.name, e);
             }
@@ -8551,7 +8551,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     nvq.trainFrom(trainingSample);
                 }
-                catch(final RuntimeException e)
+                catch(final RuntimeException | Error e)
                 {
                     LOG.warn("NVQ training failed for '{}', writing full-precision vectors", this.name, e);
                 }
@@ -8563,7 +8563,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 {
                     pq.trainFrom(trainingSample);
                 }
-                catch(final RuntimeException e)
+                catch(final RuntimeException | Error e)
                 {
                     // Log the throwable, not just its message: the interesting cases here are degenerate
                     // training data and dimension mismatches, and the cause chain is what identifies them.
