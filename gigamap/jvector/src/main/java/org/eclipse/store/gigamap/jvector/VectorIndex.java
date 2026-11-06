@@ -3202,7 +3202,8 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             // nothing to schedule against. Such an index is not stranded, though: close() calls
             // doPersistToDisk directly for it, which flushes the rebuilt graph over the rejected files.
             // The gap is a process that is killed rather than closed, which repeats the work on the next
-            // start.
+            // start. Either way only an index used since the start writes (see persist): one that was not has
+            // nothing rebuilt to write, and the next start does the same as this one.
             if(diskRebuildPending && this.backgroundTaskManager != null)
             {
                 this.backgroundTaskManager.markPersistRequired();
@@ -5951,6 +5952,14 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(!this.configuration.onDisk())
             {
                 return true;
+            }
+            if(kind != PersistKind.EXPLICIT && !this.vectorsRecovered)
+            {
+                // Not used since the start, so nothing in memory to write: its vectors are still to be recovered.
+                // Recovering them here would load entities lazily through the storage, on the background thread,
+                // which a storage shutting down meanwhile keeps locked while it waits for this index to close.
+                // The first use recovers them, and the persist after it writes.
+                return kind == PersistKind.SHUTDOWN;
             }
             // A first look without any lock, so an idle tick costs nothing. Decided again under the
             // locks, where it is exact.
