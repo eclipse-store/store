@@ -137,9 +137,7 @@ A quota of `0.7` avoided the `OutOfMemoryError` in that test (at 20 MB/s).
 The `LazyReferenceManager` is global for the whole JVM and is started by the first storage that is started.
 Set it before that, e.g. in a Spring Boot application with a `StorageContextInitializer` (see xref:misc:integrations/spring-boot.adoc#_code_configuration_before_storage_creation[Spring Boot — Code Configuration Before Storage Creation]).
 
-WARNING: A manager set while a storage is running is not started.
-The previous one is no longer reachable and stops once it is garbage-collected (unless the application still references it).
-Lazy references are then no longer cleared automatically until a storage is started again.
+A manager set while the previous one is running takes over: it is started and the previous one is stopped.
 
 The heap statistics source (`MemoryStatisticsProvider`, see below) is read in every check and can be replaced at any time.
 
