@@ -22,7 +22,7 @@ This will tell you how long a Lazy Reference has not been used, i.e.
 if it is needed at all.
 
 The `LazyReferenceManager` audits this.
-It is enabled by default, with a timeout of 1,000,000 milliseconds, which is about 15 minutes.
+It is enabled by default and checks the loaded references once per second.
 
 A custom manager can be set easily, which should happen before a storage is started.
 
@@ -37,4 +37,204 @@ LazyReferenceManager.set(LazyReferenceManager.New(
 ----
 
 The timeout of lazy references is set to 30 minutes, meaning references which haven't been touched for this time are cleared.
-In combination with a memory quota of 0.75.
+In combination with a memory quota of 0.75, see below.
+
+=== How references are selected for clearing
+
+Only references that are stored, loaded and not marked as in use are considered.
+The default checker decides per reference:
+
+[options="header",cols="1,3"]
+|===
+|Setting |Behavior
+
+|Grace time
+|References touched within the last second are never cleared.
+
+|Timeout (default 1,000,000 ms, about 15 minutes)
+|References not touched for longer than the timeout are always cleared.
+
+|Memory quota (default 0.8)
+|In between, a reference is cleared when `used × (1 + age / timeout) ≥ committed heap × quota`.
+The fuller the heap, the younger the references that are cleared, the oldest first.
+|===
+
+For example, with the default settings and a committed heap of 512 MB (limit 410 MB):
+
+[options="header",cols="1,1"]
+|===
+|Retained heap ("used") |Cleared are references untouched for longer than
+
+|up to 40 % (205 MB)
+|the timeout only
+
+|50 % (256 MB)
+|about 10 minutes
+
+|61.5 % (315 MB)
+|about 5 minutes
+
+|75.5 % (387 MB)
+|about 1 minute
+
+|80 % (410 MB) and more
+|the grace time, i.e. all of them
+|===
+
+A quota of `0.0` disables the memory check, only the timeout applies (`Lazy.CheckerTimeout(timeout)`).
+`Lazy.CheckerMemory(quota)` does the opposite, only the memory check applies.
+
+=== How the heap usage is measured
+
+"used" is the heap usage right after the most recent garbage collection, not the current usage.
+The current usage also contains the garbage allocated since that collection.
+Concurrent collectors such as ZGC or Shenandoah let it grow up to the committed heap size before a collection cycle completes, which would clear every reference beyond the grace time.
+
+On top of that:
+
+* Objects that the collector places directly into the old generation (e.g. large arrays under G1) count immediately, even without a further young collection.
+* If no collector has been active for two seconds, the current usage counts, because nothing has been reclaimed since the last collection.
+* With a fixed-size old generation (Parallel and Serial GC, about two thirds of the heap), the old generation's fill level after its last collection counts as well, scaled to the heap.
+Retained lazy data lives there, so the old generation can be full long before the heap as a whole.
+A non-lazy live set above 80 % of the old generation therefore keeps clearing lazy references.
+
+IMPORTANT: The post-collection values are read from the JDK module `jdk.management`.
+A runtime image built with `jlink` from the module dependencies only does not contain it; add it with `--add-modules jdk.management`.
+Without it, the current heap usage is used and a warning is logged once.
+
+=== Limits
+
+* Data loaded within the last 2–3 seconds cannot be released: the grace time (1 s), the check interval (1 s) and the statistics cache (1 s) add up.
+An application that fills the free heap faster than that runs out of memory no matter how the lazy references are configured.
+Measured in a 512 MB heap with 1 MB payloads, the default settings keep up with roughly 60–100 MB/s of lazy loading with G1, generational ZGC and Parallel GC (non-generational ZGC, available up to JDK 23: about 40–60 MB/s).
+* *Serial GC* (chosen automatically by the JVM on machines or containers with fewer than two CPUs or less than about 1.8 GB of memory) keeps up with only about 40–60 MB/s in the same setting.
+Its old generation reveals how much of it is live data only in a full collection, which runs when it is already full.
+Under heavy lazy loading prefer G1 or Parallel GC, or lower the quota (at the price of more clearing in normal operation).
+* *Shenandoah* does not count the unused part of its regions as used.
+With large payloads (e.g. 1 MB arrays in a 512 MB heap), the heap is full at about 76 % "used", below the default limit.
+Use a lower quota, e.g. `0.7`.
+
+=== Advanced configuration
+
+All of the following settings apply to the whole JVM and must be set before the first storage is started.
+
+==== Check interval and time budget
+
+The manager checks every second for at most one millisecond per check (`1_000_000` nanoseconds).
+
+[source, java]
+----
+LazyReferenceManager.set(LazyReferenceManager.New(
+	Lazy.Checker(Lazy.Checker.Defaults.defaultTimeout(), 0.8),
+	500,      // check interval in milliseconds
+	2_000_000 // time budget per check in nanoseconds
+));
+----
+
+==== Collector-dependent quota
+
+The collector can be recognized by the names of the garbage collector beans, e.g. `Copy` and `MarkSweepCompact` for Serial GC or names starting with `Shenandoah`.
+The order of the beans differs between collectors, so check all of them.
+
+[source, java]
+----
+boolean serialOrShenandoah = ManagementFactory.getGarbageCollectorMXBeans().stream()
+	.map(GarbageCollectorMXBean::getName)
+	.anyMatch(name -> name.equals("MarkSweepCompact") || name.startsWith("Shenandoah"));
+
+LazyReferenceManager.set(LazyReferenceManager.New(
+	Lazy.Checker(Lazy.Checker.Defaults.defaultTimeout(), serialOrShenandoah ? 0.7 : 0.8)
+));
+----
+
+==== Custom decision logic
+
+A `Lazy.Check` is called for every candidate reference before the default logic, including references within the grace time.
+It returns `true` to clear, `false` to keep, or `null` to leave the decision to the default logic.
+It is called for every reference in every check, so it must be cheap.
+
+[source, java]
+----
+Lazy.Check check = (lazy, memoryStatistics, timeout) ->
+{
+	long age = System.currentTimeMillis() - lazy.lastTouched();
+	if(age > 10_000 && memoryStatistics.usedAfterLastGc() > 0.7 * memoryStatistics.committed())
+	{
+		return true; // own rule
+	}
+	return null;     // default logic
+};
+
+LazyReferenceManager.set(LazyReferenceManager.New(
+	Lazy.Checker(Lazy.Checker.Defaults.defaultTimeout(), 0.8, check, null)
+));
+----
+
+The `MemoryStatistics` passed in contain `max()`, `committed()`, `used()` (current), `usedAfterLastGc()`, `gcCount()`, `oldGenerationUsedAfterLastGc()` and `oldGenerationMax()`; unknown values are `-1`.
+
+==== Custom memory statistics
+
+The statistics source can be replaced, e.g. to compute "used" differently.
+The default source caches its values for one second (`MemoryStatisticsProvider.New(updateIntervalMs)` creates one with another interval).
+
+[source, java]
+----
+MemoryStatisticsProvider defaults = MemoryStatisticsProvider.get();
+MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
+{
+	@Override
+	public MemoryStatistics heapMemoryUsage()
+	{
+		MemoryStatistics s = defaults.heapMemoryUsage();
+		// ... derive own values, e.g. via MemoryStatistics.New(...)
+		return s;
+	}
+
+	@Override
+	public MemoryStatistics nonHeapMemoryUsage()
+	{
+		return defaults.nonHeapMemoryUsage();
+	}
+});
+----
+
+==== Restoring the previous behavior
+
+Earlier versions decided on the current heap usage (including uncollected garbage) with a default quota of `1.0`.
+That behavior can be restored with statistics that only provide the current usage and the old quota:
+
+[source, java]
+----
+MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
+{
+	private MemoryStatistics cached;
+	private long             timestamp;
+
+	@Override
+	public synchronized MemoryStatistics heapMemoryUsage()
+	{
+		long now = System.currentTimeMillis();
+		if(this.cached == null || now - 1_000 >= this.timestamp)
+		{
+			this.timestamp = now;
+			MemoryUsage usage = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+			// three values only: no post-collection and no old-generation data
+			this.cached = MemoryStatistics.New(usage.getMax(), usage.getCommitted(), usage.getUsed());
+		}
+		return this.cached;
+	}
+
+	@Override
+	public MemoryStatistics nonHeapMemoryUsage()
+	{
+		MemoryUsage usage = ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage();
+		return MemoryStatistics.New(usage.getMax(), usage.getCommitted(), usage.getUsed());
+	}
+});
+
+LazyReferenceManager.set(LazyReferenceManager.New(
+	Lazy.Checker(Lazy.Checker.Defaults.defaultTimeout(), 1.0)
+));
+----
+
+NOTE: With concurrent collectors (ZGC, Shenandoah) the previous behavior clears every reference beyond the grace time whenever the current usage reaches the committed heap size, and with a quota of `1.0` clearing starts too late to prevent an `OutOfMemoryError` when references are loaded steadily.
