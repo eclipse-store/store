@@ -28,6 +28,8 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import java.lang.management.ManagementFactory;
 import java.lang.ref.Reference;
 import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.management.InstanceAlreadyExistsException;
@@ -202,20 +204,28 @@ public class LazyReferenceManagerClearAndJmxTest
 		final AtomicBoolean                   allowed    = new AtomicBoolean(true);
 		final LazyReferenceManager.Controller controller = allowed::get;
 		final Recording                       oldBean    = new Recording();
-		// long interval: the old thread must not notice the disallowed state before the handover
-		final LazyReferenceManager            old        = recorded(oldBean, 1_000_000);
+		/*
+		 * Both threads check the controllers once at their start and then sleep for a long interval. The test waits until
+		 * each thread asked for its interval, i.e. made its first check, before a controller can disallow it: a thread
+		 * checking later would end and release the bean before the assertions.
+		 */
+		final CountDownLatch                  oldChecked = new CountDownLatch(1);
+		final LazyReferenceManager            old        = recordedSleeping(oldBean, oldChecked);
 		old.addController(controller);
 		LazyReferenceManager.set(old);
 		old.start();
 		try
 		{
+			assertTrue(awaitQuietly(oldChecked), "precondition: the old thread made its first check");
 			assertTrue(oldBean.holdsBean(), "precondition: the old manager holds the JMX bean");
 			allowed.set(false);
 			assertFalse(old.isRunning(), "precondition: the controllers disallow running");
 
-			final Recording newBean = new Recording();
-			// long interval: it takes over the disallowing controller, its thread must not end before the assertion
-			LazyReferenceManager.set(recorded(newBean, 1_000_000).start());
+			final Recording            newBean     = new Recording();
+			final CountDownLatch       newChecked  = new CountDownLatch(1);
+			final LazyReferenceManager replacement = recordedSleeping(newBean, newChecked).start();
+			assertTrue(awaitQuietly(newChecked), "precondition: the new thread made its first check");
+			LazyReferenceManager.set(replacement);
 			assertTrue(newBean.holdsBean(), "the JMX bean must belong to the new global manager");
 		}
 		finally
@@ -305,6 +315,37 @@ public class LazyReferenceManagerClearAndJmxTest
 			() -> 1_000_000,
 			monitoring
 		);
+	}
+
+	/**
+	 * A manager whose thread sleeps for a long time after its first check; the thread asks for the interval only
+	 * after that check, which counts down the passed latch.
+	 */
+	private static LazyReferenceManager recordedSleeping(final Recording monitoring, final CountDownLatch firstChecked)
+	{
+		return LazyReferenceManager.New(
+			Lazy.CheckerTimeout(Long.MAX_VALUE),
+			() ->
+			{
+				firstChecked.countDown();
+				return 1_000_000;
+			},
+			() -> 1_000_000,
+			monitoring
+		);
+	}
+
+	private static boolean awaitQuietly(final CountDownLatch latch)
+	{
+		try
+		{
+			return latch.await(5, TimeUnit.SECONDS);
+		}
+		catch(final InterruptedException e)
+		{
+			Thread.currentThread().interrupt();
+			return false;
+		}
 	}
 
 	/**

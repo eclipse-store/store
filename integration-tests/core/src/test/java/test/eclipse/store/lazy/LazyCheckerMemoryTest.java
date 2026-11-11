@@ -123,7 +123,8 @@ public class LazyCheckerMemoryTest
 	@Test
 	void disabledMemoryCheckNeverClearsByMemory()
 	{
-		assertFalse(this.needsClearing(Lazy.CheckerTimeout(10_000L), postGc(COMMITTED, COMMITTED)));
+		// a non-expiring timeout: the references are aged once per class, a slow run must not make this a timeout test
+		assertFalse(this.needsClearing(Lazy.CheckerTimeout(Long.MAX_VALUE), postGc(COMMITTED, COMMITTED)));
 	}
 
 	@Test

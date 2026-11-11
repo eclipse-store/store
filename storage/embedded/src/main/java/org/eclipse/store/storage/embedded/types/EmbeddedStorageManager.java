@@ -277,18 +277,11 @@ public interface EmbeddedStorageManager extends StorageManager
 		private void ensureActiveLazyReferenceManager()
 		{
 			/*
-			 * The global manager and its state are read now, not before the start: meanwhile a set() may have replaced
-			 * it, or the shutdown of another storage may have stopped it. start() does nothing for a running manager.
-			 * A set() between reading and starting is caught by reading again.
+			 * The global manager is determined now, not before the start: meanwhile a set() may have replaced it, or the
+			 * shutdown of another storage may have stopped it. Atomic with set(), so a replaced manager is never started.
+			 * start() does nothing for a running manager.
 			 */
-			LazyReferenceManager lazyReferenceManager;
-			do
-			{
-				lazyReferenceManager = LazyReferenceManager.get();
-				lazyReferenceManager.addController(this);
-				lazyReferenceManager.start();
-			}
-			while(lazyReferenceManager != LazyReferenceManager.get());
+			LazyReferenceManager.startGlobal(this);
 		}
 		
 		private void rollbackLazyReferenceManager(

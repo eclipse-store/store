@@ -14,6 +14,7 @@ package test.eclipse.store.lazy;
  * #L%
  */
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,8 +28,13 @@ import org.eclipse.serializer.reference.LazyReferenceManager;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
+import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -112,6 +118,128 @@ public class EmbeddedStorageLazyReferenceManagerStartTest
 		this.storage = this.startWithHandler(this.dir);
 
 		assertTrue(LazyReferenceManager.get().isRunning(), "the global manager must run after the storage start");
+	}
+
+	/**
+	 * A set() from another thread while the storage activates the global manager: the replaced manager must not be
+	 * started by the storage, only the successor runs and has the storage as controller.
+	 * <p>
+	 * The global manager is a recording one that lets another thread call set() when the storage adds its controller,
+	 * and waits for it a little: with a separate read and start, the set() completes before the start.
+	 */
+	@Test
+	void managerReplacedWhileTheStorageActivatesItIsNotStarted() throws InterruptedException
+	{
+		final LazyReferenceManager successor = manager();
+		final Thread[]             setter    = new Thread[1];
+		final RecordingManager     recording = new RecordingManager(() ->
+		{
+			setter[0] = new Thread(() -> LazyReferenceManager.set(successor));
+			setter[0].start();
+			try
+			{
+				// with the activation atomic to set(), the setter waits for it and this times out
+				setter[0].join(500);
+			}
+			catch(final InterruptedException e)
+			{
+				Thread.currentThread().interrupt();
+			}
+		});
+		LazyReferenceManager.set(recording.proxy());
+
+		this.storage = EmbeddedStorage.start(new Object[0], this.dir);
+		setter[0].join(5_000);
+
+		assertSame(successor, LazyReferenceManager.get(), "precondition: replaced during the activation");
+		assertFalse(recording.running, "the replaced manager must not run");
+		assertTrue(successor.isRunning(), "the successor must run");
+		assertTrue(hasController(successor, this.storage), "the successor must have the storage as controller");
+	}
+
+	private static boolean hasController(final LazyReferenceManager manager, final Object controller)
+	{
+		final boolean[] found = new boolean[1];
+		manager.iterateControllers(c ->
+		{
+			if(c == controller)
+			{
+				found[0] = true;
+			}
+		});
+		return found[0];
+	}
+
+	/**
+	 * A minimal manager that records its running state and controllers, and runs a hook when the first controller is
+	 * added.
+	 */
+	static final class RecordingManager
+	{
+		final List<Lazy<?>>                         references  = Collections.synchronizedList(new ArrayList<>());
+		final List<LazyReferenceManager.Controller> controllers = Collections.synchronizedList(new ArrayList<>());
+		final Runnable                              onFirstController;
+		volatile boolean                            running;
+
+		RecordingManager(final Runnable onFirstController)
+		{
+			this.onFirstController = onFirstController;
+		}
+
+		@SuppressWarnings("unchecked")
+		LazyReferenceManager proxy()
+		{
+			return (LazyReferenceManager)Proxy.newProxyInstance(
+				LazyReferenceManager.class.getClassLoader(),
+				new Class<?>[]{LazyReferenceManager.class},
+				(proxy, method, args) ->
+				{
+					switch(method.getName())
+					{
+						case "register":
+							this.references.add((Lazy<?>)args[0]);
+							return null;
+						case "registerAll":
+							((LazyReferenceManager)args[0]).iterate((Consumer<Lazy<?>>)this.references::add);
+							((LazyReferenceManager)args[0]).iterateControllers(
+								(Consumer<LazyReferenceManager.Controller>)this.controllers::add
+							);
+							return proxy;
+						case "addController":
+							this.controllers.add((LazyReferenceManager.Controller)args[0]);
+							if(this.controllers.size() == 1)
+							{
+								this.onFirstController.run();
+							}
+							return proxy;
+						case "removeController":
+							return this.controllers.remove(args[0]);
+						case "iterate":
+							new ArrayList<>(this.references).forEach((Consumer<Lazy<?>>)args[0]);
+							return args[0];
+						case "iterateControllers":
+							new ArrayList<>(this.controllers).forEach((Consumer<LazyReferenceManager.Controller>)args[0]);
+							return args[0];
+						case "start":
+							this.running = true;
+							return proxy;
+						case "stop":
+							this.running = false;
+							return proxy;
+						case "isRunning":
+							return this.running;
+						case "hashCode":
+							return System.identityHashCode(proxy);
+						case "equals":
+							return proxy == args[0];
+						case "toString":
+							return "recording manager";
+						default:
+							return null;
+					}
+				}
+			);
+		}
 	}
 
 	private void storeRoot()
