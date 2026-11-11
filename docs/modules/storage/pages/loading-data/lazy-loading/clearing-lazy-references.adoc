@@ -113,8 +113,8 @@ NOTE: On Android and in GraalVM native images, the current heap usage is used (n
 
 === Limits
 
-* References touched within the grace time are never cleared, the manager checks once per second, and the heap statistics are cached for one second.
-Data loaded within the last 2–3 seconds can therefore not be released by memory-based clearing.
+* References touched within the grace time (one second) are never cleared.
+The manager checks once per second and the heap statistics are cached for one second, so memory-based clearing may react only 2–3 seconds after the data was loaded.
 * Each check stops after its time budget (one millisecond by default) and continues with the next references in the following check.
 With many lazy references (more than some 10,000, e.g. large GigaMaps or lazy collections), a full pass over all of them takes several checks, and memory-based clearing reacts correspondingly later.
 Raise the time budget for such applications, see <<check-interval-and-time-budget>>.
