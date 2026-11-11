@@ -274,18 +274,21 @@ public interface EmbeddedStorageManager extends StorageManager
 			return this.isRunning();
 		}
 				
-		private void ensureActiveLazyReferenceManager(
-			final LazyReferenceManager lazyReferenceManager         ,
-			final boolean              lazyReferenceManagerIsRunning
-		)
+		private void ensureActiveLazyReferenceManager()
 		{
-			lazyReferenceManager.addController(this);
-			if(lazyReferenceManagerIsRunning)
+			/*
+			 * The global manager and its state are read now, not before the start: meanwhile a set() may have replaced
+			 * it, or the shutdown of another storage may have stopped it. start() does nothing for a running manager.
+			 * A set() between reading and starting is caught by reading again.
+			 */
+			LazyReferenceManager lazyReferenceManager;
+			do
 			{
-				return;
+				lazyReferenceManager = LazyReferenceManager.get();
+				lazyReferenceManager.addController(this);
+				lazyReferenceManager.start();
 			}
-			
-			lazyReferenceManager.start();
+			while(lazyReferenceManager != LazyReferenceManager.get());
 		}
 		
 		private void rollbackLazyReferenceManager(
@@ -300,26 +303,23 @@ public interface EmbeddedStorageManager extends StorageManager
 		{
 			logger.info("Starting embedded storage manager");
 			
-			final LazyReferenceManager lazyReferenceManager = LazyReferenceManager.get();
-			final boolean lazyReferenceManagerIsRunning = lazyReferenceManager.isRunning();
-			
 			this.storageSystem.start();
-			
+
 			try
 			{
 				this.ensureRequiredTypeHandlers();
 				this.initialize();
-				
+
 				logger.info("Embedded storage manager initialized");
-				
+
 				// this depends on completed initialization
-				this.ensureActiveLazyReferenceManager(lazyReferenceManager, lazyReferenceManagerIsRunning);
+				this.ensureActiveLazyReferenceManager();
 			}
 			catch(final Throwable t)
 			{
 				try
 				{
-					this.rollbackLazyReferenceManager(lazyReferenceManager);
+					this.rollbackLazyReferenceManager(LazyReferenceManager.get());
 					this.monitorManager.shutdown();
 					
 					if(this.storageSystem instanceof StorageKillable)
