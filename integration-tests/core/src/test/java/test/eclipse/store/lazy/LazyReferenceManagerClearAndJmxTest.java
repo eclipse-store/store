@@ -26,7 +26,9 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 import java.lang.management.ManagementFactory;
+import java.lang.ref.Reference;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.management.InstanceAlreadyExistsException;
 import javax.management.MBeanServer;
@@ -95,6 +97,23 @@ public class LazyReferenceManagerClearAndJmxTest
 		final LazyReferenceManager manager    = LazyReferenceManager.New(Lazy.CheckerTimeout(Long.MAX_VALUE));
 		final Lazy<Object>[]       references = mixedReferences(manager, 3_800_000_000L);
 
+		manager.clear();
+
+		assertOnlyFreeStoredCleared(references);
+	}
+
+	/**
+	 * A budgeted cycle stops anywhere in the list and continues there next time; clear() must still start at the head.
+	 */
+	@Test
+	void clearAfterABudgetedCycleClearsFromTheHead()
+	{
+		final LazyReferenceManager manager    = LazyReferenceManager.New(Lazy.CheckerTimeout(Long.MAX_VALUE));
+		final Lazy<Object>[]       references = mixedReferences(manager, 3_850_000_000L);
+
+		// a 1 ns budget: exactly one check per cycle; after two, the cycle stands behind the first stored, free reference
+		manager.cleanUp(1);
+		manager.cleanUp(1);
 		manager.clear();
 
 		assertOnlyFreeStoredCleared(references);
@@ -172,6 +191,43 @@ public class LazyReferenceManagerClearAndJmxTest
 		assertTrue(monitoring.holdsBean(), "the JMX bean must belong to the new global manager");
 	}
 
+	/**
+	 * While its controllers disallow running, the old manager's thread still sleeps and holds the bean name. The
+	 * handover must retire it anyway, so that an already started replacement gets the bean.
+	 */
+	@Test
+	void beanFollowsHandoverWhileTheOldManagerIsDisallowed()
+	{
+		awaitBeanNameFree();
+		final AtomicBoolean                   allowed    = new AtomicBoolean(true);
+		final LazyReferenceManager.Controller controller = allowed::get;
+		final Recording                       oldBean    = new Recording();
+		// long interval: the old thread must not notice the disallowed state before the handover
+		final LazyReferenceManager            old        = recorded(oldBean, 1_000_000);
+		old.addController(controller);
+		LazyReferenceManager.set(old);
+		old.start();
+		try
+		{
+			assertTrue(oldBean.holdsBean(), "precondition: the old manager holds the JMX bean");
+			allowed.set(false);
+			assertFalse(old.isRunning(), "precondition: the controllers disallow running");
+
+			final Recording newBean = new Recording();
+			// long interval: it takes over the disallowing controller, its thread must not end before the assertion
+			LazyReferenceManager.set(recorded(newBean, 1_000_000).start());
+			assertTrue(newBean.holdsBean(), "the JMX bean must belong to the new global manager");
+		}
+		finally
+		{
+			old.stop();
+			// set() passes controllers on to the next manager: remove it there, it would disallow running
+			old.removeController(controller);
+			LazyReferenceManager.get().removeController(controller);
+			Reference.reachabilityFence(controller);
+		}
+	}
+
 	@Test
 	void beanFollowsStorageRestart()
 	{
@@ -238,9 +294,14 @@ public class LazyReferenceManagerClearAndJmxTest
 
 	private static LazyReferenceManager recorded(final Recording monitoring)
 	{
+		return recorded(monitoring, 20);
+	}
+
+	private static LazyReferenceManager recorded(final Recording monitoring, final long intervalMs)
+	{
 		return LazyReferenceManager.New(
 			Lazy.CheckerTimeout(Long.MAX_VALUE),
-			() -> 20,
+			() -> intervalMs,
 			() -> 1_000_000,
 			monitoring
 		);

@@ -51,7 +51,8 @@ public class GigaMapLazyClearTest
 {
 	// 16 entities per segment: many lazy references with few entities
 	static final int LOW_LEVEL_EXPONENT = 4;
-	static final int INITIAL            = 400;
+	// 25 full segments and one with a single entity: the add goes into a stored, partly filled segment
+	static final int INITIAL            = 401;
 	static final int VALUES             = 20;
 
 	static final ValueIndexer VALUE_INDEXER = new ValueIndexer();
@@ -97,6 +98,7 @@ public class GigaMapLazyClearTest
 		model[INITIAL] = 3;
 
 		LazyReferenceManager.get().clear();
+		assertTrue(this.clearedMapReferences() > 0, "precondition: clear() must have cleared segments of the map");
 		map.store();
 
 		this.assertPersisted(model, new boolean[model.length]);
@@ -113,6 +115,7 @@ public class GigaMapLazyClearTest
 		removed[9] = true;
 
 		LazyReferenceManager.get().clear();
+		assertTrue(this.clearedMapReferences() > 0, "precondition: clear() must have cleared segments of the map");
 		map.store();
 
 		this.assertPersisted(model, removed);
@@ -128,6 +131,7 @@ public class GigaMapLazyClearTest
 		model[5] = VALUES + 1;
 
 		LazyReferenceManager.get().clear();
+		assertTrue(this.clearedMapReferences() > 0, "precondition: clear() must have cleared segments of the map");
 		map.store();
 
 		this.assertPersisted(model, new boolean[model.length]);

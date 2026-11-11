@@ -14,6 +14,7 @@ package test.eclipse.store.lazy;
  * #L%
  */
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -30,8 +31,10 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 import java.lang.ref.Reference;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -41,6 +44,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -265,6 +269,109 @@ public class LazyReferenceManagerLifecycleTest
 		assertEquals(0, count(second, forwarded), "the replaced manager must not keep it");
 	}
 
+	/**
+	 * A replaced manager forwards to its successor: taking over the successor's references must not register them at
+	 * the successor again while it is iterated (that would never end).
+	 */
+	@Test
+	void replacedManagerTakingOverItsSuccessorTerminates()
+	{
+		final LazyReferenceManager first     = clearingManager(1_000_000);
+		final LazyReferenceManager successor = boundedLiveIterationManager();
+		LazyReferenceManager.set(first);
+		LazyReferenceManager.set(successor);
+		// registered at the global manager (the successor) by its creation
+		final Lazy<Object> reference = Lazy.New(new Object(), 3_790_000_000L, null);
+
+		assertDoesNotThrow(() -> first.registerAll(successor), "taking over the successor's references must end");
+		assertEquals(0, count(first, reference), "the replaced manager forwards, it must not keep it");
+	}
+
+	/**
+	 * A minimal manager that iterates its live list like the default one, but bounded: an iteration that keeps
+	 * growing its own list fails instead of exhausting the memory (and holding the managers' locks meanwhile).
+	 */
+	private static LazyReferenceManager boundedLiveIterationManager()
+	{
+		final List<Lazy<?>> registered = Collections.synchronizedList(new ArrayList<>());
+		return (LazyReferenceManager)Proxy.newProxyInstance(
+			LazyReferenceManager.class.getClassLoader(),
+			new Class<?>[]{LazyReferenceManager.class},
+			(proxy, method, args) ->
+			{
+				switch(method.getName())
+				{
+					case "register":
+						registered.add((Lazy<?>)args[0]);
+						return null;
+					case "registerAll":
+						((LazyReferenceManager)args[0]).iterate((Consumer<Lazy<?>>)registered::add);
+						return proxy;
+					case "iterate":
+						@SuppressWarnings("unchecked")
+						final Consumer<Lazy<?>> consumer = (Consumer<Lazy<?>>)args[0];
+						final int bound = 2 * registered.size() + 100;
+						for(int i = 0; i < registered.size(); i++)
+						{
+							if(i >= bound)
+							{
+								throw new IllegalStateException("endless iteration: the list grows while iterated");
+							}
+							consumer.accept(registered.get(i));
+						}
+						return consumer;
+					case "iterateControllers":
+						return args[0];
+					case "isRunning":
+						return false;
+					case "start":
+					case "stop":
+						return proxy;
+					case "hashCode":
+						return System.identityHashCode(proxy);
+					case "equals":
+						return proxy == args[0];
+					case "toString":
+						return "bounded live iteration manager";
+					default:
+						return method.getReturnType() == boolean.class ? Boolean.FALSE : null;
+				}
+			}
+		);
+	}
+
+	/**
+	 * If the new manager fails to take over the references, the old one stays global: it must register again instead
+	 * of forwarding to the manager that failed.
+	 */
+	@Test
+	void failedTakeoverLeavesTheOldManagerRegistering()
+	{
+		final LazyReferenceManager first = clearingManager(1_000_000);
+		LazyReferenceManager.set(first);
+		final LazyReferenceManager failing = (LazyReferenceManager)Proxy.newProxyInstance(
+			LazyReferenceManager.class.getClassLoader(),
+			new Class<?>[]{LazyReferenceManager.class},
+			(proxy, method, args) ->
+			{
+				if("registerAll".equals(method.getName()))
+				{
+					throw new IllegalStateException("simulated takeover failure");
+				}
+				return method.getReturnType() == boolean.class ? Boolean.FALSE : null;
+			}
+		);
+
+		assertThrows(IllegalStateException.class, () -> LazyReferenceManager.set(failing));
+		assertSame(first, LazyReferenceManager.get(), "the old manager stays global");
+
+		// registered at the global manager (first) by its creation already
+		final Lazy<Object> reference = Lazy.New(new Object(), 3_795_000_000L, null);
+		final long         before    = count(first, reference);
+		first.register(reference);
+		assertEquals(before + 1, count(first, reference), "the old manager must not forward to the failed one");
+	}
+
 	@Test
 	void settingTheGlobalManagerAgainIsRejected()
 	{
@@ -353,12 +460,11 @@ public class LazyReferenceManagerLifecycleTest
 	void managerStoppedByItsControllerCanBeStartedAgain()
 	{
 		final AtomicBoolean                   allowed    = new AtomicBoolean(true);
-		final List<Lazy<Object>>              references = storedReferences(10, 3_500_000_000L);
 		final LazyReferenceManager            manager    = clearingManager(10);
 		// controllers are held weakly: this local keeps it reachable until the end (see finally)
 		final LazyReferenceManager.Controller controller = allowed::get;
 		manager.addController(controller);
-		references.forEach(manager::register);
+		final List<Lazy<Object>> references = new ArrayList<>();
 		try
 		{
 			manager.start();
@@ -367,6 +473,12 @@ public class LazyReferenceManagerLifecycleTest
 			// the thread ends on its own when no controller allows running
 			allowed.set(false);
 			awaitTrue(() -> this.ownCleanupThreads().isEmpty(), "the thread must end without a controller allowing it");
+
+			// registered after the end: only a new thread can clear them
+			references.addAll(storedReferences(10, 3_500_000_000L));
+			references.forEach(manager::register);
+			sleep(50);
+			assertEquals(references.size(), loaded(references), "precondition: nothing clears without a thread");
 
 			// what a storage start does: start() must create a new thread instead of believing the old one runs
 			allowed.set(true);
@@ -457,17 +569,17 @@ public class LazyReferenceManagerLifecycleTest
 	@Test
 	void slowStatisticsDoNotConsumeTheCheckBudget()
 	{
-		// 5 ms per statistics call, 1 ms budget: with the budget started before the statistics about 1 reference per cycle
-		this.statisticsSleepMs = 5;
+		// 50 ms per statistics call, 20 ms budget: with the budget started before the statistics exactly 1 reference per cycle
+		// (generous values: a GC pause within the budget must not leave just one check)
+		this.statisticsSleepMs = 50;
 		final List<Lazy<Object>> references = storedReferences(10_000, 3_700_000_000L);
 		final LazyReferenceManager manager = clearingManager(1_000_000);
 		references.forEach(manager::register);
 
-		manager.cleanUp(1_000_000);
+		manager.cleanUp(20_000_000);
 
 		final long cleared = references.size() - loaded(references);
-		// with the budget started before the statistics, exactly one reference (the first check) is cleared
-		assertTrue(cleared > 1, "cleared in one 1 ms cycle: " + cleared);
+		assertTrue(cleared > 1, "cleared in one 20 ms cycle: " + cleared);
 	}
 
 	/**
