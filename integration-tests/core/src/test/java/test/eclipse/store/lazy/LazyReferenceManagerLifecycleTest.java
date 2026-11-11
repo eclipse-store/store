@@ -17,6 +17,7 @@ package test.eclipse.store.lazy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.eclipse.serializer.memory.MemoryStatistics;
@@ -215,6 +216,118 @@ public class LazyReferenceManagerLifecycleTest
 			running.removeController(slow);
 			LazyReferenceManager.get().removeController(slow);
 		}
+	}
+
+	/**
+	 * A Lazy instance may get the global manager just before a set() and register after the takeover: the replaced
+	 * manager forwards it, else it would stay with the stopped manager alone and never be cleared.
+	 */
+	@Test
+	void registrationAtTheReplacedManagerIsForwarded()
+	{
+		final LazyReferenceManager first  = clearingManager(1_000_000);
+		final LazyReferenceManager second = clearingManager(1_000_000);
+		LazyReferenceManager.set(first);
+		LazyReferenceManager.set(second);
+
+		// registered at the global manager (second) by its creation already
+		final Lazy<Object> late   = Lazy.New(new Object(), 3_750_000_000L, null);
+		final long         before = count(second, late);
+		first.register(late);
+
+		assertEquals(before + 1, count(second, late), "the registration must reach the new global manager");
+		assertEquals(0, count(first, late), "the replaced manager must not keep it");
+	}
+
+	/**
+	 * A replaced manager that becomes global again registers itself instead of forwarding, so that two managers never
+	 * forward to each other.
+	 */
+	@Test
+	void managerGlobalAgainDoesNotForward()
+	{
+		final LazyReferenceManager first  = clearingManager(1_000_000);
+		final LazyReferenceManager second = clearingManager(1_000_000);
+		LazyReferenceManager.set(first);
+		LazyReferenceManager.set(second);
+		LazyReferenceManager.set(first);
+
+		// registered at the global manager (first) by their creation already
+		final Lazy<Object> direct          = Lazy.New(new Object(), 3_760_000_000L, null);
+		final Lazy<Object> forwarded       = Lazy.New(new Object(), 3_760_000_001L, null);
+		final long         directBefore    = count(first, direct);
+		final long         forwardedBefore = count(first, forwarded);
+		first.register(direct);
+		second.register(forwarded);
+
+		assertEquals(directBefore + 1, count(first, direct), "the global manager must register, not forward");
+		assertEquals(forwardedBefore + 1, count(first, forwarded), "the replaced manager forwards to the global one");
+		assertEquals(0, count(second, forwarded), "the replaced manager must not keep it");
+	}
+
+	@Test
+	void settingTheGlobalManagerAgainIsRejected()
+	{
+		final LazyReferenceManager manager = clearingManager(1_000_000);
+		LazyReferenceManager.set(manager);
+
+		assertThrows(IllegalArgumentException.class, () -> LazyReferenceManager.set(manager));
+
+		// registered at the global manager by its creation already; forwarding to itself would recurse endlessly
+		final Lazy<Object> reference = Lazy.New(new Object(), 3_770_000_000L, null);
+		final long         before    = count(manager, reference);
+		manager.register(reference);
+		assertEquals(before + 1, count(manager, reference), "the rejected set() must leave the manager registering");
+	}
+
+	/**
+	 * Like a failing cycle, an Error from the interval provider (e.g. an OutOfMemoryError) must not end the thread.
+	 */
+	@Test
+	void errorFromTheIntervalProviderDoesNotKillTheThread()
+	{
+		final AtomicInteger        intervalCalls = new AtomicInteger();
+		final List<Lazy<Object>>   references    = storedReferences(1, 3_780_000_000L);
+		final LazyReferenceManager manager       = LazyReferenceManager.New(
+			Lazy.Checker((lazy, statistics, timeout) -> Boolean.TRUE),
+			() ->
+			{
+				if(intervalCalls.incrementAndGet() == 1)
+				{
+					throw new OutOfMemoryError("simulated");
+				}
+				return 10;
+			},
+			_longReference.New(1_000_000),
+			MonitoringManager.Disabled()
+		);
+		references.forEach(manager::register);
+		manager.start();
+		try
+		{
+			awaitTrue(() -> intervalCalls.get() >= 1, "precondition: the interval provider was asked");
+			sleep(100);
+			assertTrue(manager.isRunning(), "the manager must still run");
+			assertEquals(1, this.ownCleanupThreads().size(), "the cleanup thread must still be alive");
+		}
+		finally
+		{
+			manager.stop();
+			Reference.reachabilityFence(references);
+		}
+	}
+
+	private static long count(final LazyReferenceManager manager, final Lazy<?> reference)
+	{
+		final long[] count = new long[1];
+		manager.iterate(lazy ->
+		{
+			if(lazy == reference)
+			{
+				count[0]++;
+			}
+		});
+		return count[0];
 	}
 
 	@Test

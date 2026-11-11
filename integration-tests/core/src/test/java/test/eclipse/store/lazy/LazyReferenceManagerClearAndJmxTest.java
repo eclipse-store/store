@@ -153,6 +153,25 @@ public class LazyReferenceManagerClearAndJmxTest
 		assertTrue(monitoring.holdsBean(), "the JMX bean must belong to the manager set before the start");
 	}
 
+	/**
+	 * A replacement started before set() cannot register while the running manager holds the bean name; the handover
+	 * must register it.
+	 */
+	@Test
+	void beanFollowsHandoverToAnAlreadyStartedReplacement()
+	{
+		awaitBeanNameFree();
+		this.storage = EmbeddedStorage.start(new Root(), this.dir);
+		assertTrue(beanRegistered(), "precondition: the running manager has a JMX bean");
+
+		final Recording            monitoring  = new Recording();
+		final LazyReferenceManager replacement = recorded(monitoring).start();
+		assertFalse(monitoring.holdsBean(), "precondition: the name is held by the running manager");
+
+		LazyReferenceManager.set(replacement);
+		assertTrue(monitoring.holdsBean(), "the JMX bean must belong to the new global manager");
+	}
+
 	@Test
 	void beanFollowsStorageRestart()
 	{
