@@ -274,6 +274,6 @@ NOTE: With concurrent collectors (ZGC, Shenandoah) the previous behavior clears 
 
 === Observing the behavior
 
-* The JMX bean `org.eclipse.store:name=LazyReferenceManager` shows the number of lazy references and how many of them are loaded, see xref:misc:monitoring/index.adoc[Monitoring].
+* The JMX bean `org.eclipse.store:name=LazyReferenceManager` is registered while the manager runs and shows the number of lazy references and how many of them are loaded, see xref:misc:monitoring/index.adoc[Monitoring].
 * The logger `org.eclipse.serializer.reference.Lazy$Checker` logs each check at `TRACE` level: the heap values, the limit and every decision.
 Timeout clearings are logged at `DEBUG` level.
