@@ -61,7 +61,9 @@ public class LazyCheckerMemoryTest
 	{
 		// JVM-wide: only the test thread gets the scripted values, other threads (e.g. a running global manager) not
 		final Thread testThread = Thread.currentThread();
-		this.previousProvider = MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
+		// captured before the wrapper is published: other threads (a running cleanup thread) may call it right away
+		this.previousProvider = MemoryStatisticsProvider.get();
+		MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
 		{
 			@Override
 			public MemoryStatistics heapMemoryUsage()

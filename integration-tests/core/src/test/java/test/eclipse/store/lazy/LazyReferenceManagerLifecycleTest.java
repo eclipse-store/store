@@ -87,7 +87,9 @@ public class LazyReferenceManagerLifecycleTest
 		this.previousManager    = LazyReferenceManager.get();
 		this.preexistingThreads = new HashSet<>(Thread.getAllStackTraces().keySet());
 		final Thread testThread = Thread.currentThread();
-		this.previousProvider = MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
+		// captured before the wrapper is published: other threads (a running cleanup thread) may call it right away
+		this.previousProvider = MemoryStatisticsProvider.get();
+		MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
 		{
 			@Override
 			public MemoryStatistics heapMemoryUsage()

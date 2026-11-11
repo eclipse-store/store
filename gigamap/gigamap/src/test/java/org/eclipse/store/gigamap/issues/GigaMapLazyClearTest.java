@@ -159,7 +159,9 @@ public class GigaMapLazyClearTest
 
 		// only for the test thread: the cleanup thread of the running global manager keeps the real statistics
 		final Thread testThread = Thread.currentThread();
-		this.previousProvider = MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
+		// captured before the wrapper is published: other threads (a running cleanup thread) may call it right away
+		this.previousProvider = MemoryStatisticsProvider.get();
+		MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
 		{
 			@Override
 			public MemoryStatistics heapMemoryUsage()
