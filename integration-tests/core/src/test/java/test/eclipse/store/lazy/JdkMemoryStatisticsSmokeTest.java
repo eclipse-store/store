@@ -16,10 +16,17 @@ package test.eclipse.store.lazy;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import org.eclipse.serializer.memory.MemoryStatistics;
 import org.eclipse.serializer.memory.MemoryStatisticsProvider;
 import org.eclipse.serializer.memory.sun.JdkMemoryStatistics;
+
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
+import java.lang.ref.Reference;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
@@ -57,6 +64,58 @@ public class JdkMemoryStatisticsSmokeTest
 			// -1: a pool reports no usage after its collections (supported fallback)
 			assertTrue(oldUsed == -1 || oldUsed >= 0 && oldUsed <= oldMax, "old generation used " + oldUsed + " of " + oldMax);
 		}
+	}
+
+	/**
+	 * After 2 s without any collector activity the instantaneous usage counts. The time is measured from the end of
+	 * the collection, not from the first query that notices it: a first query long after a collection must already
+	 * use the instantaneous usage.
+	 */
+	@Test
+	void firstQueryLongAfterACollectionUsesTheInstantaneousUsage() throws InterruptedException
+	{
+		System.gc();
+		assumeTrue(
+			JdkMemoryStatistics.createHeapMemoryStatistics().gcCount() > 0,
+			"no collection data (System.gc() disabled or no jdk.management)"
+		);
+
+		// a collection without a query afterwards: the query after the wait is the first one to notice it
+		System.gc();
+		final long collectionsBefore = collectionCount();
+		final long usedAfterGc       = heapUsed();
+
+		// data allocated after the collection, so that the instantaneous usage differs from the usage after it
+		final List<byte[]> retained = new ArrayList<>();
+		for(int i = 0; i < 256; i++)
+		{
+			retained.add(new byte[64 * 1024]);
+		}
+		// G1 shows small allocations in the instantaneous usage only coarsely
+		assumeTrue(heapUsed() > usedAfterGc + (4L << 20), "allocation not visible in the instantaneous usage");
+
+		Thread.sleep(2_500);
+		assumeTrue(collectionCount() == collectionsBefore, "collector activity during the wait");
+
+		final MemoryStatistics statistics = JdkMemoryStatistics.createHeapMemoryStatistics();
+		assertEquals(statistics.used(), statistics.usedAfterLastGc(), "2.5 s after the last collection");
+		Reference.reachabilityFence(retained);
+	}
+
+	private static long heapUsed()
+	{
+		return ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+	}
+
+	// read from the beans directly: a query of the statistics would notice the collection before the wait
+	private static long collectionCount()
+	{
+		long count = 0;
+		for(final GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans())
+		{
+			count += Math.max(0, gc.getCollectionCount());
+		}
+		return count;
 	}
 
 	@Test
