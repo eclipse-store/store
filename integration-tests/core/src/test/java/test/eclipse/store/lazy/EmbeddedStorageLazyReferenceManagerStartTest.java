@@ -15,6 +15,7 @@ package test.eclipse.store.lazy;
  */
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,6 +35,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import org.junit.jupiter.api.AfterEach;
@@ -149,6 +151,7 @@ public class EmbeddedStorageLazyReferenceManagerStartTest
 		LazyReferenceManager.set(recording.proxy());
 
 		this.storage = EmbeddedStorage.start(new Object[0], this.dir);
+		assertNotNull(setter[0], "precondition: the storage added its controller, which runs the hook");
 		setter[0].join(5_000);
 
 		assertSame(successor, LazyReferenceManager.get(), "precondition: replaced during the activation");
@@ -171,14 +174,15 @@ public class EmbeddedStorageLazyReferenceManagerStartTest
 	}
 
 	/**
-	 * A minimal manager that records its running state and controllers, and runs a hook when the first controller is
-	 * added.
+	 * A minimal manager that records its running state and controllers, and runs a hook when a controller is added
+	 * for the first time (controllers taken over from the previous manager by set() do not count).
 	 */
 	static final class RecordingManager
 	{
 		final List<Lazy<?>>                         references  = Collections.synchronizedList(new ArrayList<>());
 		final List<LazyReferenceManager.Controller> controllers = Collections.synchronizedList(new ArrayList<>());
 		final Runnable                              onFirstController;
+		final AtomicBoolean                         hookRun     = new AtomicBoolean();
 		volatile boolean                            running;
 
 		RecordingManager(final Runnable onFirstController)
@@ -207,7 +211,7 @@ public class EmbeddedStorageLazyReferenceManagerStartTest
 							return proxy;
 						case "addController":
 							this.controllers.add((LazyReferenceManager.Controller)args[0]);
-							if(this.controllers.size() == 1)
+							if(this.hookRun.compareAndSet(false, true))
 							{
 								this.onFirstController.run();
 							}

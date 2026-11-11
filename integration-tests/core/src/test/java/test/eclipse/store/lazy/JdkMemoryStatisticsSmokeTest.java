@@ -54,7 +54,8 @@ public class JdkMemoryStatisticsSmokeTest
 		else
 		{
 			assertTrue(oldMax > 0, "old generation maximum: " + oldMax);
-			assertTrue(oldUsed >= 0 && oldUsed <= oldMax, "old generation used " + oldUsed + " of " + oldMax);
+			// -1: a pool reports no usage after its collections (supported fallback)
+			assertTrue(oldUsed == -1 || oldUsed >= 0 && oldUsed <= oldMax, "old generation used " + oldUsed + " of " + oldMax);
 		}
 	}
 
