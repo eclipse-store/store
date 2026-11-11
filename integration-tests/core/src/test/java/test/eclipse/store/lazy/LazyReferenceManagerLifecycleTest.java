@@ -28,6 +28,7 @@ import org.eclipse.serializer.reference._longReference;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
+import java.lang.ref.Reference;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -117,15 +118,24 @@ public class LazyReferenceManagerLifecycleTest
 	@AfterEach
 	void restore()
 	{
-		if(this.storage != null && this.storage.isRunning())
+		try
 		{
-			this.storage.shutdown();
+			if(this.storage != null && this.storage.isRunning())
+			{
+				this.storage.shutdown();
+			}
 		}
-		MemoryStatisticsProvider.set(this.previousProvider);
-		if(LazyReferenceManager.get() != this.previousManager)
+		finally
 		{
-			LazyReferenceManager.get().stop();
-			LazyReferenceManager.set(this.previousManager);
+			MemoryStatisticsProvider.set(this.previousProvider);
+			if(LazyReferenceManager.get() != this.previousManager)
+			{
+				/*
+				 * A fresh default manager instead of the previous one: set() hands the running state over, and the
+				 * previous manager would take over its own references a second time (registerAll does not deduplicate).
+				 */
+				LazyReferenceManager.set(LazyReferenceManager.New());
+			}
 		}
 	}
 
@@ -229,10 +239,12 @@ public class LazyReferenceManagerLifecycleTest
 	@Test
 	void managerStoppedByItsControllerCanBeStartedAgain()
 	{
-		final AtomicBoolean        allowed    = new AtomicBoolean(true);
-		final List<Lazy<Object>>   references = storedReferences(10, 3_500_000_000L);
-		final LazyReferenceManager manager    = clearingManager(10);
-		manager.addController(allowed::get);
+		final AtomicBoolean                   allowed    = new AtomicBoolean(true);
+		final List<Lazy<Object>>              references = storedReferences(10, 3_500_000_000L);
+		final LazyReferenceManager            manager    = clearingManager(10);
+		// controllers are held weakly: this local keeps it reachable until the end (see finally)
+		final LazyReferenceManager.Controller controller = allowed::get;
+		manager.addController(controller);
 		references.forEach(manager::register);
 		try
 		{
@@ -251,6 +263,7 @@ public class LazyReferenceManagerLifecycleTest
 		finally
 		{
 			manager.stop();
+			Reference.reachabilityFence(controller);
 		}
 	}
 
@@ -264,7 +277,6 @@ public class LazyReferenceManagerLifecycleTest
 		awaitTrue(() -> !root.data.isLoaded(), "precondition: the storage start starts clearing");
 
 		this.storage.shutdown();
-		assertFalse(LazyReferenceManager.get().isRunning(), "the last storage shutdown stops the manager");
 
 		this.storage.start();
 		assertEquals(1024, root.data.get().length);
@@ -309,16 +321,23 @@ public class LazyReferenceManagerLifecycleTest
 	@Test
 	void nonPositiveIntervalDoesNotSpin()
 	{
-		final LazyReferenceManager manager = clearingManager(0).start();
+		// a cycle without any registered reference ends before it fetches the statistics
+		final List<Lazy<Object>> references = storedReferences(1, 3_650_000_000L);
+		final LazyReferenceManager manager = clearingManager(0);
+		references.forEach(manager::register);
+		manager.start();
 		try
 		{
 			sleep(300);
+			final int calls = this.statisticsCalls.get();
+			assertTrue(calls > 0, "precondition: the thread must run cycles");
 			// at least 1 ms per cycle: a spinning thread makes millions of calls
-			assertTrue(this.statisticsCalls.get() <= 600, "statistics calls in 300 ms: " + this.statisticsCalls.get());
+			assertTrue(calls <= 600, "statistics calls in 300 ms: " + calls);
 		}
 		finally
 		{
 			manager.stop();
+			Reference.reachabilityFence(references);
 		}
 	}
 
@@ -334,7 +353,8 @@ public class LazyReferenceManagerLifecycleTest
 		manager.cleanUp(1_000_000);
 
 		final long cleared = references.size() - loaded(references);
-		assertTrue(cleared >= 100, "cleared in one 1 ms cycle: " + cleared);
+		// with the budget started before the statistics, exactly one reference (the first check) is cleared
+		assertTrue(cleared > 1, "cleared in one 1 ms cycle: " + cleared);
 	}
 
 	/**

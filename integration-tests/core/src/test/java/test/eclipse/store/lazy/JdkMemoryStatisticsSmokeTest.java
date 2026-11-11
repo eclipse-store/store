@@ -41,8 +41,8 @@ public class JdkMemoryStatisticsSmokeTest
 			statistics.usedAfterLastGc() > 0 && statistics.usedAfterLastGc() <= statistics.committed(),
 			"used after the last GC: " + statistics.usedAfterLastGc() + ", committed: " + statistics.committed()
 		);
-		// -1: no GC data available (runtime without jdk.management)
-		assertTrue(statistics.gcCount() == -1 || statistics.gcCount() >= 1, "GC count: " + statistics.gcCount());
+		// -1: no GC data (runtime without jdk.management); 0: no collection yet (System.gc() disabled by -XX:+DisableExplicitGC)
+		assertTrue(statistics.gcCount() >= -1, "GC count: " + statistics.gcCount());
 
 		final long oldMax  = statistics.oldGenerationMax();
 		final long oldUsed = statistics.oldGenerationUsedAfterLastGc();

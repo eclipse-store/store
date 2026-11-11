@@ -69,14 +69,23 @@ public class LazyReferenceManagerClearAndJmxTest
 	@AfterEach
 	void restore()
 	{
-		if(this.storage != null && this.storage.isRunning())
+		try
 		{
-			this.storage.shutdown();
+			if(this.storage != null && this.storage.isRunning())
+			{
+				this.storage.shutdown();
+			}
 		}
-		if(LazyReferenceManager.get() != this.previousManager)
+		finally
 		{
-			LazyReferenceManager.get().stop();
-			LazyReferenceManager.set(this.previousManager);
+			if(LazyReferenceManager.get() != this.previousManager)
+			{
+				/*
+				 * A fresh default manager instead of the previous one: set() hands the running state over, and the
+				 * previous manager would take over its own references a second time (registerAll does not deduplicate).
+				 */
+				LazyReferenceManager.set(LazyReferenceManager.New());
+			}
 		}
 	}
 

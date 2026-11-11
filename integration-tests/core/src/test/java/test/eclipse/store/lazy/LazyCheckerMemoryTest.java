@@ -33,8 +33,8 @@ import org.junit.jupiter.api.Test;
  * usage including uncollected garbage (concurrent collectors like ZGC let it climb to the committed size).
  * <p>
  * The checker is driven directly with scripted statistics. All references are created once and aged beyond the
- * grace time (1 s). With a 5 s timeout and that age, the age penalty clears at about 0.8 x limit and keeps at
- * 0.5 x limit.
+ * grace time (1 s). With a 30 s timeout and that age, the age penalty clears from about 0.97 x limit and keeps
+ * 0.5 x limit for 30 s, so the class may run long on a slow machine.
  */
 public class LazyCheckerMemoryTest
 {
@@ -98,7 +98,7 @@ public class LazyCheckerMemoryTest
 	void agePenaltyBelowLimitIsUnchanged()
 	{
 		assertFalse(this.needsClearing(checker(), postGc(COMMITTED, COMMITTED / 2)));
-		assertTrue(this.needsClearing(checker(), postGc(COMMITTED, COMMITTED * 95 / 100)));
+		assertTrue(this.needsClearing(checker(), postGc(COMMITTED, COMMITTED * 97 / 100)));
 	}
 
 	@Test
@@ -183,7 +183,7 @@ public class LazyCheckerMemoryTest
 
 	private static Lazy.Checker checker()
 	{
-		return Lazy.Checker(5_000L, 1.0);
+		return Lazy.Checker(30_000L, 1.0);
 	}
 
 	private static MemoryStatistics postGc(final long used, final long usedAfterLastGc)

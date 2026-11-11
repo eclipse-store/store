@@ -30,7 +30,10 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Random;
+import java.util.Set;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -59,16 +62,25 @@ public class GigaMapLazyClearTest
 	private EmbeddedStorageManager   storage;
 	private MemoryStatisticsProvider previousProvider;
 
+	// lazy references registered before the map of a test, e.g. by earlier tests: not counted as cleared segments
+	private Set<Lazy<?>> foreignReferences;
+
 	@AfterEach
 	void cleanUp()
 	{
-		if(this.storage != null && this.storage.isRunning())
+		try
 		{
-			this.storage.shutdown();
+			if(this.storage != null && this.storage.isRunning())
+			{
+				this.storage.shutdown();
+			}
 		}
-		if(this.previousProvider != null)
+		finally
 		{
-			MemoryStatisticsProvider.set(this.previousProvider);
+			if(this.previousProvider != null)
+			{
+				MemoryStatisticsProvider.set(this.previousProvider);
+			}
 		}
 	}
 
@@ -128,45 +140,49 @@ public class GigaMapLazyClearTest
 	void timeoutClearingBetweenMutationsKeepsData()
 	{
 		final GigaMap<Entity> map = this.startWithEntities();
-		this.mutateWithClearing(map, Lazy.CheckerTimeout(1));
+		// beyond the 1 ms timeout
+		this.mutateWithClearing(map, Lazy.CheckerTimeout(1), 5);
 	}
 
 	/**
-	 * Memory clearing of the default checker under post-GC memory pressure. References are cleared by memory only
-	 * beyond the grace time (1 s), so the stored map ages once before the mutations.
+	 * Memory clearing of the default checker under post-GC memory pressure. Memory clearing applies only beyond the
+	 * grace time (1 s), and every change touches its segment: the final changes age beyond it before the clearing.
 	 */
 	@Test
-	void memoryPressureClearingBetweenMutationsKeepsData() throws InterruptedException
+	void memoryPressureClearingBetweenMutationsKeepsData()
 	{
 		final GigaMap<Entity> map = this.startWithEntities();
-		Thread.sleep(1_100);
 
+		// only for the test thread: the cleanup thread of the running global manager keeps the real statistics
+		final Thread testThread = Thread.currentThread();
 		this.previousProvider = MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
 		{
 			@Override
 			public MemoryStatistics heapMemoryUsage()
 			{
 				// retained heap at the committed size: always above the default limit (0.8)
-				return MemoryStatistics.New(1L << 30, 1L << 30, 1L << 30, 1L << 30, 1_000, -1, -1);
+				return Thread.currentThread() == testThread
+					? MemoryStatistics.New(1L << 30, 1L << 30, 1L << 30, 1L << 30, 1_000, -1, -1)
+					: GigaMapLazyClearTest.this.previousProvider.heapMemoryUsage()
+				;
 			}
 
 			@Override
 			public MemoryStatistics nonHeapMemoryUsage()
 			{
-				return MemoryStatistics.New(-1, 0, 0);
+				return GigaMapLazyClearTest.this.previousProvider.nonHeapMemoryUsage();
 			}
 		});
-		this.mutateWithClearing(map, Lazy.Checker());
+		this.mutateWithClearing(map, Lazy.Checker(), 1_100);
 	}
 
-	private void mutateWithClearing(final GigaMap<Entity> map, final Lazy.Checker checker)
+	private void mutateWithClearing(final GigaMap<Entity> map, final Lazy.Checker checker, final long finalAgeMs)
 	{
 		int[]     model   = initialModel();
 		boolean[] removed = new boolean[model.length];
 		int       size    = model.length;
 
-		final Random random  = new Random(196);
-		long         cleared = 0;
+		final Random random = new Random(196);
 		for(int op = 1; op <= 1_500; op++)
 		{
 			final int kind = random.nextInt(10);
@@ -216,7 +232,6 @@ public class GigaMapLazyClearTest
 			if(op % 10 == 0)
 			{
 				LazyReferenceManager.get().cleanUp(checker);
-				cleared = Math.max(cleared, clearedReferences());
 			}
 			if(op % 100 == 0)
 			{
@@ -225,7 +240,6 @@ public class GigaMapLazyClearTest
 			}
 		}
 		map.store();
-		assertTrue(cleared > 0, "precondition: segments must have been cleared");
 		assertModel(map, Arrays.copyOf(model, size), Arrays.copyOf(removed, size));
 
 		/*
@@ -248,19 +262,20 @@ public class GigaMapLazyClearTest
 			assertEquals(size, map.add(new Entity(i)));
 			model[size++] = i;
 		}
-		sleepBeyondTimeout();
+		// the changed segments must be old enough for the checker, else a missing usage-mark check goes unnoticed
+		sleep(finalAgeMs);
 		LazyReferenceManager.get().cleanUp(checker);
+		assertTrue(this.clearedMapReferences() > 0, "precondition: segments of the map must have been cleared");
 		map.store();
 
 		this.assertPersisted(Arrays.copyOf(model, size), Arrays.copyOf(removed, size));
 	}
 
-	private static void sleepBeyondTimeout()
+	private static void sleep(final long ms)
 	{
 		try
 		{
-			// beyond the 1 ms timeout of the timeout checker
-			Thread.sleep(5);
+			Thread.sleep(ms);
 		}
 		catch(final InterruptedException e)
 		{
@@ -268,12 +283,12 @@ public class GigaMapLazyClearTest
 		}
 	}
 
-	private static long clearedReferences()
+	private long clearedMapReferences()
 	{
 		final long[] count = new long[1];
 		LazyReferenceManager.get().iterate(lazy ->
 		{
-			if(lazy.isStored() && !lazy.isLoaded())
+			if(!this.foreignReferences.contains(lazy) && lazy.isStored() && !lazy.isLoaded())
 			{
 				count[0]++;
 			}
@@ -283,6 +298,9 @@ public class GigaMapLazyClearTest
 
 	private GigaMap<Entity> startWithEntities()
 	{
+		this.foreignReferences = Collections.newSetFromMap(new IdentityHashMap<>());
+		LazyReferenceManager.get().iterate(this.foreignReferences::add);
+
 		final GigaMap<Entity> map = GigaMap.New(LOW_LEVEL_EXPONENT);
 		map.index().bitmap().add(VALUE_INDEXER);
 		for(final int value : initialModel())
