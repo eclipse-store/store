@@ -55,11 +55,11 @@ The default checker decides per reference:
 |References not touched for longer than the timeout are always cleared.
 
 |Memory quota (default 0.8)
-|In between, a reference is cleared when `used × (1 + age / timeout) ≥ committed heap × quota`.
+|In between, a reference is cleared when `used × (1 + age / timeout) ≥ maximum heap × quota`.
 The fuller the heap, the younger the references that are cleared.
 |===
 
-For example, with the default settings and a committed heap of 512 MB (limit 410 MB):
+For example, with the default settings and a maximum heap of 512 MB (`-Xmx512m`, limit 410 MB):
 
 [options="header",cols="1,1"]
 |===
@@ -83,9 +83,12 @@ For example, with the default settings and a committed heap of 512 MB (limit 410
 
 At the limit, all references not used within the last second are cleared at once and are reloaded from the storage on their next access.
 
-The limit follows the *committed* heap, not the maximum heap.
-If the heap starts small (`-Xms` below `-Xmx`), or the collector commits memory only as needed, clearing starts early at low load.
-For predictable behavior set `-Xms` to the same value as `-Xmx`.
+The limit follows the *maximum* heap (`-Xmx`), the size the heap can grow to, not the committed heap.
+Collectors keep the committed heap well below the maximum (G1 often at less than half) and fill it with garbage between their cycles; against the committed heap that would look like memory pressure all the time.
+Only if no maximum is defined, the committed heap is used.
+Parallel and Serial GC report the maximum without one survivor space, i.e. slightly below `-Xmx` (with `-Xmx512m` about 492 MB, limit about 394 MB).
+
+The limit assumes that the maximum heap is actually available: in a container or with a commit limit of the operating system, size `-Xmx` (or `MaxRAMPercentage`) together with the direct memory the storage uses, so that the heap can grow to it.
 
 A quota of `0.0` disables the memory check, only the timeout applies (`Lazy.CheckerTimeout(timeout)`).
 `Lazy.CheckerMemory(quota)` does the opposite: only the memory check applies, and without an age penalty, i.e. below the limit nothing is cleared, at the limit everything beyond the grace time.
@@ -185,7 +188,9 @@ It is called for every reference in every check, so it must be cheap.
 Lazy.Check check = (lazy, memoryStatistics, timeout) ->
 {
 	long age = System.currentTimeMillis() - lazy.lastTouched();
-	if(age > 10_000 && memoryStatistics.usedAfterLastGc() > 0.7 * memoryStatistics.committed())
+	// like the default logic: relative to the maximum heap, the committed heap only without a maximum
+	long heap = memoryStatistics.max() > 0 ? memoryStatistics.max() : memoryStatistics.committed();
+	if(age > 10_000 && memoryStatistics.usedAfterLastGc() > 0.7 * heap)
 	{
 		return true; // own rule
 	}
@@ -202,7 +207,7 @@ The `MemoryStatistics` passed in contain:
 * `gcCount()`: the number of collections so far, `0` before the first one, `-1` if unknown;
 * `oldGenerationUsedAfterLastGc()` and `oldGenerationMax()`: `-1` if unknown or not applicable.
 
-The default logic uses the larger of `usedAfterLastGc()` and the old generation's fill level scaled to the committed heap (see above); a custom check that only looks at `usedAfterLastGc()` ignores the old generation.
+The default logic uses the larger of `usedAfterLastGc()` and the old generation's fill level scaled to the maximum heap (see above); a custom check that only looks at `usedAfterLastGc()` ignores the old generation.
 
 ==== Custom memory statistics
 
@@ -232,9 +237,9 @@ MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
 
 ==== Restoring the previous behavior
 
-Earlier versions decided on the current heap usage (including uncollected garbage) with a default quota of `1.0`.
+Earlier versions decided on the current heap usage (including uncollected garbage) against the committed heap, with a default quota of `1.0`.
 Compared to them, lazy references now stay loaded longer as long as the retained heap is low, so the heap usage in steady state is higher; under memory pressure, clearing starts earlier.
-If an application relies on the earlier, more eager clearing, it can be restored with statistics that only provide the current usage and the old quota:
+If an application relies on the earlier, more eager clearing, it can be restored with statistics that only provide the current usage and no maximum (so the limit follows the committed heap), and the old quota:
 
 [source, java]
 ----
@@ -251,8 +256,9 @@ MemoryStatisticsProvider.set(new MemoryStatisticsProvider()
 		{
 			this.timestamp = now;
 			MemoryUsage usage = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
-			// three values only: no post-collection and no old-generation data
-			this.cached = MemoryStatistics.New(usage.getMax(), usage.getCommitted(), usage.getUsed());
+			// three values only: no post-collection and no old-generation data;
+			// no maximum (-1): the limit follows the committed heap
+			this.cached = MemoryStatistics.New(-1, usage.getCommitted(), usage.getUsed());
 		}
 		return this.cached;
 	}

@@ -156,6 +156,78 @@ public class LazyCheckerMemoryTest
 	}
 
 	/**
+	 * G1 keeps the committed heap well below the maximum and fills it with garbage between its cycles: a post-GC
+	 * usage at 90 % of the committed heap but 45 % of the maximum heap is no memory pressure. The limit follows the
+	 * maximum heap.
+	 */
+	@Test
+	void limitFollowsTheMaximumHeap()
+	{
+		final long max = COMMITTED * 2;
+
+		assertFalse(this.needsClearing(Lazy.Checker(), withMax(max, COMMITTED * 9 / 10)), "90 % of committed, 45 % of max");
+		assertTrue(this.needsClearing(Lazy.Checker(), withMax(max, max * 85 / 100)), "85 % of max");
+	}
+
+	/**
+	 * Without a defined maximum (-1 from the management beans, 0, Long.MAX_VALUE from Runtime.maxMemory() without a
+	 * limit or other "unlimited" values, which would overflow the age penalty) and with a maximum below the committed
+	 * heap, the limit follows the committed heap.
+	 */
+	@Test
+	void limitFollowsTheCommittedHeapWithoutMaximum()
+	{
+		for(final long max : new long[]{-1, 0, Long.MAX_VALUE, Long.MAX_VALUE - 1, 1L << 55, COMMITTED / 2})
+		{
+			assertTrue(this.needsClearing(Lazy.Checker(), withMax(max, COMMITTED * 85 / 100)), "85 % of committed, max " + max);
+			assertFalse(this.needsClearing(Lazy.Checker(), withMax(max, COMMITTED * 75 / 100)), "75 % of committed, max " + max);
+		}
+	}
+
+	/**
+	 * Parallel/Serial with a committed heap below the maximum: the old generation's fill level is scaled to the
+	 * maximum heap, like the heap-wide value.
+	 */
+	@Test
+	void fixedSizeOldGenerationIsScaledToTheMaximumHeap()
+	{
+		final long max    = COMMITTED * 2;
+		final long oldMax = max * 2 / 3;
+
+		// old generation 90 % full: scaled 0.9 x max, above the limit, although the heap is only a quarter used
+		assertTrue(this.needsClearing(Lazy.Checker(), MemoryStatistics.New(max, COMMITTED, max / 4, max / 4, 5, oldMax * 9 / 10, oldMax)));
+		// old generation 60 % full: scaled 0.6 x max, below the limit
+		assertFalse(this.needsClearing(Lazy.Checker(), MemoryStatistics.New(max, COMMITTED, max / 4, max / 4, 5, oldMax * 6 / 10, oldMax)));
+	}
+
+	@Test
+	void memoryOnlyCheckerFollowsTheMaximumHeap()
+	{
+		final long max = COMMITTED * 2;
+
+		assertFalse(this.needsClearing(Lazy.CheckerMemory(0.8), withMax(max, COMMITTED * 9 / 10)));
+		assertTrue(this.needsClearing(Lazy.CheckerMemory(0.8), withMax(max, max * 85 / 100)));
+	}
+
+	/**
+	 * The age penalty with the maximum heap as base: at the references' age (a few percent of the 30 s timeout) the
+	 * checker clears from about 0.95 x limit on, and keeps half of the limit.
+	 */
+	@Test
+	void agePenaltyFollowsTheMaximumHeap()
+	{
+		final long max = COMMITTED * 2;
+
+		assertFalse(this.needsClearing(checker(), withMax(max, max / 2)), "half of the maximum heap");
+		assertTrue(this.needsClearing(checker(), withMax(max, max * 98 / 100)), "98 % of the maximum heap");
+	}
+
+	private static MemoryStatistics withMax(final long max, final long usedAfterLastGc)
+	{
+		return MemoryStatistics.New(max, COMMITTED, COMMITTED, usedAfterLastGc, 5, -1, -1);
+	}
+
+	/**
 	 * An old generation that may span the whole heap (G1, generational ZGC: its maximum is the heap maximum) is
 	 * covered by the heap-wide value and ignored.
 	 */
