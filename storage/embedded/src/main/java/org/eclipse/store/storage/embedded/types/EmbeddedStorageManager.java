@@ -274,18 +274,14 @@ public interface EmbeddedStorageManager extends StorageManager
 			return this.isRunning();
 		}
 				
-		private void ensureActiveLazyReferenceManager(
-			final LazyReferenceManager lazyReferenceManager         ,
-			final boolean              lazyReferenceManagerIsRunning
-		)
+		private void ensureActiveLazyReferenceManager()
 		{
-			lazyReferenceManager.addController(this);
-			if(lazyReferenceManagerIsRunning)
-			{
-				return;
-			}
-			
-			lazyReferenceManager.start();
+			/*
+			 * The global manager is determined now, not before the start: meanwhile a set() may have replaced it, or the
+			 * shutdown of another storage may have stopped it. Atomic with set(), so a replaced manager is never started.
+			 * start() does nothing for a running manager.
+			 */
+			LazyReferenceManager.startGlobal(this);
 		}
 		
 		private void rollbackLazyReferenceManager(
@@ -300,26 +296,23 @@ public interface EmbeddedStorageManager extends StorageManager
 		{
 			logger.info("Starting embedded storage manager");
 			
-			final LazyReferenceManager lazyReferenceManager = LazyReferenceManager.get();
-			final boolean lazyReferenceManagerIsRunning = lazyReferenceManager.isRunning();
-			
 			this.storageSystem.start();
-			
+
 			try
 			{
 				this.ensureRequiredTypeHandlers();
 				this.initialize();
-				
+
 				logger.info("Embedded storage manager initialized");
-				
+
 				// this depends on completed initialization
-				this.ensureActiveLazyReferenceManager(lazyReferenceManager, lazyReferenceManagerIsRunning);
+				this.ensureActiveLazyReferenceManager();
 			}
 			catch(final Throwable t)
 			{
 				try
 				{
-					this.rollbackLazyReferenceManager(lazyReferenceManager);
+					this.rollbackLazyReferenceManager(LazyReferenceManager.get());
 					this.monitorManager.shutdown();
 					
 					if(this.storageSystem instanceof StorageKillable)
