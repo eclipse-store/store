@@ -34,7 +34,7 @@ The provided beans are:
 |Description
 
 |org.eclipse.store:name=LazyReferenceManager
-|Provides information about the storage LazyReferenceManager. There is only one instance of this bean. Useful for monitoring lazy reference loading and clearing behavior.
+|Provides information about the storage LazyReferenceManager. There is only one instance of this bean, registered while the global manager runs. Useful for monitoring lazy reference loading and clearing behavior.
 
 |org.eclipse.store:storage=storageX,name=EmbeddedStorage
 |Provides information about the amount of persisted data. Monitor this to track storage growth over time.
