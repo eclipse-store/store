@@ -61,23 +61,23 @@ It is a runnable jar which starts a simple web server which then can be accessed
 Since {product-name} version 1.1.0 The Client GUI requires Java 17 to run!
 ====
 
-To download it into the local repository the following Maven command:
+Since 5.0.0 the standalone client is no longer published to Maven Central, you build it from source.
+Clone the https://github.com/eclipse-store/store[{product-name} repository] and run the following Maven command in its root directory.
+The `production` profile builds the Vaadin frontend into the jar:
 
 [source, shell, title="CLI"]
 ----
-mvn dependency:get -Dartifact=org.eclipse.store:storage-restclient-app-standalone-assembly:{maven-version}:jar -Dtransitive=false -Dclassifier=standalone
+mvn -Pproduction -DskipTests package -pl storage/rest/client-app-standalone-assembly -am
 ----
 
-To download it into the current directory use the following Maven command:
+The runnable jar is then located at `storage/rest/client-app-standalone-assembly/target/storage-restclient-app-standalone-assembly-<version>-standalone.jar`.
 
-[source, shell, title="CLI"]
-----
-mvn dependency:copy -Dartifact=org.eclipse.store:storage-restclient-app-standalone-assembly:{maven-version}:jar:standalone -DoutputDirectory=./
-----
-
-or this direct link:
-
-https://repo1.maven.org/maven2/org/eclipse/store/storage-restclient-app-standalone-assembly/{maven-version}/storage-restclient-app-standalone-assembly-{maven-version}-standalone.jar
+[NOTE]
+====
+Up to version 4.3.0 the jar is available on Maven Central, for example with
+`mvn dependency:copy -Dartifact=org.eclipse.store:storage-restclient-app-standalone-assembly:4.3.0:jar:standalone -DoutputDirectory=./`
+or from https://repo1.maven.org/maven2/org/eclipse/store/storage-restclient-app-standalone-assembly/4.3.0/storage-restclient-app-standalone-assembly-4.3.0-standalone.jar[this direct link].
+====
 
 Start the client.
 The port parameter is optional, default port is 8080.

@@ -41,6 +41,6 @@ It is made up of the following modules:
 |storage-restclient-app
 |*Deprecated since 4.3.0, will be removed in 5.0.0, use the bundled Storage Viewer of storage-restservice-javalin instead.* Client app with web user interface, which connects to a REST service and provides a simple UI to navigate through the Object Graph from the root.
 
-|storage-restclient-app-standalone
-|A standalone executable running from command line encapsulating the Client app from storage-restclient-app.
+|storage-restclient-app-standalone-assembly
+|*Deprecated since 4.3.0, will be removed in 5.0.0. Not published to Maven Central since 5.0.0, see xref:storage:rest-interface/client-gui.adoc[how to build it from source].* A standalone executable running from command line encapsulating the Client app from storage-restclient-app.
 |===
