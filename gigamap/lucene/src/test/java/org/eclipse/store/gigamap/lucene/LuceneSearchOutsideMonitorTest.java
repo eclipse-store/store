@@ -28,6 +28,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.lucene.document.Document;
+import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
@@ -42,7 +43,8 @@ import org.eclipse.store.gigamap.types.ScoredSearchResult;
 /**
  * A search of a {@link LuceneIndex} holds the map's monitor only to parse the query and to take a searcher, not while
  * it searches and reads the entity ids of its hits: the map's other callers do not wait for a search, and a search
- * finishes on the state of the index it started on, whatever is written, refreshed or closed meanwhile.
+ * finishes on the reader it took, whatever is written, refreshed or closed meanwhile. Its result holds for the index
+ * as it is when the search returns: after a write meanwhile, the search runs again under the monitor.
  * <p>
  * The searches of the tests are held inside Lucene, after they took their searcher, by a query that waits when it is
  * rewritten.
@@ -197,9 +199,9 @@ public class LuceneSearchOutsideMonitorTest
 
 			held.released.countDown();
 			assertEquals(
-				List.of(first, second),
+				List.of(first, second, third),
 				ids(get(search)),
-				"the held search finds the entities of the index it started on"
+				"the held search returns the hits of the index as it is when it returns"
 			);
 		}
 	}
@@ -217,17 +219,22 @@ public class LuceneSearchOutsideMonitorTest
 			final HeldQuery                           held   = new HeldQuery("alpha");
 			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
 			held.awaitEntered();
+			// the reader the held search took: the index's own reference and the search's
+			final DirectoryReader heldReader = ((LuceneIndex.Default<Article>)index).reader;
+			assertEquals(2, heldReader.getRefCount());
 
 			// a removal and a search after it: the index reopens its reader and gives up the one of the held search.
 			map.removeById(first);
 			assertEquals(List.of(second), ids(index.search("title:alpha", 10)));
 			// and a close, which closes writer, reader and directory.
 			index.close();
+			assertEquals(1, heldReader.getRefCount(), "only the held search still holds its reader");
 
 			held.released.countDown();
 			final LuceneSearchResult<Article> result = get(search);
-			assertEquals(List.of(first, second), ids(result), "the hits are those of the index the search started on");
-			// the entities are the map's of now: the removed one is gone.
+			assertEquals(0, heldReader.getRefCount(), "the finished search released its reader, which is closed");
+			// the search ran again on the reopened index, as the removal came after it took its reader
+			assertEquals(List.of(second), ids(result), "the hits of the index as it is when the search returns");
 			final List<String> titles = new ArrayList<>();
 			for(final ScoredSearchResult.Entry<Article> entry : result)
 			{

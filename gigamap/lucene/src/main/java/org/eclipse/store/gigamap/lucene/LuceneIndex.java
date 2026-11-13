@@ -833,11 +833,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 
 		/*
 		 * Passes the hits of a search to the acceptor, best first, each with its entity, under the map's monitor
-		 * as a whole: no write comes between two hits, and the acceptor may rely on the monitor.
-		 *
-		 * The hits are used only if the index is still on the reader they were found with and no write marked it
-		 * stale since. Otherwise an id may now stand for an entity that does not match the query (changed by set()
-		 * or update(), or a new one after removeAll()), so the search runs again, under the monitor.
+		 * as a whole: no write comes between two hits, and the acceptor may rely on the monitor. The hits are
+		 * checked against the index once more, for a write since the search returned them.
 		 */
 		private <A extends SearchResultAcceptor<? super E>> void acceptHits(
 			final Hits hits                ,
@@ -848,12 +845,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		{
 			synchronized(this.gigaMap)
 			{
-				Hits current = hits;
-				if(this.reader != hits.reader || this.readerStale)
-				{
-					this.refreshReaderIfNeeded();
-					current = collectHits(this.searcher, hits.query, maxResults);
-				}
+				final Hits current = this.currentHits(hits, maxResults);
 				for(int i = 0; i < current.entityIds.length; i++)
 				{
 					final long entityId = current.entityIds[i];
@@ -963,6 +955,22 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			}
 		}
 
+		/*
+		 * The hits for the index as it is now: the passed ones if the index is still on the reader they were found
+		 * with and no write marked it stale since. Otherwise an id may now stand for an entity that does not match
+		 * the query (changed by set() or update(), or a new one after removeAll()), so the search runs again.
+		 * Must be called while holding the this.gigaMap monitor.
+		 */
+		private Hits currentHits(final Hits hits, final int maxResults) throws IOException
+		{
+			if(this.reader == hits.reader && !this.readerStale)
+			{
+				return hits;
+			}
+			this.refreshReaderIfNeeded();
+			return collectHits(this.searcher, hits.query, maxResults);
+		}
+
 		private static Hits collectHits(final IndexSearcher searcher, final Query query, final int maxResults)
 		throws IOException
 		{
@@ -985,6 +993,9 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		 * them. They read the index as it was when the reference was taken: a write, a refresh or a close of the
 		 * index meanwhile gives up only the index's own reference to the reader, which stays readable until this
 		 * search releases its own.
+		 *
+		 * The returned hits hold for the index as it is when the search returns, as if it had run under the
+		 * monitor as a whole: after a write meanwhile, the search runs again under the monitor, see currentHits.
 		 *
 		 * On a thread that holds the monitor already, everything runs under it, as before.
 		 */
@@ -1015,9 +1026,11 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				this.release(searcher, t);
 				throw t;
 			}
-			this.release(searcher, null);
-
-			return hits;
+			synchronized(this.gigaMap)
+			{
+				this.release(searcher, null);
+				return this.currentHits(hits, maxResults);
+			}
 		}
 
 		/*

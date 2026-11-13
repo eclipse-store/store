@@ -50,9 +50,10 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * A search held outside the map's monitor while the index is closed on file directories (MMap, NIO),
- * reindexed, fails to reindex, or is committed and stored into a storage that is then restarted; and an
- * acceptor query whose hits change meanwhile. The held search must finish on the index it started on, the
- * acceptor must only get entities that match the query, and the index must stay complete.
+ * reindexed, fails to reindex, or is committed and stored into a storage that is then restarted; and searches
+ * and acceptor queries whose hits change meanwhile. The held search must finish on the reader it took and
+ * release it, its result and the acceptor's entities must match the index as it is when the search returns,
+ * and the index must stay complete.
  */
 class LuceneSearchOutsideMonitorEdgeTest
 {
@@ -145,17 +146,21 @@ class LuceneSearchOutsideMonitorEdgeTest
 			final HeldQuery                           held   = new HeldQuery("alpha");
 			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
 			held.awaitEntered();
+			final DirectoryReader heldReader = ((LuceneIndex.Default<Article>)index).reader;
+			assertEquals(2, heldReader.getRefCount(), "held by the index and the search");
 
 			// the removal and the search after it make the index give up the held search's reader, the close
 			// closes writer, reader and the file directory
 			map.removeById(first);
 			assertEquals(List.of(second), ids(index.search("title:alpha", 10)));
 			index.close();
+			assertEquals(1, heldReader.getRefCount(), "only the held search still holds its reader");
 
 			held.released.countDown();
-			assertEquals(List.of(first, second), ids(get(search)), "hits of the index the search started on");
+			// the held search finished on its reader, then ran again on the index opened from its files
+			assertEquals(List.of(second), ids(get(search)), "the hits of the index as it is when the search returns");
+			assertEquals(0, heldReader.getRefCount(), "the finished search released its reader, which is closed");
 
-			// the index opens again from its files and holds what the map holds
 			assertEquals(List.of(second), ids(index.search("title:alpha", 10)));
 		}
 		finally
@@ -165,7 +170,7 @@ class LuceneSearchOutsideMonitorEdgeTest
 	}
 
 	@Test
-	void aReindexDoesNotWaitForASearchAndTheSearchKeepsItsIndex() throws Exception
+	void aReindexDoesNotWaitForASearchAndTheSearchKeepsItsReader() throws Exception
 	{
 		final GigaMap<Article> map = GigaMap.New();
 		try(final LuceneIndex<Article> index = map.index().register(LuceneIndex.Category(
@@ -179,21 +184,94 @@ class LuceneSearchOutsideMonitorEdgeTest
 			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
 			held.awaitEntered();
 
+			final DirectoryReader heldReader = ((LuceneIndex.Default<Article>)index).reader;
+
 			get(this.executor.submit(map::reindex));
 			final long third = map.add(new Article("alpha three"));
 			assertEquals(List.of(first, second, third), ids(index.search("title:alpha", 10)));
+			assertEquals(1, heldReader.getRefCount(), "only the held search still holds its reader");
 
 			held.released.countDown();
-			assertEquals(List.of(first, second), ids(get(search)));
+			assertEquals(List.of(first, second, third), ids(get(search)));
+			assertEquals(0, heldReader.getRefCount(), "the finished search released its reader, which is closed");
 		}
 	}
 
 	/*
-	 * A reindex that fails during the back-fill, after it dropped the documents, discards the writer and the
-	 * reader of the index. The held search keeps its reader, and the next search rebuilds the index.
+	 * A search() result holds for the index as it is when the search returns, like the acceptor's hits: a hit
+	 * whose entity was replaced while the search ran outside the monitor no longer matches.
 	 */
 	@Test
-	void aFailedReindexDoesNotWaitForASearchAndTheSearchKeepsItsIndex() throws Exception
+	void aSearchReturnsNoHitWhoseEntityWasReplacedDuringTheSearch() throws Exception
+	{
+		final GigaMap<Article> map = GigaMap.New();
+		try(final LuceneIndex<Article> index = map.index().register(LuceneIndex.Category(
+			LuceneContext.New(DirectoryCreator.ByteBuffers(), new TitlePopulator())
+		)))
+		{
+			final long first  = map.add(new Article("alpha one"));
+			final long second = map.add(new Article("alpha two"));
+
+			final HeldQuery                           held   = new HeldQuery("alpha");
+			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
+			held.awaitEntered();
+
+			get(this.executor.submit(() -> map.set(first, new Article("beta one"))));
+
+			held.released.countDown();
+			assertEquals(List.of(second + ":alpha two"), entries(get(search)));
+		}
+	}
+
+	/*
+	 * removeAll() lets the next adds reuse the ids, so a hit's id from before can stand for a new, unrelated
+	 * entity: the search() result must not contain it.
+	 */
+	@Test
+	void aSearchReturnsNoHitWhoseIdWasReused() throws Exception
+	{
+		final GigaMap<Article> map = GigaMap.New();
+		try(final LuceneIndex<Article> index = map.index().register(LuceneIndex.Category(
+			LuceneContext.New(DirectoryCreator.ByteBuffers(), new TitlePopulator())
+		)))
+		{
+			map.add(new Article("alpha one"));
+			map.add(new Article("alpha two"));
+
+			final HeldQuery                           held   = new HeldQuery("alpha");
+			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
+			held.awaitEntered();
+
+			final long reused = get(this.executor.submit(() ->
+			{
+				map.removeAll();
+				map.add(new Article("beta reused"));
+				return map.add(new Article("alpha new"));
+			}));
+
+			held.released.countDown();
+			assertEquals(List.of(reused + ":alpha new"), entries(get(search)));
+		}
+	}
+
+	// "id:title" of each entry, in the order of the result
+	static List<String> entries(final ScoredSearchResult<Article> result)
+	{
+		final List<String> entries = new ArrayList<>();
+		for(final ScoredSearchResult.Entry<Article> entry : result)
+		{
+			entries.add(entry.entityId() + ":" + entry.entity().title);
+		}
+		return entries;
+	}
+
+	/*
+	 * A reindex that fails during the back-fill, after it dropped the documents, discards the writer and the
+	 * reader of the index. The held search keeps its reader until it finished, then runs again, which rebuilds
+	 * the index.
+	 */
+	@Test
+	void aFailedReindexDoesNotWaitForASearchAndTheSearchKeepsItsReader() throws Exception
 	{
 		final GigaMap<Article> map = GigaMap.New();
 		try(final LuceneIndex<Article> index = map.index().register(LuceneIndex.Category(
@@ -220,10 +298,11 @@ class LuceneSearchOutsideMonitorEdgeTest
 			assertEquals(1, heldReader.getRefCount(), "only the held search still holds the reader");
 
 			held.released.countDown();
-			assertEquals(List.of(first, second), ids(get(search)), "the held search finishes on its reader");
+			assertEquals(List.of(first, second), ids(get(search)), "the held search ran again on the rebuilt index");
 			assertEquals(0, heldReader.getRefCount(), "the finished search released the reader, which is closed");
+			assertNotNull(((LuceneIndex.Default<Article>)index).reader, "the index is open again");
 
-			assertEquals(List.of(first, second), ids(index.search("title:alpha", 10)), "the next search rebuilt");
+			assertEquals(List.of(first, second), ids(index.search("title:alpha", 10)));
 		}
 	}
 
@@ -318,15 +397,18 @@ class LuceneSearchOutsideMonitorEdgeTest
 			final HeldQuery                           held   = new HeldQuery("alpha");
 			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
 			held.awaitEntered();
+			final DirectoryReader heldReader = ((LuceneIndex.Default<Article>)index).reader;
 
 			map.removeById(first);
 			third = map.add(new Article("alpha three"));
 			assertEquals(List.of(second, third), ids(index.search("title:alpha", 10)));
 			// takes the map's monitor, so it would wait for a search that held it
 			get(this.executor.submit(() -> map.store()));
+			assertEquals(1, heldReader.getRefCount(), "only the held search still holds its reader");
 
 			held.released.countDown();
-			assertEquals(List.of(first, second), ids(get(search)));
+			assertEquals(List.of(second, third), ids(get(search)));
+			assertEquals(0, heldReader.getRefCount(), "the finished search released its reader, which is closed");
 
 			// after the release: a further write and store on top of the dropped segments
 			final long fourth = map.add(new Article("alpha four"));
