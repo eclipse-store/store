@@ -202,10 +202,10 @@ These are the different modules that make up {product-name}.
 |Layer with support for external configuration files (XML, INI) and convenience functionality to create foundations for the embedded storage.
 
 |storage-embedded-tools-storage-converter
-|Tool for converting storage data between different formats.
+|Tool for converting storage data between different formats. *Not published to Maven Central since 5.0.0*, build it from source as described in xref:storage:addendum/tools.adoc[Tools].
 
 |storage-embedded-tools-storage-migrator
-|Tool for migrating storage data using OpenRewrite recipes.
+|Tool for migrating storage data using OpenRewrite recipes. *Not published to Maven Central since 5.0.0*, build it from source as described in xref:storage:addendum/tools.adoc[Tools].
 
 |storage-restadapter
 |Adapter for low-level storage data externalization. Used by the xref:storage:rest-interface/index.adoc[REST service] to adapt to a {product-name} Storage.
