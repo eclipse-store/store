@@ -1062,7 +1062,9 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		 * <p>
 		 * Doc values are only read forward within a segment, so the hits are visited in document order and the
 		 * ids put back at the positions of their hits. A segment without doc values for the field is read from
-		 * its stored fields as before.
+		 * its stored fields as before, and so is a document with more than one value for it: a populator may add
+		 * its own field of that name, and the doc values return the smallest value first, the stored fields the
+		 * first one added, which is the entity id.
 		 */
 		static long[] entityIds(final IndexSearcher searcher, final ScoreDoc[] scoreDocs) throws IOException
 		{
@@ -1096,7 +1098,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 					leafEnd  = leaf.docBase + leaf.reader().maxDoc();
 					idValues = leaf.reader().getSortedNumericDocValues(ENTITY_ID_FIELD);
 				}
-				if(idValues != null && idValues.advanceExact(document - leaf.docBase))
+				if(idValues != null && idValues.advanceExact(document - leaf.docBase) && idValues.docValueCount() == 1)
 				{
 					entityIds[position] = idValues.nextValue();
 					continue;
