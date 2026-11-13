@@ -779,15 +779,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			
 			try
 			{
-				synchronized(this.gigaMap)
-				{
-					this.refreshReaderIfNeeded();
-
-					final StandardQueryParser queryParser = new StandardQueryParser(this.analyzer);
-					queryParser.setAllowLeadingWildcard(true);
-					final Query query = queryParser.parse(queryText, ENTITY_ID_FIELD);
-					this.syncInternalQuery(query, maxResults, searchResultAcceptor);
-				}
+				this.acceptHits(this.searchHits(queryText, null, maxResults), maxResults, searchResultAcceptor);
 			}
 			catch(final IOException e)
 			{
@@ -825,43 +817,51 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 
 			try
 			{
-				synchronized(this.gigaMap)
-				{
-					this.refreshReaderIfNeeded();
-
-					this.syncInternalQuery(query, maxResults, searchResultAcceptor);
-				}
+				this.acceptHits(this.searchHits(null, query, maxResults), maxResults, searchResultAcceptor);
 			}
 			catch(final IOException e)
 			{
 				throw new IORuntimeException(e);
 			}
-			
+			catch(final QueryNodeException e)
+			{
+				throw new RuntimeException(e);
+			}
+
 			return searchResultAcceptor;
 		}
 
-
-
-		private <A extends SearchResultAcceptor<? super E>> void syncInternalQuery(
-			final Query query               ,
-			final int   maxResults          ,
-			final A     searchResultAcceptor
+		/*
+		 * Passes the hits of a search to the acceptor, best first, each with its entity, under the map's monitor
+		 * as a whole: no write comes between two hits, and the acceptor may rely on the monitor.
+		 *
+		 * The hits are used only if the index is still on the reader they were found with and no write marked it
+		 * stale since. Otherwise an id may now stand for an entity that does not match the query (changed by set()
+		 * or update(), or a new one after removeAll()), so the search runs again, under the monitor.
+		 */
+		private <A extends SearchResultAcceptor<? super E>> void acceptHits(
+			final Hits hits                ,
+			final int  maxResults          ,
+			final A    searchResultAcceptor
 		)
 		throws IOException
 		{
-			final StoredFields storedFields = this.searcher.storedFields();
-			final Set<String>  idOnly       = new HashSet<>(List.of(ENTITY_ID_FIELD));
-			final TopDocs      topDocs      = this.searcher.search(query, maxResults);
-			for(final ScoreDoc scoreDoc : topDocs.scoreDocs)
+			synchronized(this.gigaMap)
 			{
-				final long entityId = storedFields
-					.document(scoreDoc.doc, idOnly)
-					.getField(ENTITY_ID_FIELD).numericValue().longValue()
-				;
-				final E entity;
-				if((entity = this.gigaMap.get(entityId)) != null)
+				Hits current = hits;
+				if(this.reader != hits.reader || this.readerStale)
 				{
-					searchResultAcceptor.accept(entityId, entity, scoreDoc.score);
+					this.refreshReaderIfNeeded();
+					current = collectHits(this.searcher, hits.query, maxResults);
+				}
+				for(int i = 0; i < current.entityIds.length; i++)
+				{
+					final long entityId = current.entityIds[i];
+					final E    entity;
+					if((entity = this.gigaMap.get(entityId)) != null)
+					{
+						searchResultAcceptor.accept(entityId, entity, current.scoreDocs[i].score);
+					}
 				}
 			}
 		}
@@ -888,15 +888,15 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			}
 			try
 			{
-				synchronized(this.gigaMap)
-				{
-					this.refreshReaderIfNeeded();
-					return this.syncInternalSearch(query, maxResults);
-				}
+				return this.toSearchResult(this.searchHits(null, query, maxResults));
 			}
 			catch(final IOException e)
 			{
 				throw new IORuntimeException(e);
+			}
+			catch(final QueryNodeException e)
+			{
+				throw new RuntimeException(e);
 			}
 		}
 
@@ -910,15 +910,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			}
 			try
 			{
-				synchronized(this.gigaMap)
-				{
-					this.refreshReaderIfNeeded();
-
-					final StandardQueryParser queryParser = new StandardQueryParser(this.analyzer);
-					queryParser.setAllowLeadingWildcard(true);
-					final Query query = queryParser.parse(queryText, ENTITY_ID_FIELD);
-					return this.syncInternalSearch(query, maxResults);
-				}
+				return this.toSearchResult(this.searchHits(queryText, null, maxResults));
 			}
 			catch(final IOException e)
 			{
@@ -930,22 +922,197 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			}
 		}
 
-		private LuceneSearchResult<E> syncInternalSearch(final Query query, final int maxResults)
-		throws IOException
+		// the hits as a result whose entries load their entities from the map when they are asked for them.
+		private LuceneSearchResult<E> toSearchResult(final Hits hits)
 		{
-			final StoredFields                          storedFields = this.searcher.storedFields();
-			final Set<String>                           idOnly       = new HashSet<>(List.of(ENTITY_ID_FIELD));
-			final TopDocs                               topDocs      = this.searcher.search(query, maxResults);
-			final BulkList<ScoredSearchResult.Entry<E>> entries      = BulkList.New(topDocs.scoreDocs.length);
-			for(final ScoreDoc scoreDoc : topDocs.scoreDocs)
+			final BulkList<ScoredSearchResult.Entry<E>> entries = BulkList.New(hits.entityIds.length);
+			for(int i = 0; i < hits.entityIds.length; i++)
 			{
-				final long entityId = storedFields
-					.document(scoreDoc.doc, idOnly)
-					.getField(ENTITY_ID_FIELD).numericValue().longValue()
-				;
-				entries.add(new ScoredSearchResult.Entry.Default<>(entityId, scoreDoc.score, this.gigaMap));
+				entries.add(new ScoredSearchResult.Entry.Default<>(
+					hits.entityIds[i]        ,
+					hits.scoreDocs[i].score  ,
+					this.gigaMap
+				));
 			}
 			return new LuceneSearchResult.Default<>(entries);
+		}
+
+		/*
+		 * The hits of a search, best first, and the entity id of each, with the reader and the query they were
+		 * found with.
+		 */
+		private static final class Hits
+		{
+			final IndexReader reader   ;
+			final Query       query    ;
+			final ScoreDoc[]  scoreDocs;
+			final long[]      entityIds;
+
+			Hits(
+				final IndexReader reader   ,
+				final Query       query    ,
+				final ScoreDoc[]  scoreDocs,
+				final long[]      entityIds
+			)
+			{
+				super();
+				this.reader    = reader   ;
+				this.query     = query    ;
+				this.scoreDocs = scoreDocs;
+				this.entityIds = entityIds;
+			}
+		}
+
+		private static Hits collectHits(final IndexSearcher searcher, final Query query, final int maxResults)
+		throws IOException
+		{
+			final TopDocs topDocs = searcher.search(query, maxResults);
+			return new Hits(
+				searcher.getIndexReader()                ,
+				query                                    ,
+				topDocs.scoreDocs                        ,
+				entityIds(searcher, topDocs.scoreDocs)
+			);
+		}
+
+		/*
+		 * Searches the index for the query, given as a text to parse or as a query, and reads the entity ids of
+		 * the hits.
+		 *
+		 * Only the preparation holds the map's monitor: refreshing the reader, taking a reference to it and
+		 * parsing the text, which uses the analyzer that close() closes. The search and the read of the ids run
+		 * outside it, so that the map's other callers, e.g. size() and get(), and other searches do not wait for
+		 * them. They read the index as it was when the reference was taken: a write, a refresh or a close of the
+		 * index meanwhile gives up only the index's own reference to the reader, which stays readable until this
+		 * search releases its own.
+		 *
+		 * On a thread that holds the monitor already, everything runs under it, as before.
+		 */
+		private Hits searchHits(
+			final String queryText ,
+			final Query  query     ,
+			final int    maxResults
+		)
+		throws IOException, QueryNodeException
+		{
+			final Query         parsed  ;
+			final IndexSearcher searcher;
+			synchronized(this.gigaMap)
+			{
+				this.refreshReaderIfNeeded();
+				parsed   = queryText != null ? this.parse(queryText) : query;
+				searcher = this.searcher;
+				// the search's own reference, on top of the index's
+				searcher.getIndexReader().incRef();
+			}
+			final Hits hits;
+			try
+			{
+				hits = collectHits(searcher, parsed, maxResults);
+			}
+			catch(final Throwable t)
+			{
+				this.release(searcher, t);
+				throw t;
+			}
+			this.release(searcher, null);
+
+			return hits;
+		}
+
+		/*
+		 * Gives up the search's own reference to its reader. If the index gave up the reader meanwhile, this
+		 * closes it, which lets the writer delete the files only that reader still used: under the map's monitor,
+		 * as every other change of the index's files (a graph directory keeps them in fileEntries, which
+		 * GigaMap.store() serializes). A failure is added to that of the search, if the search failed.
+		 */
+		private void release(final IndexSearcher searcher, final Throwable searchFailure) throws IOException
+		{
+			synchronized(this.gigaMap)
+			{
+				try
+				{
+					searcher.getIndexReader().decRef();
+				}
+				catch(final IOException e)
+				{
+					if(searchFailure == null)
+					{
+						throw e;
+					}
+					searchFailure.addSuppressed(e);
+				}
+			}
+		}
+
+		// Must be called while holding the this.gigaMap monitor: uses the analyzer, which close() closes.
+		private Query parse(final String queryText) throws QueryNodeException
+		{
+			final StandardQueryParser queryParser = new StandardQueryParser(this.analyzer);
+			queryParser.setAllowLeadingWildcard(true);
+			return queryParser.parse(queryText, ENTITY_ID_FIELD);
+		}
+
+		/**
+		 * The entity ids of the passed hits, in the order of the hits.
+		 * <p>
+		 * The ids are read from the doc values that {@link LongField} writes for {@link #ENTITY_ID_FIELD} next to
+		 * the stored field: one lookup per hit. Reading the stored field instead decompresses the whole block of
+		 * documents the hit lies in, for every hit, which made up most of the cost of a search with many hits.
+		 * <p>
+		 * Doc values are only read forward within a segment, so the hits are visited in document order and the
+		 * ids put back at the positions of their hits. A segment without doc values for the field is read from
+		 * its stored fields as before.
+		 */
+		static long[] entityIds(final IndexSearcher searcher, final ScoreDoc[] scoreDocs) throws IOException
+		{
+			final long[] entityIds = new long[scoreDocs.length];
+			if(scoreDocs.length == 0)
+			{
+				return entityIds;
+			}
+
+			// document number in the upper half, position of the hit in the lower: sorts by document without boxing.
+			final long[] byDocument = new long[scoreDocs.length];
+			for(int i = 0; i < scoreDocs.length; i++)
+			{
+				byDocument[i] = (long)scoreDocs[i].doc << Integer.SIZE | i;
+			}
+			Arrays.sort(byDocument);
+
+			final List<LeafReaderContext> leaves       = searcher.getIndexReader().leaves();
+			LeafReaderContext             leaf         = null;
+			SortedNumericDocValues        idValues     = null;
+			int                           leafEnd      = 0;
+			StoredFields                  storedFields = null;
+			Set<String>                   idOnly       = null;
+			for(final long entry : byDocument)
+			{
+				final int document = (int)(entry >>> Integer.SIZE);
+				final int position = (int)entry;
+				if(leaf == null || document >= leafEnd)
+				{
+					leaf     = leaves.get(ReaderUtil.subIndex(document, leaves));
+					leafEnd  = leaf.docBase + leaf.reader().maxDoc();
+					idValues = leaf.reader().getSortedNumericDocValues(ENTITY_ID_FIELD);
+				}
+				if(idValues != null && idValues.advanceExact(document - leaf.docBase))
+				{
+					entityIds[position] = idValues.nextValue();
+					continue;
+				}
+				if(storedFields == null)
+				{
+					storedFields = searcher.storedFields();
+					idOnly       = Set.of(ENTITY_ID_FIELD);
+				}
+				entityIds[position] = storedFields
+					.document(document, idOnly)
+					.getField(ENTITY_ID_FIELD).numericValue().longValue()
+				;
+			}
+
+			return entityIds;
 		}
 		
 		@Override
