@@ -35,6 +35,14 @@
                 </configuration>
             </plugin>
             <plugin>
+                <!-- Built and installed locally, but not published to Maven Central (neither snapshots nor releases). -->
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <configuration>
+                    <skipPublishing>true</skipPublishing>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>
                 <configuration>

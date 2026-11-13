@@ -27,7 +27,14 @@ jobs:
           server-username: MAVEN_USERNAME
           server-password: MAVEN_PASSWORD
       - name: Make a snapshot from Main branch
-        run: mvn -T 1C -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U -Dmaven.javadoc.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+        # Snapshots are uploaded one file at a time, each with its checksums and metadata, and Central rate-limits
+        # the burst with HTTP 429. Sources jars are left out of snapshots (releases keep them), and the resolver
+        # retries a 429 ten times with a growing interval (Retry-After is honoured) instead of three times.
+        run: >
+          mvn -T 1C -Pdeploy -Pproduction --no-transfer-progress --batch-mode clean deploy -U
+          -Dmaven.javadoc.skip=true -Dmaven.source.skip=true -Dgpg.skip=true -Dlicense.skip=true -Denforcer.skip=true
+          -Daether.connector.http.retryHandler.count=10
+          -Daether.connector.http.retryHandler.interval=10000
         env:
           MAVEN_USERNAME: ${{ secrets.CENTRAL_SONATYPE_TOKEN_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.CENTRAL_SONATYPE_TOKEN_PASSWORD }}
