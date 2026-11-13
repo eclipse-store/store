@@ -127,6 +127,14 @@
 					<maxAttempts>240</maxAttempts>
 				</configuration>
 			</plugin>
+			<plugin>
+				<!-- Built and installed locally, but not published to Maven Central (neither snapshots nor releases). -->
+				<groupId>org.sonatype.central</groupId>
+				<artifactId>central-publishing-maven-plugin</artifactId>
+				<configuration>
+					<skipPublishing>true</skipPublishing>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
 
