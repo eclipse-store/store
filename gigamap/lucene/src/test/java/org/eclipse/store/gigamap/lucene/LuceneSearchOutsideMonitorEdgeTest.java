@@ -41,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.lucene.document.Document;
+import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.junit.jupiter.api.AfterEach;
@@ -205,6 +206,9 @@ class LuceneSearchOutsideMonitorEdgeTest
 			final HeldQuery                           held   = new HeldQuery("alpha");
 			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
 			held.awaitEntered();
+			// the reader the held search took: the index's own reference and the search's
+			final DirectoryReader heldReader = ((LuceneIndex.Default<Article>)index).reader;
+			assertEquals(2, heldReader.getRefCount());
 
 			// both entities pass the check before the documents are dropped, the first one of the back-fill fails
 			POPULATIONS_BEFORE_FAILURE.set(2);
@@ -213,10 +217,13 @@ class LuceneSearchOutsideMonitorEdgeTest
 			assertNotNull(failure.getCause());
 			assertEquals(-1, POPULATIONS_BEFORE_FAILURE.get(), "the back-fill population failed");
 			assertNull(((LuceneIndex.Default<Article>)index).reader, "the failed reindex discarded the reader");
+			assertEquals(1, heldReader.getRefCount(), "only the held search still holds the reader");
 
 			held.released.countDown();
-			assertEquals(List.of(first, second), ids(get(search)));
-			assertEquals(List.of(first, second), ids(index.search("title:alpha", 10)));
+			assertEquals(List.of(first, second), ids(get(search)), "the held search finishes on its reader");
+			assertEquals(0, heldReader.getRefCount(), "the finished search released the reader, which is closed");
+
+			assertEquals(List.of(first, second), ids(index.search("title:alpha", 10)), "the next search rebuilt");
 		}
 	}
 
