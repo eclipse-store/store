@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.lucene;
 import static org.eclipse.store.gigamap.lucene.LuceneSearchOutsideMonitorTest.TIMEOUT_SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.eclipse.store.gigamap.lucene.LuceneSearchOutsideMonitorTest.Article;
@@ -37,6 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.lucene.document.Document;
 import org.apache.lucene.store.Directory;
@@ -53,15 +55,15 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class LuceneSearchOutsideMonitorEdgeTest
 {
-	static volatile boolean failPopulate;
+	// the number of populations that still succeed before one fails, -1 for none failing
+	static final AtomicInteger POPULATIONS_BEFORE_FAILURE = new AtomicInteger(-1);
 
-	// fails while failPopulate is set
 	static final class FailingTitlePopulator extends DocumentPopulator<Article>
 	{
 		@Override
 		public void populate(final Document document, final Article entity)
 		{
-			if(failPopulate)
+			if(POPULATIONS_BEFORE_FAILURE.get() >= 0 && POPULATIONS_BEFORE_FAILURE.getAndDecrement() == 0)
 			{
 				throw new IllegalStateException("populate failed");
 			}
@@ -99,7 +101,7 @@ class LuceneSearchOutsideMonitorEdgeTest
 	void shutdownExecutor()
 	{
 		this.executor.shutdownNow();
-		failPopulate = false;
+		POPULATIONS_BEFORE_FAILURE.set(-1);
 	}
 
 	static <T> T get(final Future<T> future) throws Exception
@@ -186,8 +188,8 @@ class LuceneSearchOutsideMonitorEdgeTest
 	}
 
 	/*
-	 * A failed reindex discards the writer and the reader of the index. The held search keeps its reader, and the
-	 * next search rebuilds the index.
+	 * A reindex that fails during the back-fill, after it dropped the documents, discards the writer and the
+	 * reader of the index. The held search keeps its reader, and the next search rebuilds the index.
 	 */
 	@Test
 	void aFailedReindexDoesNotWaitForASearchAndTheSearchKeepsItsIndex() throws Exception
@@ -204,11 +206,13 @@ class LuceneSearchOutsideMonitorEdgeTest
 			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
 			held.awaitEntered();
 
-			failPopulate = true;
+			// both entities pass the check before the documents are dropped, the first one of the back-fill fails
+			POPULATIONS_BEFORE_FAILURE.set(2);
 			final Future<?>          reindex = this.executor.submit(map::reindex);
 			final ExecutionException failure = assertThrows(ExecutionException.class, () -> get(reindex));
 			assertNotNull(failure.getCause());
-			failPopulate = false;
+			assertEquals(-1, POPULATIONS_BEFORE_FAILURE.get(), "the back-fill population failed");
+			assertNull(((LuceneIndex.Default<Article>)index).reader, "the failed reindex discarded the reader");
 
 			held.released.countDown();
 			assertEquals(List.of(first, second), ids(get(search)));
