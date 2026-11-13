@@ -15,6 +15,18 @@ package org.eclipse.store.gigamap.lucene;
  */
 
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field.Store;
 import org.apache.lucene.document.LongField;
@@ -25,23 +37,17 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.StoredFields;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
-import org.eclipse.store.gigamap.types.GigaMap;
-import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.junit.jupiter.api.Test;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies that a search maps its hits to the right entity ids when it reads them from the doc values of the
@@ -107,12 +113,18 @@ public class LuceneEntityIdReadTest
 			float previousScore = Float.MAX_VALUE;
 			for(final ScoredSearchResult.Entry<Note> entry : entries)
 			{
-				assertTrue(entry.score() <= previousScore, "hits are in score order");
+				// distinct scores, so a hit carrying the id of another document would carry a different score
+				assertTrue(entry.score() < previousScore, "hits are in strict score order");
 				previousScore = entry.score();
-				assertTrue(
-					entry.entity().text.endsWith("note" + entry.entityId()),
-					"entity " + entry.entityId() + " is the one of its hit"
-				);
+
+				// the document with the term "note<id>", found by that term, not by the id, scores like the hit
+				final Query ownDocument = new BooleanQuery.Builder()
+					.add(new TermQuery(new Term("text", "lucene")), BooleanClause.Occur.MUST)
+					.add(new TermQuery(new Term("text", "note" + entry.entityId())), BooleanClause.Occur.FILTER)
+					.build();
+				final List<ScoredSearchResult.Entry<Note>> own = index.search(ownDocument, 2).toList();
+				assertEquals(1, own.size());
+				assertEquals(own.get(0).score(), entry.score(), "hit " + entry.entityId() + " is its document's");
 			}
 			// in document order the ids would count up from 0: the hits are not in that order.
 			assertTrue(entries.get(0).entityId() > entries.get(count - 1).entityId());
@@ -179,9 +191,9 @@ public class LuceneEntityIdReadTest
 	@Test
 	void idsComeFromDocValuesAndFromStoredFieldsWhereASegmentHasNone() throws IOException
 	{
-		try(Directory directory = new ByteBuffersDirectory())
+		try(final Directory directory = new ByteBuffersDirectory())
 		{
-			try(IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig()))
+			try(final IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig()))
 			{
 				// ids as doc values only, not stored: the stored fields could not answer for them.
 				for(long id = 100; id < 105; id++)
@@ -192,7 +204,7 @@ public class LuceneEntityIdReadTest
 				}
 			}
 
-			try(DirectoryReader reader = DirectoryReader.open(directory))
+			try(final DirectoryReader reader = DirectoryReader.open(directory))
 			{
 				final IndexSearcher searcher  = new IndexSearcher(reader);
 				final ScoreDoc[]    scoreDocs =
@@ -208,9 +220,9 @@ public class LuceneEntityIdReadTest
 		}
 
 		// a document with two values for the id field: the id is the first stored one, not the smallest doc value.
-		try(Directory directory = new ByteBuffersDirectory())
+		try(final Directory directory = new ByteBuffersDirectory())
 		{
-			try(IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig()))
+			try(final IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig()))
 			{
 				final Document document = new Document();
 				document.add(new LongField(ID_FIELD, 7L, Store.YES));
@@ -218,7 +230,7 @@ public class LuceneEntityIdReadTest
 				writer.addDocument(document);
 			}
 
-			try(DirectoryReader reader = DirectoryReader.open(directory))
+			try(final DirectoryReader reader = DirectoryReader.open(directory))
 			{
 				assertArrayEquals(
 					new long[]{7L},
@@ -228,9 +240,9 @@ public class LuceneEntityIdReadTest
 		}
 
 		// an index whose id field has no doc values: the ids come from the stored field.
-		try(Directory directory = new ByteBuffersDirectory())
+		try(final Directory directory = new ByteBuffersDirectory())
 		{
-			try(IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig()))
+			try(final IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig()))
 			{
 				for(long id = 200; id < 204; id++)
 				{
@@ -241,7 +253,7 @@ public class LuceneEntityIdReadTest
 				}
 			}
 
-			try(DirectoryReader reader = DirectoryReader.open(directory))
+			try(final DirectoryReader reader = DirectoryReader.open(directory))
 			{
 				final IndexSearcher searcher = new IndexSearcher(reader);
 				final TopDocs       topDocs  = searcher.search(LongPoint.newRangeQuery(ID_FIELD, 201L, 203L), 10);

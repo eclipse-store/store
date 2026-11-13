@@ -220,6 +220,7 @@ class LuceneSearchOutsideMonitorEdgeTest
 
 			held.released.countDown();
 			assertEquals(List.of(second + ":alpha two"), entries(get(search)));
+			assertEquals(2, held.rewrites.get(), "the set() meanwhile made the search run again");
 		}
 	}
 
@@ -251,6 +252,7 @@ class LuceneSearchOutsideMonitorEdgeTest
 
 			held.released.countDown();
 			assertEquals(List.of(reused + ":alpha new"), entries(get(search)));
+			assertEquals(2, held.rewrites.get(), "the writes meanwhile made the search run again");
 		}
 	}
 
@@ -307,6 +309,43 @@ class LuceneSearchOutsideMonitorEdgeTest
 	}
 
 	/*
+	 * After a failed reindex, the held search runs again, which rebuilds the index. If that rebuild fails too, the
+	 * search fails, having released the reader it took, and the next search rebuilds the index.
+	 */
+	@Test
+	void aSearchWhoseRerunFailsReleasesItsReader() throws Exception
+	{
+		final GigaMap<Article> map = GigaMap.New();
+		try(final LuceneIndex<Article> index = map.index().register(LuceneIndex.Category(
+			LuceneContext.New(DirectoryCreator.ByteBuffers(), new FailingTitlePopulator())
+		)))
+		{
+			final long first  = map.add(new Article("alpha one"));
+			final long second = map.add(new Article("alpha two"));
+
+			final HeldQuery                           held   = new HeldQuery("alpha");
+			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
+			held.awaitEntered();
+			final DirectoryReader heldReader = ((LuceneIndex.Default<Article>)index).reader;
+
+			POPULATIONS_BEFORE_FAILURE.set(2);
+			final Future<?> reindex = this.executor.submit(map::reindex);
+			assertThrows(ExecutionException.class, () -> get(reindex));
+			assertNull(((LuceneIndex.Default<Article>)index).reader, "the failed reindex discarded the reader");
+
+			// the rebuild of the held search's rerun fails with its first population
+			POPULATIONS_BEFORE_FAILURE.set(0);
+			held.released.countDown();
+			final ExecutionException failure = assertThrows(ExecutionException.class, () -> get(search));
+			assertNotNull(failure.getCause());
+			assertEquals(-1, POPULATIONS_BEFORE_FAILURE.get(), "the rerun's rebuild failed");
+			assertEquals(0, heldReader.getRefCount(), "the failed search released the reader it took");
+
+			assertEquals(List.of(first, second), ids(index.search("title:alpha", 10)), "the next search rebuilt");
+		}
+	}
+
+	/*
 	 * The acceptor must only get entities that match the query: a hit whose entity was replaced while the
 	 * search ran outside the monitor no longer matches.
 	 */
@@ -333,6 +372,7 @@ class LuceneSearchOutsideMonitorEdgeTest
 			held.released.countDown();
 			get(query);
 			assertEquals(List.of(second + ":alpha two"), accepted);
+			assertEquals(2, held.rewrites.get(), "the set() meanwhile made the search run again");
 		}
 	}
 
@@ -368,6 +408,7 @@ class LuceneSearchOutsideMonitorEdgeTest
 			held.released.countDown();
 			get(query);
 			assertEquals(List.of("alpha new"), accepted);
+			assertEquals(2, held.rewrites.get(), "the writes meanwhile made the search run again");
 		}
 	}
 

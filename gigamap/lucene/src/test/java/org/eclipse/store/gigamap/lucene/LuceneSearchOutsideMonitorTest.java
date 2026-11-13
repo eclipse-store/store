@@ -18,6 +18,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.eclipse.store.gigamap.types.GigaMap;
+import org.eclipse.store.gigamap.types.ScoredSearchResult;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
@@ -36,9 +40,6 @@ import org.apache.lucene.search.QueryVisitor;
 import org.apache.lucene.search.TermQuery;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-
-import org.eclipse.store.gigamap.types.GigaMap;
-import org.eclipse.store.gigamap.types.ScoredSearchResult;
 
 /**
  * A search of a {@link LuceneIndex} holds the map's monitor only to parse the query and to take a searcher, not while
@@ -78,12 +79,13 @@ public class LuceneSearchOutsideMonitorTest
 
 	/*
 	 * A query for a word of the title that tells when a search started on it, and holds that search until it is
-	 * released.
+	 * released. Lucene rewrites it once per search, so the count of rewrites tells whether a search ran again.
 	 */
 	static final class HeldQuery extends Query
 	{
 		final CountDownLatch entered  = new CountDownLatch(1);
 		final CountDownLatch released = new CountDownLatch(1);
+		final AtomicInteger  rewrites = new AtomicInteger();
 		final Query          query   ;
 
 		HeldQuery(final String word)
@@ -95,6 +97,7 @@ public class LuceneSearchOutsideMonitorTest
 		@Override
 		public Query rewrite(final IndexSearcher searcher) throws IOException
 		{
+			this.rewrites.incrementAndGet();
 			this.entered.countDown();
 			try
 			{
@@ -203,6 +206,39 @@ public class LuceneSearchOutsideMonitorTest
 				ids(get(search)),
 				"the held search returns the hits of the index as it is when it returns"
 			);
+			assertEquals(2, held.rewrites.get(), "the add meanwhile made the held search run again");
+		}
+	}
+
+	@Test
+	void aSearchWithoutAWriteMeanwhileRunsOnce() throws Exception
+	{
+		final GigaMap<Article> map = GigaMap.New();
+		try(final LuceneIndex<Article> index = map.index().register(LuceneIndex.Category(memoryContext())))
+		{
+			final long first  = map.add(new Article("alpha one"));
+			final long second = map.add(new Article("alpha two"));
+
+			final HeldQuery                           held   = new HeldQuery("alpha");
+			final Future<LuceneSearchResult<Article>> search = this.executor.submit(() -> index.search(held, 10));
+			held.awaitEntered();
+
+			// reads only, and another search, which finds the reader up to date and keeps it
+			assertEquals(2L, get(this.executor.submit(map::size)));
+			assertEquals("alpha two", get(this.executor.submit(() -> map.get(second))).title);
+			assertEquals(List.of(first, second), get(this.executor.submit(() -> ids(index.search("title:alpha", 10)))));
+
+			held.released.countDown();
+			assertEquals(List.of(first, second), ids(get(search)));
+			assertEquals(1, held.rewrites.get(), "the search's hits were still exact, so it did not run again");
+
+			final HeldQuery  heldQuery = new HeldQuery("alpha");
+			final List<Long> accepted  = new ArrayList<>();
+			heldQuery.released.countDown();
+			index.query(heldQuery, 10, (id, entity, score) -> accepted.add(id));
+			accepted.sort(null);
+			assertEquals(List.of(first, second), accepted);
+			assertEquals(1, heldQuery.rewrites.get(), "neither did the acceptor's search");
 		}
 	}
 

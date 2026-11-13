@@ -779,17 +779,13 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			
 			try
 			{
-				this.acceptHits(this.searchHits(queryText, null, maxResults), maxResults, searchResultAcceptor);
+				this.searchHits(queryText, null, maxResults, searchResultAcceptor);
 			}
 			catch(final IOException e)
 			{
 				throw new IORuntimeException(e);
 			}
-			catch(final QueryNodeException e)
-			{
-				throw new RuntimeException(e);
-			}
-			
+
 			return searchResultAcceptor;
 		}
 		
@@ -817,43 +813,30 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 
 			try
 			{
-				this.acceptHits(this.searchHits(null, query, maxResults), maxResults, searchResultAcceptor);
+				this.searchHits(null, query, maxResults, searchResultAcceptor);
 			}
 			catch(final IOException e)
 			{
 				throw new IORuntimeException(e);
-			}
-			catch(final QueryNodeException e)
-			{
-				throw new RuntimeException(e);
 			}
 
 			return searchResultAcceptor;
 		}
 
 		/*
-		 * Passes the hits of a search to the acceptor, best first, each with its entity, under the map's monitor
-		 * as a whole: no write comes between two hits, and the acceptor may rely on the monitor. The hits are
-		 * checked against the index once more, for a write since the search returned them.
+		 * Passes the hits to the acceptor, best first, each with its entity. Must be called while holding the
+		 * this.gigaMap monitor, as a whole: no write comes between two hits, and the acceptor may rely on the
+		 * monitor.
 		 */
-		private <A extends SearchResultAcceptor<? super E>> void acceptHits(
-			final Hits hits                ,
-			final int  maxResults          ,
-			final A    searchResultAcceptor
-		)
-		throws IOException
+		private void acceptHits(final Hits hits, final SearchResultAcceptor<? super E> searchResultAcceptor)
 		{
-			synchronized(this.gigaMap)
+			for(int i = 0; i < hits.entityIds.length; i++)
 			{
-				final Hits current = this.currentHits(hits, maxResults);
-				for(int i = 0; i < current.entityIds.length; i++)
+				final long entityId = hits.entityIds[i];
+				final E    entity;
+				if((entity = this.gigaMap.get(entityId)) != null)
 				{
-					final long entityId = current.entityIds[i];
-					final E    entity;
-					if((entity = this.gigaMap.get(entityId)) != null)
-					{
-						searchResultAcceptor.accept(entityId, entity, current.scoreDocs[i].score);
-					}
+					searchResultAcceptor.accept(entityId, entity, hits.scoreDocs[i].score);
 				}
 			}
 		}
@@ -880,15 +863,11 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			}
 			try
 			{
-				return this.toSearchResult(this.searchHits(null, query, maxResults));
+				return this.toSearchResult(this.searchHits(null, query, maxResults, null));
 			}
 			catch(final IOException e)
 			{
 				throw new IORuntimeException(e);
-			}
-			catch(final QueryNodeException e)
-			{
-				throw new RuntimeException(e);
 			}
 		}
 
@@ -902,15 +881,11 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			}
 			try
 			{
-				return this.toSearchResult(this.searchHits(queryText, null, maxResults));
+				return this.toSearchResult(this.searchHits(queryText, null, maxResults, null));
 			}
 			catch(final IOException e)
 			{
 				throw new IORuntimeException(e);
-			}
-			catch(final QueryNodeException e)
-			{
-				throw new RuntimeException(e);
 			}
 		}
 
@@ -984,8 +959,8 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		}
 
 		/*
-		 * Searches the index for the query, given as a text to parse or as a query, and reads the entity ids of
-		 * the hits.
+		 * Searches the index for the query, given as a text to parse or as a query, reads the entity ids of the
+		 * hits and, if an acceptor is passed, passes the hits to it.
 		 *
 		 * Only the preparation holds the map's monitor: refreshing the reader, taking a reference to it and
 		 * parsing the text, which uses the analyzer that close() closes. The search and the read of the ids run
@@ -996,15 +971,17 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		 *
 		 * The returned hits hold for the index as it is when the search returns, as if it had run under the
 		 * monitor as a whole: after a write meanwhile, the search runs again under the monitor, see currentHits.
+		 * The acceptor gets them in the same monitor section, so no write comes in between.
 		 *
-		 * On a thread that holds the monitor already, everything runs under it, as before.
+		 * On a thread that already holds the monitor, the whole search runs under it.
 		 */
 		private Hits searchHits(
-			final String queryText ,
-			final Query  query     ,
-			final int    maxResults
+			final String                          queryText           ,
+			final Query                           query               ,
+			final int                             maxResults          ,
+			final SearchResultAcceptor<? super E> searchResultAcceptor
 		)
-		throws IOException, QueryNodeException
+		throws IOException
 		{
 			final Query         parsed  ;
 			final IndexSearcher searcher;
@@ -1029,15 +1006,20 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 			synchronized(this.gigaMap)
 			{
 				this.release(searcher, null);
-				return this.currentHits(hits, maxResults);
+				final Hits current = this.currentHits(hits, maxResults);
+				if(searchResultAcceptor != null)
+				{
+					this.acceptHits(current, searchResultAcceptor);
+				}
+				return current;
 			}
 		}
 
 		/*
 		 * Gives up the search's own reference to its reader. If the index gave up the reader meanwhile, this
-		 * closes it, which lets the writer delete the files only that reader still used: under the map's monitor,
-		 * as every other change of the index's files (a graph directory keeps them in fileEntries, which
-		 * GigaMap.store() serializes). A failure is added to that of the search, if the search failed.
+		 * closes it, which lets the writer delete the files only that reader still used. Under the map's monitor,
+		 * like the index's writes: a graph directory keeps the files in fileEntries, which GigaMap.store()
+		 * serializes. A failure is added to that of the search, if the search failed.
 		 */
 		private void release(final IndexSearcher searcher, final Throwable searchFailure) throws IOException
 		{
@@ -1047,7 +1029,7 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 				{
 					searcher.getIndexReader().decRef();
 				}
-				catch(final IOException e)
+				catch(final IOException | RuntimeException e)
 				{
 					if(searchFailure == null)
 					{
@@ -1059,11 +1041,18 @@ public interface LuceneIndex<E> extends IndexGroup<E>, Closeable
 		}
 
 		// Must be called while holding the this.gigaMap monitor: uses the analyzer, which close() closes.
-		private Query parse(final String queryText) throws QueryNodeException
+		private Query parse(final String queryText)
 		{
 			final StandardQueryParser queryParser = new StandardQueryParser(this.analyzer);
 			queryParser.setAllowLeadingWildcard(true);
-			return queryParser.parse(queryText, ENTITY_ID_FIELD);
+			try
+			{
+				return queryParser.parse(queryText, ENTITY_ID_FIELD);
+			}
+			catch(final QueryNodeException e)
+			{
+				throw new RuntimeException(e);
+			}
 		}
 
 		/**
