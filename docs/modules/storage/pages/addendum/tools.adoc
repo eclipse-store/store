@@ -11,6 +11,19 @@ The parameters `eclipseStoreVersion` and `typeDictionaryRelativePath` control wh
 * Source code migration is only done when `eclipseStoreVersion` is set.
 * Type dictionary migration is only done when `typeDictionaryRelativePath` is set.
 
+[IMPORTANT]
+====
+Since 5.0.0 the migrator is no longer published to Maven Central.
+Before running the commands below, clone the https://github.com/eclipse-store/store[{product-name} repository] and install the migrator into your local Maven repository, so that the `rewrite-maven-plugin` can resolve the recipe artifact:
+
+[source, bash]
+----
+mvn -DskipTests install -pl storage/embedded-tools/storage-migrator -am
+----
+
+Up to version 4.3.0 the recipe artifact is resolved from Maven Central without this step.
+====
+
 === Migrate Source Code and Type Dictionary
 
 [source, bash, subs=attributes+]
@@ -91,6 +104,16 @@ This is useful for:
 
 === Prerequisites
 
+Since 5.0.0 the converter is no longer published to Maven Central.
+Clone the https://github.com/eclipse-store/store[{product-name} repository] and install it into your local Maven repository:
+
+[source, bash]
+----
+mvn -DskipTests install -pl storage/embedded-tools/storage-converter -am
+----
+
+Up to version 4.3.0 the artifact is available on Maven Central without this step.
+
 Add the storage converter dependency:
 
 [source, xml, title="pom.xml", subs=attributes+]
@@ -106,12 +129,14 @@ Add the storage converter dependency:
 
 === Standalone JAR
 
-Build the standalone JAR by activating the `converter-standalone` Maven profile:
+Build the standalone JAR by activating the `converter-standalone` Maven profile in the {product-name} repository:
 
 [source, bash]
 ----
-mvn -Pconverter-standalone clean package
+mvn -Pconverter-standalone -DskipTests clean package -pl storage/embedded-tools/storage-converter -am
 ----
+
+The JAR is located at `storage/embedded-tools/storage-converter/target/storage-embedded-tools-storage-converter-<version>-standalone.jar`.
 
 Then run it with an xref:configuration/index.adoc#external-configuration[external configuration] file for each storage:
 

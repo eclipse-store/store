@@ -6,12 +6,18 @@ Main purpose of the EclipseStore Storage converter is providing an option to cop
 The converter will not copy redundant older persisted objects. It only copies the objects latest version.
 It is possible to define a different channel count for the target than the source storage has.
 
-## Building the storage converter standalone jar
-
-To build the converter standalone jar using Maven you need to activate the profile **converter-standalone**.
+Since 5.0.0 the converter is no longer published to Maven Central. Build it from this repository:
 
 ```console
-mvn -Pconverter-standalone clean package
+mvn -DskipTests install -pl storage/embedded-tools/storage-converter -am
+```
+
+## Building the storage converter standalone jar
+
+To build the converter standalone jar using Maven you need to activate the profile **converter-standalone** (from the repository root):
+
+```console
+mvn -Pconverter-standalone -DskipTests clean package -pl storage/embedded-tools/storage-converter -am
 ```
 
 
