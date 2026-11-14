@@ -3284,7 +3284,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final BuildScoreProvider scoreProvider = pqVectors != null
                 ? BuildScoreProvider.pqBuildScoreProvider(this.jvectorSimilarityFunction(), pqVectors)
                 : BuildScoreProvider.randomAccessScoreProvider(
-                    this.nullSafe(vectors), this.jvectorSimilarityFunction()
+                    this.buildVectorValues(vectors), this.jvectorSimilarityFunction()
                 )
             ;
 
@@ -6708,7 +6708,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final GenerationVectorValues vectors = new GenerationVectorValues(this.vectorFile, this.vectorTypeSupport);
             vectors.freeze(Map.of());
             final GraphIndexBuilder target = this.newGraphIndexBuilder(
-                BuildScoreProvider.randomAccessScoreProvider(this.nullSafe(vectors), this.jvectorSimilarityFunction())
+                BuildScoreProvider.randomAccessScoreProvider(this.buildVectorValues(vectors), this.jvectorSimilarityFunction())
             );
 
             boolean published = false;
@@ -7587,7 +7587,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final VectorTypeSupport        types   = this.vectorTypeSupport;
             // Read straight from the file: an entity mutated during the merge is no longer owned by the
             // segments merged, so the owner move below skips it, whatever vector it was merged with.
-            final RandomAccessVectorValues vectors = this.nullSafe(new MappedVectorValues(file, types));
+            final RandomAccessVectorValues vectors = this.buildVectorValues(new MappedVectorValues(file, types));
             final GraphIndexBuilder        target  = this.newGraphIndexBuilder(
                 BuildScoreProvider.randomAccessScoreProvider(vectors, this.jvectorSimilarityFunction())
             );
@@ -8348,7 +8348,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             return new GraphIndexBuilder(
                 BuildScoreProvider.randomAccessScoreProvider(
-                    this.flushVectors(frozen), this.jvectorSimilarityFunction()
+                    this.buildVectorValues(frozen.vectorValues()), this.jvectorSimilarityFunction()
                 ),
                 this.configuration.dimension(),
                 frozen.graph(),
@@ -9390,8 +9390,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         }
 
         /**
-         * Creates appropriate vector values based on storage mode.
+         * Gives construction scoring a reusable, thread-confined destination for mapped reads.
          */
+        private RandomAccessVectorValues buildVectorValues(final RandomAccessVectorValues vectors)
+        {
+            return new ReusableVectorValues(this.nullSafe(vectors), this.vectorTypeSupport);
+        }
+
         private RandomAccessVectorValues nullSafe(final RandomAccessVectorValues vectors)
         {
             return new NullSafeVectorValues(vectors, this.configuration.dimension(), this.vectorTypeSupport);
