@@ -178,7 +178,13 @@ luceneIndex.commit();
 
 == Thread Safety
 
-All Lucene index operations are synchronized on the parent GigaMap, making the index safe for concurrent access from multiple threads.
+The Lucene index is safe for concurrent access from multiple threads.
+
+* Writes (adding, updating and removing entities, `reindex()`, `commit()`, `close()`) are synchronized on the parent GigaMap.
+* Searches (`search(...)` and `query(...)`) hold the GigaMap's lock only to prepare: to refresh the index reader after writes and to parse the query text. The Lucene search itself runs without the lock, so other searches, `size()`, `get(long)` and writes on the same GigaMap do not wait for it, and several searches on one GigaMap run in parallel. Custom `Query` implementations must therefore not rely on the GigaMap's lock.
+* A search result is the same as if the whole search had run under the lock at the moment it returns: if the index changed while the search ran, the search runs again under the lock. The entities of a `search(...)` result are loaded from the GigaMap when they are accessed, so they reflect later changes.
+* The `SearchResultAcceptor` of `query(...)` is called under the GigaMap's lock, once per hit, with the entity the GigaMap holds at that moment.
+* A search that is still running when the index is closed finishes, and then opens the index again, just like a search started after `close()`.
 
 == Resource Management
 
