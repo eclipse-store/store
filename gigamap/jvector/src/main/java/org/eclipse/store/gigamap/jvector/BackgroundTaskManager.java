@@ -846,14 +846,17 @@ class BackgroundTaskManager
     }
 
     /**
-     * Liveness watchdog body. Resolving the weak reference self-terminates the manager when the
-     * index has been collected (see {@link #liveCallback()}).
+     * Liveness watchdog body: self-terminates the manager when the index has been collected.
+     * <p>
+     * Tests the weak reference with {@code refersTo(null)} instead of resolving it: under a concurrent
+     * collector (ZGC) a {@code get()} during marking keeps the referent alive, so resolving it every
+     * second would keep an abandoned index alive whenever marking takes longer than that.
      */
     private void checkLiveness()
     {
-        if(!this.shutdown)
+        if(!this.shutdown && this.callbackRef.refersTo(null))
         {
-            this.liveCallback();
+            this.selfTerminate();
         }
     }
 

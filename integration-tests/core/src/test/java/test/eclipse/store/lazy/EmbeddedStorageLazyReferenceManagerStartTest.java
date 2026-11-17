@@ -29,6 +29,7 @@ import org.eclipse.serializer.reference.LazyReferenceManager;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
@@ -130,7 +131,7 @@ public class EmbeddedStorageLazyReferenceManagerStartTest
 	 * and waits for it a little: with a separate read and start, the set() completes before the start.
 	 */
 	@Test
-	void managerReplacedWhileTheStorageActivatesItIsNotStarted() throws InterruptedException
+	void managerReplacedWhileTheStorageActivatesItIsNotStarted() throws Exception
 	{
 		final LazyReferenceManager successor = manager();
 		final Thread[]             setter    = new Thread[1];
@@ -157,7 +158,15 @@ public class EmbeddedStorageLazyReferenceManagerStartTest
 		assertSame(successor, LazyReferenceManager.get(), "precondition: replaced during the activation");
 		assertFalse(recording.running, "the replaced manager must not run");
 		assertTrue(successor.isRunning(), "the successor must run");
-		assertTrue(hasController(successor, this.storage), "the successor must have the storage as controller");
+		assertTrue(hasController(successor, lazyReferenceManagerController(this.storage)), "the successor must have the storage as controller");
+	}
+
+	// the storage registers a controller of its own, not itself (see EmbeddedStorageManager.Default)
+	private static Object lazyReferenceManagerController(final EmbeddedStorageManager storage) throws ReflectiveOperationException
+	{
+		final Field f = storage.getClass().getDeclaredField("lazyReferenceManagerController");
+		f.setAccessible(true);
+		return f.get(storage);
 	}
 
 	private static boolean hasController(final LazyReferenceManager manager, final Object controller)

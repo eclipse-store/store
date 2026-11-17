@@ -90,11 +90,25 @@ public interface StorageSystem extends StorageController
 	 * Provides an instance of {@link StorageOperationController}, which manages
 	 * the state and operations of the storage system, including channel
 	 * processing and disruption handling.
+	 * <p>
+	 * Never {@code null}, and the same instance for the lifetime of this system. Its
+	 * {@link StorageOperationController#isChannelProcessingEnabled()} is the running state of this system, see
+	 * {@link #isRunning()}.
 	 *
 	 * @return an instance of {@link StorageOperationController} for controlling
 	 *         storage operations.
 	 */
 	public StorageOperationController operationController();
+
+	/**
+	 * {@inheritDoc}
+	 * <p>
+	 * Returns exactly {@code operationController().isChannelProcessingEnabled()}. Callers may rely on this to
+	 * observe the running state through the operation controller without holding this system, e.g. the
+	 * embedded storage manager does so for the {@code LazyReferenceManager}.
+	 */
+	@Override
+	public boolean isRunning();
 	
 	/**
 	 * Provides an instance of {@link StorageChannelCountProvider}, which determines

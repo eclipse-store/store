@@ -162,7 +162,8 @@ public interface EmbeddedStorageObjectRegistryCallback extends LiveObjectIdsHand
 				return;
 			}
 
-			this.objectRegistry.iterateEntries((objectId, instance) ->
+			// ids only: resolving every registered instance would keep them alive under ZGC
+			this.objectRegistry.iterateObjectIds(objectId ->
 			{
 				// Emit every data-OID entry in the hash table, regardless of whether the
 				// WeakReference is still live. The sweep keep-alive predicate

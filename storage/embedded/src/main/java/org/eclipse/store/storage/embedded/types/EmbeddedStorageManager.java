@@ -99,9 +99,9 @@ public interface EmbeddedStorageManager extends StorageManager
 	 * <p>
 	 * On the first invocation, the storage backend is brought up, the persistent root graph is loaded
 	 * (or initialized for an empty database) and synchronized with the application-side roots, and the
-	 * {@link org.eclipse.serializer.reference.LazyReferenceManager} is enlisted with this manager as one of
-	 * its controllers. If startup fails, every part started so far is rolled back before the original error
-	 * is re-thrown.
+	 * {@link org.eclipse.serializer.reference.LazyReferenceManager} is enlisted with a controller that
+	 * reports whether this manager is running. If startup fails, every part started so far is rolled back
+	 * before the original error is re-thrown.
 	 *
 	 * @return this manager, allowing fluent chaining.
 	 */
@@ -169,6 +169,14 @@ public interface EmbeddedStorageManager extends StorageManager
 
 		private final MonitoringManager monitorManager;
 
+		/*
+		 * Registered with the LazyReferenceManager instead of this manager. The LazyReferenceManager holds its
+		 * controllers weakly but resolves them every cycle, which under a concurrent collector (ZGC) keeps them
+		 * alive. This controller holds only the operation controller, which holds the storage system weakly, so
+		 * an abandoned storage stays collectable. Same answer as mayRun() (see the constructor).
+		 */
+		private final LazyReferenceManager.Controller lazyReferenceManagerController;
+
 
 
 		///////////////////////////////////////////////////////////////////////////
@@ -190,6 +198,9 @@ public interface EmbeddedStorageManager extends StorageManager
 			this.connectionFoundation = connectionFoundation                   ;
 			this.rootsProvider        = rootsProvider                          ;
 			this.monitorManager       = monitorManager                         ;
+
+			// StorageSystem#isRunning() is exactly this (see its contract)
+			this.lazyReferenceManagerController = this.storageSystem.operationController()::isChannelProcessingEnabled;
 		}
 
 
@@ -281,14 +292,14 @@ public interface EmbeddedStorageManager extends StorageManager
 			 * shutdown of another storage may have stopped it. Atomic with set(), so a replaced manager is never started.
 			 * start() does nothing for a running manager.
 			 */
-			LazyReferenceManager.startGlobal(this);
+			LazyReferenceManager.startGlobal(this.lazyReferenceManagerController);
 		}
 		
 		private void rollbackLazyReferenceManager(
 			final LazyReferenceManager lazyReferenceManager
 		)
 		{
-			lazyReferenceManager.removeController(this);
+			lazyReferenceManager.removeController(this.lazyReferenceManagerController);
 		}
 
 		@Override
@@ -464,7 +475,7 @@ public interface EmbeddedStorageManager extends StorageManager
 			// the object registry is still populated and the storage system is still up.
 			this.releaseShutdownParticipants();
 
-			LazyReferenceManager.get().removeController(this);
+			LazyReferenceManager.get().removeController(this.lazyReferenceManagerController);
 			final boolean result = this.storageSystem.shutdown();
 			if(!result)
 			{
