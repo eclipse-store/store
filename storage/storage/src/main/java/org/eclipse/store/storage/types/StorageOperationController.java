@@ -133,8 +133,12 @@ public interface StorageOperationController
 				throw new StorageExceptionDisruptingExceptions(this.disruptions.immure());
 			}
 			
-			// if the database managing instance is no longer reachable (used), there is no point in continue processing
-			if(this.storageSystemReference.get() == null)
+			/*
+			 * If the database managing instance is no longer reachable (used), there is no point in continue processing.
+			 * refersTo() instead of get(): under a concurrent collector (ZGC) a get() during marking keeps the referent
+			 * alive, so resolving it on every channel loop iteration would keep an abandoned storage alive.
+			 */
+			if(this.storageSystemReference.refersTo(null))
 			{
 				this.deactivate();
 			}
