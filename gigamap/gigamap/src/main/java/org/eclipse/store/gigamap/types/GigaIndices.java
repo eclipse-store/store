@@ -211,8 +211,8 @@ public interface GigaIndices<E> extends GigaMap.Component<E>
 		/**
 		 * Guards structural mutations against a parent {@link GigaMap} that is currently not mutable, applying
 		 * the same classification an entity write applies (see
-		 * {@link GigaMap.Internal#internalEnsureMutability()}): an explicit read-only mark, an in-progress
-		 * iteration and a self-held reader fail fast, while readers open on other threads are waited out.
+		 * {@link GigaMap.Internal#internalEnsureMutability()}): an explicit read-only mark and an iteration
+		 * or reader of the calling thread fail fast, while iterations and readers of other threads are waited out.
 		 * <p>
 		 * Must be called while holding the parent-map monitor. <b>The call may release that monitor while
 		 * waiting</b>, so state read before it must be re-checked afterwards.

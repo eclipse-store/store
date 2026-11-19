@@ -119,7 +119,25 @@ class IterationThreadProviderCleanerTest
 		reservedThreadsField.setAccessible(true);
 		final Object reservedThreads = reservedThreadsField.get(provider);
 
+		// A disposed thread comes back to the pool by itself once its logic is done. Both must be back, or the
+		// late one would miss the deactivation. The list is guarded by its own monitor.
+		final Method sizeMethod  = reservedThreads.getClass().getMethod("size");
 		final Method firstMethod = reservedThreads.getClass().getMethod("first");
-		return (Thread)firstMethod.invoke(reservedThreads);
+		final long deadline = System.nanoTime() + CLEANUP_TIMEOUT_NS;
+		while(true)
+		{
+			synchronized(reservedThreads)
+			{
+				if(((Number)sizeMethod.invoke(reservedThreads)).intValue() == 2)
+				{
+					return (Thread)firstMethod.invoke(reservedThreads);
+				}
+			}
+			if(System.nanoTime() >= deadline)
+			{
+				fail("The disposed pool threads did not return to the pool.");
+			}
+			Thread.sleep(POLL_INTERVAL_MS);
+		}
 	}
 }

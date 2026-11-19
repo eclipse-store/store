@@ -129,6 +129,9 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	private long currentBitmapValue;     // the current bitmap value to be examined bit by bit.
 	
 	private boolean isActive;
+	private boolean disposed; // guarded by this
+
+	private final QueryWorkers workers = new QueryWorkers();
 	
 	
 	///////////////////////////////////////////////////////////////////////////
@@ -181,10 +184,19 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		 * registry scroll is bounded by registrySegmentCount, so with 0 the very first scroll falls
 		 * straight through to the end-of-data sentinel without ever resolving a registry slot.
 		 */
-		this.threads = this.registrySegmentCount == 0
-			? X.empty()
-			: threadProvider.startIterationThreads(parent, threadCount, this)
-		;
+		try
+		{
+			this.threads = this.registrySegmentCount == 0
+				? X.empty()
+				: threadProvider.startIterationThreads(parent, threadCount, this)
+			;
+		}
+		catch(final Throwable t)
+		{
+			// no reader will ever be closed for the workers that were started already
+			parent.releaseWorkers(this.workers);
+			throw t;
+		}
 	}
 	
 	
@@ -450,7 +462,7 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	
 	
 
-	private static long getRegistrySegmentAddress(final long currentRegistryAddress, final int waitTimeNs)
+	private long getRegistrySegmentAddress(final long currentRegistryAddress, final int waitTimeNs)
 	{
 		while(true)
 		{
@@ -459,13 +471,27 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 			{
 				return valueGroupsSegmentAddress;
 			}
+			// a failed worker leaves its segment unfilled
+			this.workers.throwFailure();
+			if(this.workers.isClosed())
+			{
+				// closed meanwhile (e.g. from another thread): the remaining segments stay unfilled
+				return SKIP_LEVEL1_SEGMENT_MARKER;
+			}
 			XThreads.sleep(0, waitTimeNs);
 		}
 	}
 
 	@Override
-	public void close()
+	public synchronized void close()
 	{
+		// only once: a later call would dispose threads the provider has handed to another query meanwhile
+		if(this.disposed)
+		{
+			return;
+		}
+		this.disposed = true;
+
 		// Native segments are released by the Cleaner once the iterator becomes
 		// phantom-reachable. Releasing them synchronously here would race with
 		// worker threads that are still executing ThreadLogic against the
@@ -483,6 +509,9 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 	@Override
 	public void setInactive()
 	{
+		// called while the map's read hold is still kept (GigaMap#closeReader)
+		this.parent.releaseWorkers(this.workers);
+
 		this.currentRegistryIndex = this.level1SegmentCount;
 		this.isActive = false;
 	}
@@ -498,12 +527,12 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		// Without this, the iterator could become phantom-reachable while the
 		// worker is still using registryAddress, letting the Cleaner free the
 		// registry concurrently with native reads/writes.
-		return new ThreadLogic(
+		return this.workers.guard(new ThreadLogic(
 			resultsThreadIterationCopy,
 			this.registryAddress      ,
 			this.registrySegmentCount ,
 			this
-		);
+		));
 	}
 	
 	private static void deallocateSegments(final long registryAddress, final int registrySegmentCount)
@@ -652,20 +681,28 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		@Override
 		public void run()
 		{
+			long newSegmentAddress = 0L;
 			try
 			{
 				final BitmapResult[] results = this.results;
+				final QueryWorkers   workers = this.owner.workers;
 
 				final long startAddress    = registryIterationStartAddress(this.registryAddress);
 				final long boundAddress    = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount);
 				final long lastItemAddress = registryIterationBoundAddress(this.registryAddress, this.registrySegmentCount - 1);
 
 				int currentLevel1SegmentIndex = 0;
-				long newSegmentAddress = createRegistrySegment();
+				newSegmentAddress = createRegistrySegment();
 
 				// rea = registryEntryAddress
 				for(long rea = startAddress; rea < boundAddress; rea += Long.BYTES, currentLevel1SegmentIndex += REGISTRY_SEGMENT_SIZE)
 				{
+					if(workers.isClosed())
+					{
+						// the iterator has been closed: nobody reads the remaining segments
+						break;
+					}
+
 					// check for a yet unprocessed registry segment
 					if(XMemory.volatileGet_long(null, rea) != 0L)
 					{
@@ -682,6 +719,9 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 					if(process(results, currentLevel1SegmentIndex, newSegmentAddress))
 					{
 						XMemory.volatileSet_long(null, rea, newSegmentAddress);
+
+						// the registry owns the segment now: it must not be freed below if the next allocation fails
+						newSegmentAddress = 0L;
 						newSegmentAddress = rea < lastItemAddress
 							? createRegistrySegment()
 							: 0L
@@ -692,14 +732,15 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 						XMemory.volatileSet_long(null, rea, SKIP_LEVEL1_SEGMENT_MARKER);
 					}
 				}
-
+			}
+			finally
+			{
+				// the segment not handed to the registry (yet)
 				if(newSegmentAddress != 0L)
 				{
 					XMemory.free(newSegmentAddress);
 				}
-			}
-			finally
-			{
+
 				// Pin the owning iterator past the last native read/write so the
 				// Cleaner cannot fire and free the registry while this logic runs.
 				Reference.reachabilityFence(this.owner);
