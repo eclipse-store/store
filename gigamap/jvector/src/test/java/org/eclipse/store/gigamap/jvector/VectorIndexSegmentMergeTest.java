@@ -22,6 +22,7 @@ import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import io.github.jbellis.jvector.graph.OnHeapGraphIndex;
 import io.github.jbellis.jvector.graph.disk.feature.FeatureId;
 import io.github.jbellis.jvector.util.Bits;
+import io.github.jbellis.jvector.vector.VectorizationProvider;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -391,6 +392,49 @@ class VectorIndexSegmentMergeTest
             assertFalse(ids(index.search(basis(0), 200)).contains(removed));
             assertEquals(updated, topHit(index, basis(3)));
             assertEquals(kept, topHit(index, basis(2)));
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Format.class, names = {"FUSED_PQ", "NVQ"})
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    void parallelMergeWritesEachNodesOwnVector(final Format format, @TempDir final Path tempDir)
+        throws InterruptedException, IOException
+    {
+        final var config = configurationBuilder(tempDir.resolve("index"), format, 2)
+            .parallelOnDiskWrite(true)
+            .build();
+        final GigaMap<Document> map = GigaMap.New();
+        final Random random = new Random(864);
+        final var types = VectorizationProvider.getInstance().getVectorTypeSupport();
+
+        try(final VectorIndex<Document> index = register(map, config))
+        {
+            addRandom(map, random, 2_000);
+            index.persistToDisk();
+            addRandom(map, random, 2_000);
+            index.persistToDisk();
+
+            awaitMerges((VectorIndex.Default<Document>)index, 1);
+            final List<DiskSegment> segments = segments(index);
+            assertEquals(1, segments.size(), "the merge must replace both segments");
+            final DiskSegment merged = segments.get(0);
+            assertFormatIsCarried(format, merged);
+            final int[] localToGlobal = merged.localToGlobal();
+            assertEquals(map.size(), localToGlobal.length);
+
+            try(final var view = merged.graph().getView())
+            {
+                for(int local = 0; local < localToGlobal.length; local++)
+                {
+                    final int entityId = localToGlobal[local];
+                    final var expected = types.createFloatVector(map.get(entityId).embedding());
+                    final float score = view.rerankerFor(
+                        expected, io.github.jbellis.jvector.vector.VectorSimilarityFunction.COSINE
+                    ).similarityTo(local);
+                    assertTrue(score >= 0.99f, "merged vector for entity " + entityId + " has score " + score);
+                }
+            }
         }
     }
 
@@ -873,6 +917,15 @@ class VectorIndexSegmentMergeTest
         final int    mergeFactor
     )
     {
+        return configurationBuilder(indexDir, format, mergeFactor).build();
+    }
+
+    private static VectorIndexConfiguration.Builder configurationBuilder(
+        final Path   indexDir   ,
+        final Format format     ,
+        final int    mergeFactor
+    )
+    {
         return VectorIndexConfiguration.builder()
             .dimension(DIMENSION)
             .similarityFunction(VectorSimilarityFunction.COSINE)
@@ -881,8 +934,7 @@ class VectorIndexSegmentMergeTest
             .vectorStorage(format.storage)
             .approximateScoring(format.scoring)
             .pqSubspaces(format.scoring == ApproximateScoring.NONE ? 0 : DIMENSION / 4)
-            .segmentMergeFactor(mergeFactor)
-            .build();
+            .segmentMergeFactor(mergeFactor);
     }
 
     private static VectorIndex<Document> register(
