@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.jvector;
  */
 
 import io.github.jbellis.jvector.graph.RandomAccessVectorValues;
+import io.github.jbellis.jvector.vector.types.FloatArray;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
 
@@ -135,8 +136,8 @@ class NullSafeVectorValues implements RandomAccessVectorValues
     {
         // Straight into the destination where the mapping allows it, through the placeholder otherwise.
         if(this.delegate instanceof final MappedVectorValues mapped
-            && destination.get() instanceof final float[] array
-            && mapped.readInto(ordinal, array, destination.offset(offset)))
+            && destination instanceof final FloatArray array
+            && mapped.readInto(ordinal, array.array(), offset))
         {
             return;
         }

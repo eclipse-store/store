@@ -17,6 +17,7 @@ package org.eclipse.store.gigamap.jvector;
 import io.github.jbellis.jvector.graph.RandomAccessVectorValues;
 import io.github.jbellis.jvector.graph.similarity.BuildScoreProvider;
 import io.github.jbellis.jvector.vector.VectorSimilarityFunction;
+import io.github.jbellis.jvector.vector.MemorySegmentVectorProvider;
 import io.github.jbellis.jvector.vector.VectorizationProvider;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
@@ -145,6 +146,57 @@ class ReusableVectorValuesTest
             assertEquals(0f, target.get(2));
             assertEquals(9f, target.get(3));
             assertEquals(1f, copy.getVector(0).get(0));
+        }
+    }
+
+    /**
+     * jVector's native vector type, which the default provider of 4.0.2 uses on Linux: {@code get()} is a
+     * {@code MemorySegment}, not a {@code float[]}, yet it is backed by one ({@code FloatArray}). Its provider is
+     * plain Java and creates heap-backed vectors, so this covers that type on every platform, not only where
+     * libjvector loads.
+     */
+    private static final VectorTypeSupport NATIVE = new MemorySegmentVectorProvider();
+
+    @Test
+    void nativeVectorsAreReusedWithoutCallingTheAllocatingRead()
+    {
+        try(final VectorFile file = this.open())
+        {
+            final MappedVectorValues mapped = new MappedVectorValues(file, NATIVE)
+            {
+                @Override
+                public VectorFloat<?> getVector(final int ordinal)
+                {
+                    fail("present vectors must be copied into the destination, not read as vectors");
+                    return null;
+                }
+            };
+            final RandomAccessVectorValues values =
+                new ReusableVectorValues(new NullSafeVectorValues(mapped, 2, NATIVE), NATIVE);
+            final VectorFloat<?> first = values.getVector(0);
+            assertFalse(first.get() instanceof float[], "not the array-backed type this test is about");
+            assertEquals(1f, first.get(0));
+            assertEquals(0f, first.get(1));
+            assertSame(first, values.getVector(1));
+            assertEquals(0f, first.get(0));
+            assertEquals(1f, first.get(1));
+        }
+    }
+
+    @Test
+    void mappedValuesCopyIntoANativeDestinationAtAnOffset()
+    {
+        try(final VectorFile file = this.open())
+        {
+            final MappedVectorValues mapped = new MappedVectorValues(file, NATIVE);
+            final VectorFloat<?> target = NATIVE.createFloatVector(new float[]{9f, 9f, 9f, 9f});
+            mapped.getVectorInto(0, target, 1);
+            assertEquals(9f, target.get(0));
+            assertEquals(1f, target.get(1));
+            assertEquals(0f, target.get(2));
+            assertEquals(9f, target.get(3));
+            assertThrows(IllegalArgumentException.class, () -> mapped.getVectorInto(2, target, 0));
+            assertEquals(9f, target.get(0), "an absent vector leaves the destination unchanged");
         }
     }
 }
