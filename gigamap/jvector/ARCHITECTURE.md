@@ -821,6 +821,7 @@ System properties: `org.eclipse.store.gigamap.jvector.temporaryRoot` (section 3.
 - **JVM flags.**
   - `--add-modules jdk.incubator.vector`: jVector's SIMD scoring. Without it jVector falls back to scalar code.
   - `-Djvector.enable_native_vectorization=false`: optional. From jVector 4.0.2 the native SIMD provider is the default with `--add-modules jdk.incubator.vector` where jVector bundles a library (Linux x86_64 and aarch64; elsewhere it falls back to Panama, which logs a warning). Its vectors are backed by a heap `float[]` like the Panama provider's (both implement `FloatArray`), so `MappedVectorValues` reads into either the same way; only `VectorFloat.get()` differs (a `MemorySegment`), and `offset(int)` is a byte offset. The flag selects the Panama provider. The on-disk format is the same; scores can differ in the last digits.
+  - On a jVector upgrade, re-verify the two APIs the module uses that jVector marks experimental: `FloatArray.array()` being the live array of the vector (`MappedVectorValues`; `ReusableVectorValuesTest` pins it), and the `rerankFloor` of `GraphSearcher.search`, which the module sets to `ANY_SCORE` (`VectorIndexDotProductTest` pins it).
   - `--enable-native-access=ALL-UNNAMED`: jVector's memory-mapped graph reader on JDK 22+ makes a restricted call. On the module path jVector is the automatic module `jvector`, so the flag must name it: `--enable-native-access=jvector`.
   - The test JVM (surefire `argLine` in [`pom.xml`](pom.xml)) uses:
 
