@@ -28,6 +28,18 @@ StorageEntityTypeExportStatistics exportResult = connection.exportTypes(
 connection.importFiles(exportResult.files());
 ----
 
+An import replaces entities that already exist in the storage with the imported data and logs a warning about it, because an import cannot tell a stale re-import from an intended one.
+If replacing is the purpose of your import, for example when the updates of a primary storage are applied to a copy of it, you can switch this warning off without affecting other messages.
+It is logged by the logger `org.eclipse.store.storage.types.StorageEntityCache.ImportConflicts`, a child of the `StorageEntityCache` logger, so existing configuration of the latter still applies to it unless you configure the child itself.
+For example, with Logback:
+
+[source, xml, title="Switch off the import conflict warning"]
+----
+<logger name="org.eclipse.store.storage.types.StorageEntityCache.ImportConflicts" level="ERROR"/>
+----
+
+With slf4j-simple, set `org.slf4j.simpleLogger.log.org.eclipse.store.storage.types.StorageEntityCache.ImportConflicts=error` in `simplelogger.properties`.
+
 == Data Conversion
 
 It is also possible to convert the exported binary files to a human readable format, namely CSV.

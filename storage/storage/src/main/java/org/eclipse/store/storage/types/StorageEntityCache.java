@@ -40,6 +40,7 @@ import org.eclipse.store.storage.exceptions.StorageExceptionConsistency;
 import org.eclipse.store.storage.exceptions.StorageExceptionGarbageCollector;
 import org.eclipse.store.storage.exceptions.StorageExceptionInitialization;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 public interface StorageEntityCache<E extends StorageEntity> extends StorageChannelResetablePart
@@ -86,6 +87,23 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 	implements StorageEntityCache<StorageEntity.Default>, Unpersistable
 	{
 		private final static Logger logger = Logging.getLogger(StorageEntityCache.class);
+
+		/**
+		 * Holder of the logger for {@link #reportImportConflicts()}, a child of this class's logger
+		 * so that existing configuration of the latter still applies. It has its own name so that
+		 * applications that replace entities by import on purpose (for example a replica applying
+		 * the updates of its primary) can switch off just this warning. It is created lazily, on the
+		 * first reported conflict, as most storages never import over existing entities.
+		 * <p>
+		 * Obtained from the {@link LoggerFactory} directly, unlike the other loggers: {@link Logging} only
+		 * takes a class, not the name of a child logger.
+		 */
+		private static final class ImportConflictLogger
+		{
+			static final Logger INSTANCE = LoggerFactory.getLogger(
+				StorageEntityCache.class.getName() + ".ImportConflicts"
+			);
+		}
 
 		/**
 		 * Backoff between retries of a sweep declined by a busy object registry while quiescing
@@ -652,6 +670,9 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 		 * <p>
 		 * Aggregated per channel and import: a full re-import collides on every entity, so
 		 * per-entity warnings would bury the message.
+		 * <p>
+		 * Logged by the logger named {@code org.eclipse.store.storage.types.StorageEntityCache.ImportConflicts},
+		 * so it can be configured without affecting the other messages of the entity cache.
 		 */
 		final void reportImportConflicts()
 		{
@@ -660,7 +681,7 @@ public interface StorageEntityCache<E extends StorageEntity> extends StorageChan
 				return;
 			}
 
-			logger.warn(
+			ImportConflictLogger.INSTANCE.warn(
 				"Channel {}: import replaced {} already existing entities. If this import was created "
 				+ "before the current state, those entities have been reverted to their exported state. "
 				+ "Already loaded instances keep their in-memory state - reload from the root "
