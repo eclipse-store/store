@@ -3702,7 +3702,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			}
 
 			workers.throwFailure();
-			if(running || !workers.isComplete())
+			if(running || !workers.isComplete(consumers.length))
 			{
 				// not silently: the consumers have received only a part of the result (so far)
 				throw new IllegalStateException(
@@ -3710,7 +3710,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 					? "Interrupted while waiting for the iteration logics of a query on " + XChars.systemString(this)
 						+ ". Its consumers have not received the complete result."
 					: XChars.systemString(threadProvider)
-						+ " returned before all iteration logics it was provided with had been run."
+						+ " returned without having run the " + consumers.length
+						+ " iteration logics the query requested, one per consumer."
 				);
 			}
 		}

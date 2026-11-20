@@ -229,7 +229,7 @@ This approach is internally simpler and faster than the iterator-based multithre
 
 An own `IterationThreadProvider` implementation receives the work of a query as a number of logics, one per thread, and must:
 
-* run every logic it was provided with, or throw. If `executeThreaded` returns while a logic was never run, `execute` throws an `IllegalStateException`, since that logic's consumer did not receive its entities. A logic that is run after its query has ended does nothing.
+* request `threadCount` logics in `executeThreaded` and run every one of them, or throw. If `executeThreaded` returns with fewer logics requested or run, `execute` throws an `IllegalStateException`, since a consumer did not receive its entities. A logic that is run after its query has ended does nothing.
 * not hand a thread that is still running a logic to another query. A query does not wait for its threads before giving them back via `disposeIterationThreads`.
 
 === Multithreaded Iterators

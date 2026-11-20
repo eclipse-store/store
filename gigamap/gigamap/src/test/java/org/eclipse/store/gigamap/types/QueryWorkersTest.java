@@ -41,12 +41,12 @@ public class QueryWorkersTest
 		final AtomicInteger runs    = new AtomicInteger();
 		final Runnable      logic   = workers.guard(runs::incrementAndGet);
 
-		assertFalse(workers.isComplete(), "a guarded logic has not been run yet");
+		assertFalse(workers.isComplete(1), "a guarded logic has not been run yet");
 		logic.run();
 		logic.run();
 
 		assertEquals(1, runs.get());
-		assertTrue(workers.isComplete());
+		assertTrue(workers.isComplete(1));
 	}
 
 	@Test
@@ -60,7 +60,19 @@ public class QueryWorkersTest
 		first.run();
 		first.run();
 
-		assertFalse(workers.isComplete());
+		assertFalse(workers.isComplete(2));
+	}
+
+	@Test
+	void fewerLogicsThanTheQueryNeedsAreIncomplete()
+	{
+		final QueryWorkers workers = new QueryWorkers();
+		workers.guard(() -> {}).run();
+
+		// a provider that asked for one logic for two consumers ran everything it asked for
+		assertFalse(workers.isComplete(2));
+		assertTrue(workers.isComplete(1));
+		assertFalse(new QueryWorkers().isComplete(1), "a provider that asked for nothing");
 	}
 
 	@Test
@@ -76,7 +88,7 @@ public class QueryWorkersTest
 
 		logic.run();
 		assertEquals(0, runs.get());
-		assertFalse(workers.isComplete());
+		assertFalse(workers.isComplete(1));
 	}
 
 	@Test
@@ -87,7 +99,7 @@ public class QueryWorkersTest
 
 		// returns right away: whoever calls it decides what an incomplete gate means
 		workers.awaitRunning();
-		assertFalse(workers.isComplete());
+		assertFalse(workers.isComplete(1));
 	}
 
 	@Test
@@ -139,7 +151,7 @@ public class QueryWorkersTest
 		workers.guard(runs::incrementAndGet).run();
 
 		assertEquals(1, runs.get(), "a failed logic does not keep the others from running");
-		assertTrue(workers.isComplete());
+		assertTrue(workers.isComplete(3));
 		assertFalse(workers.close(), "a failed logic is not running anymore");
 		assertSame(failure, assertThrows(IllegalStateException.class, workers::throwFailure), "the first failure");
 	}

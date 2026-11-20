@@ -116,12 +116,13 @@ final class QueryWorkers
 	}
 
 	/**
-	 * Whether every guarded logic has been started. {@code false} after the provider is done means it did not
-	 * run all the logics it asked for.
+	 * Whether exactly {@code logicCount} logics have been guarded and every one of them has been started.
+	 * {@code false} after the provider is done means it did not ask for or did not run all the logics the query
+	 * needs.
 	 */
-	final synchronized boolean isComplete()
+	final synchronized boolean isComplete(final int logicCount)
 	{
-		return this.started == this.guarded;
+		return this.guarded == logicCount && this.started == logicCount;
 	}
 
 	/**

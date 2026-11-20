@@ -48,8 +48,29 @@ public class QueryWorkersDetachTest
 	@Test
 	void interruptedThreadedExecute_returnsAndMutationsWaitForItsConsumers() throws InterruptedException
 	{
+		assertInterruptedExecuteReturns(IterationThreadProvider.Creating(ThreadCountProvider.Fixed(2)));
+	}
+
+	/**
+	 * A pooled thread runs its logic outside its own monitor, so the interrupted caller can stop waiting for it.
+	 */
+	@Test
+	void interruptedPooledExecute_returnsAndMutationsWaitForItsConsumers() throws InterruptedException
+	{
+		final IterationThreadProvider pool = IterationThreadProvider.Pooling(2, ThreadCountProvider.Fixed(2));
+		try
+		{
+			assertInterruptedExecuteReturns(pool);
+		}
+		finally
+		{
+			pool.shutdown();
+		}
+	}
+
+	private static void assertInterruptedExecuteReturns(final IterationThreadProvider threads) throws InterruptedException
+	{
 		final GigaMap<Entity>         map        = newMap(ENTITY_COUNT);
-		final IterationThreadProvider threads    = IterationThreadProvider.Creating(ThreadCountProvider.Fixed(2));
 		final CountDownLatch          inConsumer = new CountDownLatch(1);
 		final CountDownLatch          go         = new CountDownLatch(1);
 		final Consumer<Entity>        blocked    = entity ->
@@ -245,6 +266,30 @@ public class QueryWorkersDetachTest
 	}
 
 	@Test
+	void providerRequestingFewerLogicsThanConsumers_failsInsteadOfDeliveringAPart()
+	{
+		final GigaMap<Entity>  map      = newMap(ENTITY_COUNT);
+		final AtomicInteger    consumed = new AtomicInteger();
+		final Consumer<Entity> counting = entity -> consumed.incrementAndGet();
+
+		// runs everything it asked for, but asks for one logic for two consumers
+		final IterationThreadProvider oneOnly = new Provider(logicProvider -> logicProvider.provideIterationLogic().run());
+		assertIncompleteFailure(assertThrows(IllegalStateException.class, () ->
+			map.query(oneOnly).and(new KeyIndexer().is(0)).execute(counting, counting)
+		));
+		assertEquals(KEY0_COUNT / 2, consumed.get(), "only a part was consumed");
+
+		final IterationThreadProvider nothing = new Provider(logicProvider -> {});
+		assertIncompleteFailure(assertThrows(IllegalStateException.class, () ->
+			map.query(nothing).and(new KeyIndexer().is(0)).execute(counting, counting)
+		));
+		assertEquals(KEY0_COUNT / 2, consumed.get());
+
+		assertFalse(map.isReadOnly());
+		map.add(new Entity(0));
+	}
+
+	@Test
 	void providerRunningALogicTwice_everyEntityIsConsumedOnce()
 	{
 		final GigaMap<Entity>  map      = newMap(ENTITY_COUNT);
@@ -379,6 +424,54 @@ public class QueryWorkersDetachTest
 			// idle again, so that the shutdown below reaches it
 			awaitIdle(busyThread, thirdRan);
 			pool.disposeIterationThreads(third);
+		}
+		finally
+		{
+			go.countDown();
+			pool.shutdown();
+		}
+	}
+
+	/**
+	 * A shutdown only reaches the idle threads of a pool. A thread that is handed out at that time, busy or not,
+	 * must end when it is given back instead of waiting in the pool for work that never comes. The pool stays
+	 * usable after the shutdown.
+	 */
+	@Test
+	void pooledThreadsGivenBackAfterShutdown_end() throws InterruptedException
+	{
+		final IterationThreadProvider pool    = IterationThreadProvider.Pooling(2, ThreadCountProvider.Fixed(2));
+		final CountDownLatch          started = new CountDownLatch(1);
+		final CountDownLatch          go      = new CountDownLatch(1);
+		try
+		{
+			// busy, and given back while its logic runs, like the worker of an iterator closed early
+			final XGettingCollection<? extends Thread> busy = pool.startIterationThreads(null, 1, () -> () ->
+			{
+				started.countDown();
+				awaitUninterruptibly(go);
+			});
+			assertTrue(started.await(30, TimeUnit.SECONDS), "the logic did not start");
+			pool.disposeIterationThreads(busy);
+
+			// done, but not given back yet
+			final CountDownLatch                       idleRan = new CountDownLatch(1);
+			final XGettingCollection<? extends Thread> idle    = pool.startIterationThreads(null, 1, () -> idleRan::countDown);
+			awaitIdle(idle.get(), idleRan);
+
+			pool.shutdown();
+
+			go.countDown();
+			join(busy.get());
+			pool.disposeIterationThreads(idle);
+			join(idle.get());
+
+			// usable after the shutdown, with a new thread
+			final CountDownLatch                       nextRan = new CountDownLatch(1);
+			final XGettingCollection<? extends Thread> next    = pool.startIterationThreads(null, 1, () -> nextRan::countDown);
+			awaitIdle(next.get(), nextRan);
+			assertTrue(next.get() != busy.get() && next.get() != idle.get());
+			pool.disposeIterationThreads(next);
 		}
 		finally
 		{
@@ -545,7 +638,7 @@ public class QueryWorkersDetachTest
 	// an execution whose thread provider returned although not all logics had run
 	private static void assertIncompleteFailure(final IllegalStateException thrown)
 	{
-		assertTrue(thrown.getMessage().contains("returned before"), thrown.getMessage());
+		assertTrue(thrown.getMessage().contains("returned without"), thrown.getMessage());
 	}
 
 	/** A thread provider whose way of running the provided logics is the test's. */

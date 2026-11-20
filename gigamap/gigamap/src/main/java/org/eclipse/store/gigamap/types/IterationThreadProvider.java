@@ -31,10 +31,10 @@ import static org.eclipse.serializer.util.X.notNull;
  * and pooling, ranging from simple thread instantiation to resource-optimized pooling mechanisms.
  * <p>
  * A query hands its work over as one logic per thread, see {@link IterationLogicProvider#provideIterationLogic()}.
- * An implementation must run every logic it is provided with, or throw: if a logic has not been run when
- * {@link #executeThreaded(GigaMap, int, IterationLogicProvider) executeThreaded} returns, the query fails with an
- * {@link IllegalStateException}, since that logic's consumer did not receive its entities. A logic that is run
- * after its query has ended does nothing.
+ * {@link #executeThreaded(GigaMap, int, IterationLogicProvider) executeThreaded} must request {@code threadCount}
+ * logics and run every one of them, or throw: if it returns with fewer logics requested or run, the query fails
+ * with an {@link IllegalStateException}, since a consumer did not receive its entities. A logic that is run after
+ * its query has ended does nothing.
  * <p>
  * {@link #disposeIterationThreads(XGettingCollection) disposeIterationThreads} may be called while the threads
  * still run their logics, e.g. for an iterator that is closed early. Such a thread must not be handed to another
@@ -241,9 +241,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		// instance fields //
 		////////////////////
 
-		// Idle threads only, guarded by its own monitor: a thread still running a logic comes back by itself when
-		// the logic is done (see PoolThread), so a busy thread is never handed out and nobody has to wait for it.
-		private final BulkList<PoolThread> reservedThreads;
+		private final ThreadReserve reserve;
 
 
 
@@ -254,8 +252,8 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		Pooling(final int reservedThreadCount, final ThreadCountProvider threadCountProvider)
 		{
 			super(threadCountProvider);
-			this.reservedThreads = BulkList.New(reservedThreadCount);
-			Cleaners.SHARED.register(this, new Cleanup(this.reservedThreads));
+			this.reserve = new ThreadReserve(reservedThreadCount);
+			Cleaners.SHARED.register(this, new Cleanup(this.reserve));
 		}
 		
 		
@@ -307,18 +305,15 @@ public interface IterationThreadProvider extends ThreadCountProvider
 			
 			for(final PoolThread t : threads)
 			{
-				synchronized(t)
+				try
 				{
-					try
-					{
-						t.waitOnCompletion();
-					}
-					catch(final InterruptedException e)
-					{
-						// interrupted while waiting for the thread to complete. So don't wait for it and move on,
-						// but keep the interrupt status for the caller.
-						Thread.currentThread().interrupt();
-					}
+					t.waitOnCompletion();
+				}
+				catch(final InterruptedException e)
+				{
+					// interrupted while waiting for the thread to complete. So don't wait for it and move on,
+					// but keep the interrupt status for the caller.
+					Thread.currentThread().interrupt();
 				}
 			}
 			
@@ -327,22 +322,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		
 		private PoolThread allocateThread()
 		{
-			synchronized(this.reservedThreads)
-			{
-				if(!this.reservedThreads.isEmpty())
-				{
-					final PoolThread poolThread = this.reservedThreads.pop();
-					poolThread.allocated = true;
-
-					return poolThread;
-				}
-			}
-
-			final PoolThread poolThread = new PoolThread(this.reservedThreads);
-			poolThread.allocated = true;
-			poolThread.start();
-
-			return poolThread;
+			return this.reserve.allocate();
 		}
 		
 		@Override
@@ -362,29 +342,87 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		{
 			// Synchronous deactivation. Does NOT cancel the registered Cleaner —
 			// if the pool is reused after shutdown, threads added later will
-			// still be deactivated on GC of this Pooling instance.
-			// `synchronized` matches startIterationThreads/disposeIterationThreads
-			// so concurrent shutdown does not race with reservedThreads mutation.
-			deactivateAllReservedThreads(this.reservedThreads);
+			// still be deactivated on GC of this Pooling instance. Threads that
+			// are busy now are deactivated when they come back.
+			// `synchronized` matches startIterationThreads/disposeIterationThreads.
+			this.reserve.shutdown();
 		}
 
-		private static void deactivateAllReservedThreads(final BulkList<PoolThread> reservedThreads)
+		/**
+		 * The idle threads of a pool and the count of its shutdowns, shared with its threads and its cleanup.
+		 * Its monitor guards both and the flags of its threads. A thread still running a logic comes back by itself
+		 * when the logic is done, so a busy thread is never handed out and nobody has to wait for it.
+		 * <p>
+		 * Lock order: this monitor before a thread's monitor, never the other way around.
+		 */
+		static final class ThreadReserve
 		{
-			synchronized(reservedThreads)
+			///////////////////////////////////////////////////////////////////////////
+			// instance fields //
+			////////////////////
+
+			final BulkList<PoolThread> idle     ;
+			private int                shutdowns;
+
+
+
+			///////////////////////////////////////////////////////////////////////////
+			// constructors //
+			/////////////////
+
+			ThreadReserve(final int capacity)
 			{
-				reservedThreads.iterate(t ->
-				{
-					synchronized(t)
-					{
-						t.deactivate();
-						t.notifyAll(); // must notify to wake up inactive thread from waiting for work.
-					}
-				});
-				reservedThreads.truncate();
+				super();
+				this.idle = BulkList.New(capacity);
 			}
+
+
+
+			///////////////////////////////////////////////////////////////////////////
+			// methods //
+			////////////
+
+			final synchronized PoolThread allocate()
+			{
+				final PoolThread thread;
+				if(this.idle.isEmpty())
+				{
+					thread = new PoolThread(this);
+					thread.start();
+				}
+				else
+				{
+					thread = this.idle.pop();
+				}
+				thread.allocated = true;
+				thread.shutdowns = this.shutdowns;
+
+				return thread;
+			}
+
+			// The caller holds this monitor. A thread handed out before a shutdown would otherwise outlive it.
+			final void takeBack(final PoolThread thread)
+			{
+				if(thread.shutdowns == this.shutdowns)
+				{
+					this.idle.add(thread);
+				}
+				else
+				{
+					thread.deactivate();
+				}
+			}
+
+			final synchronized void shutdown()
+			{
+				this.shutdowns++;
+				this.idle.iterate(PoolThread::deactivate);
+				this.idle.truncate();
+			}
+
 		}
 
-		// Holds the reserved-thread list for Cleaner-based shutdown.
+		// Holds the thread reserve for Cleaner-based shutdown.
 		//
 		// MUST be a static nested class — capturing the enclosing Pooling
 		// would keep it strongly reachable and prevent the Cleaner from firing.
@@ -392,17 +430,17 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		// so Pooling can be reclaimed independently of its threads.
 		private static final class Cleanup implements Runnable
 		{
-			private final BulkList<PoolThread> reservedThreads;
+			private final ThreadReserve reserve;
 
-			Cleanup(final BulkList<PoolThread> reservedThreads)
+			Cleanup(final ThreadReserve reserve)
 			{
-				this.reservedThreads = reservedThreads;
+				this.reserve = reserve;
 			}
 
 			@Override
 			public void run()
 			{
-				deactivateAllReservedThreads(this.reservedThreads);
+				this.reserve.shutdown();
 			}
 		}
 
@@ -418,10 +456,11 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		volatile Runnable logic    ;
 		volatile boolean  isRunning = true;
 
-		// the owning pool's idle threads. Its monitor guards the two flags.
-		private final BulkList<PoolThread> reservedThreads;
+		// the owning pool's reserve. Its monitor guards the three fields below.
+		private final Pooling.ThreadReserve reserve;
 		boolean allocated      ; // handed out by the pool, not released yet
 		boolean returnWhenDone ; // released while its logic was not done yet
+		int     shutdowns      ; // the reserve's shutdown count when handed out
 		
 		
 		
@@ -429,10 +468,10 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		// constructors //
 		/////////////////
 		
-		PoolThread(final BulkList<PoolThread> reservedThreads)
+		PoolThread(final Pooling.ThreadReserve reserve)
 		{
 			super();
-			this.reservedThreads = reservedThreads;
+			this.reserve = reserve;
 			this.setDaemon(true);
 		}
 		
@@ -447,55 +486,70 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		{
 			while(this.isRunning)
 			{
-				this.synchronizedWaitForWork();
+				final Runnable logic = this.waitForWork();
+				if(logic == null)
+				{
+					continue;
+				}
+
+				// Not under this thread's monitor: a caller waiting for completion must be able to stop waiting.
+				try
+				{
+					logic.run();
+				}
+				finally
+				{
+					this.done();
+				}
 			}
 		}
 		
-		private synchronized void synchronizedWaitForWork()
+		private synchronized Runnable waitForWork()
 		{
 			try
 			{
 				while(this.logic == null)
 				{
-					this.wait();
 					if(!this.isRunning)
 					{
-						return;
+						return null;
 					}
+					this.wait();
 				}
 			}
 			catch(final InterruptedException e)
 			{
 				// thread has been interrupted from waiting
-				return;
+				return null;
 			}
-			
-			try
+
+			return this.logic;
+		}
+		
+		private void done()
+		{
+			synchronized(this.reserve)
 			{
-				this.logic.run();
-			}
-			finally
-			{
-				synchronized(this.reservedThreads)
+				this.logic = null;
+				if(this.returnWhenDone)
 				{
-					this.logic = null;
-					if(this.returnWhenDone)
-					{
-						this.returnWhenDone = false;
-						this.reservedThreads.add(this);
-					}
+					this.returnWhenDone = false;
+					this.reserve.takeBack(this);
 				}
+			}
+			synchronized(this)
+			{
 				this.notifyAll();
 			}
 		}
-
+		
 		/**
 		 * Gives the thread back to its pool: right away if it is idle, otherwise as soon as its logic is done.
-		 * Does not wait and does not take this thread's monitor, which is held while the logic runs.
+		 * Does not wait for the logic.
 		 */
 		final void release()
 		{
-			synchronized(this.reservedThreads)
+			synchronized(this.reserve)
 			{
 				if(!this.allocated)
 				{
@@ -504,7 +558,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 				this.allocated = false;
 				if(this.logic == null)
 				{
-					this.reservedThreads.add(this);
+					this.reserve.takeBack(this);
 				}
 				else
 				{
@@ -516,6 +570,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		final synchronized void deactivate()
 		{
 			this.isRunning = false;
+			this.notifyAll(); // wakes the thread up from waiting for work
 		}
 		
 		final synchronized void setLogic(final Runnable logic)
