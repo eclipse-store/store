@@ -19,6 +19,7 @@ import org.eclipse.serializer.util.X;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.reflect.Field;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -481,6 +482,139 @@ public class QueryWorkersDetachTest
 	}
 
 	/**
+	 * A collection of pool threads that is disposed again must not release a thread that another query has got
+	 * meanwhile: that thread would be handed out a second time while the other query still uses it.
+	 */
+	@Test
+	void pooledThreadsDisposedTwice_doNotReleaseAThreadOfAnotherQuery() throws InterruptedException
+	{
+		final IterationThreadProvider pool = IterationThreadProvider.Pooling(1, ThreadCountProvider.Fixed(1));
+		try
+		{
+			final CountDownLatch                       firstRan = new CountDownLatch(1);
+			final XGettingCollection<? extends Thread> first    = pool.startIterationThreads(null, 1, () -> firstRan::countDown);
+			awaitIdle(first.get(), firstRan);
+			pool.disposeIterationThreads(first);
+
+			final CountDownLatch                       secondRan = new CountDownLatch(1);
+			final XGettingCollection<? extends Thread> second    = pool.startIterationThreads(null, 1, () -> secondRan::countDown);
+			assertSame(first.get(), second.get(), "the idle thread is handed out again");
+			awaitIdle(second.get(), secondRan);
+
+			// stale: the thread belongs to the second query now, which has not given it back
+			pool.disposeIterationThreads(first);
+
+			final CountDownLatch                       thirdRan = new CountDownLatch(1);
+			final XGettingCollection<? extends Thread> third    = pool.startIterationThreads(null, 1, () -> thirdRan::countDown);
+			assertTrue(third.get() != second.get(), "a thread still handed out was handed out again");
+			awaitIdle(third.get(), thirdRan);
+
+			pool.disposeIterationThreads(second);
+			pool.disposeIterationThreads(third);
+		}
+		finally
+		{
+			pool.shutdown();
+		}
+	}
+
+	/**
+	 * The reader of a threaded iterator waits for its workers to fill the registry. A worker that fails leaves
+	 * its slot unfilled: the waiting reader must get the failure instead of waiting forever. No worker runs here,
+	 * so the reader is certainly waiting; the failure is recorded the way a failing worker records it.
+	 */
+	@Test
+	void threadedIterator_workerFailure_reachesTheWaitingReader() throws Exception
+	{
+		final GigaMap<Entity> map = newMap(ENTITY_COUNT);
+
+		final AtomicReference<IterationThreadProvider.IterationLogicProvider> iterator = new AtomicReference<>();
+		final IterationThreadProvider notRunning = new Provider(logicProvider ->
+		{
+			iterator.set(logicProvider);
+			logicProvider.provideIterationLogic();
+			logicProvider.provideIterationLogic();
+		});
+
+		final AtomicReference<Throwable> thrown = new AtomicReference<>();
+		final Thread reader = start(() ->
+		{
+			try(GigaIterator<Entity> it = map.query(notRunning).and(new KeyIndexer().is(0)).iterator())
+			{
+				it.hasNext();
+			}
+		}, thrown);
+		try
+		{
+			awaitWaitingReader(reader, iterator);
+
+			final IllegalStateException failure = new IllegalStateException("simulated worker failure");
+			workersOf(iterator.get()).guard(() -> {throw failure;}).run();
+
+			join(reader);
+			assertSame(failure, thrown.get());
+		}
+		finally
+		{
+			releaseReader(iterator.get());
+		}
+		assertFalse(map.isReadOnly());
+		map.add(new Entity(0));
+	}
+
+	/**
+	 * Another thread closes a threaded iterator while its reader waits for a registry slot that no worker will
+	 * fill anymore: the reader must end, and the logics that did not start must not read afterwards.
+	 */
+	@Test
+	void threadedIterator_closedByAnotherThreadWhileTheReaderWaits_readerEnds() throws Exception
+	{
+		final GigaMap<Entity> map = newMap(ENTITY_COUNT);
+
+		final AtomicReference<IterationThreadProvider.IterationLogicProvider> iterator = new AtomicReference<>();
+		final Runnable[]                              logics   = new Runnable[2];
+		final IterationThreadProvider notRunning = new Provider(logicProvider ->
+		{
+			iterator.set(logicProvider);
+			for(int i = 0; i < logics.length; i++)
+			{
+				logics[i] = logicProvider.provideIterationLogic();
+			}
+		});
+
+		final AtomicReference<Throwable> thrown  = new AtomicReference<>();
+		final AtomicBoolean              hasNext = new AtomicBoolean(true);
+		final AtomicReference<GigaIterator<Entity>> opened = new AtomicReference<>();
+		final Thread reader = start(() ->
+		{
+			opened.set(map.query(notRunning).and(new KeyIndexer().is(0)).iterator());
+			hasNext.set(opened.get().hasNext());
+		}, thrown);
+		try
+		{
+			awaitWaitingReader(reader, iterator);
+			opened.get().close();
+
+			join(reader);
+			assertNull(thrown.get());
+			assertFalse(hasNext.get(), "the remaining segments are skipped");
+		}
+		finally
+		{
+			releaseReader(iterator.get());
+		}
+		assertFalse(map.isReadOnly());
+		map.add(new Entity(0));
+
+		// the query is over: its logics do not touch the registry anymore
+		for(final Runnable logic : logics)
+		{
+			logic.run();
+		}
+		assertTrue(workersOf(iterator.get()).isDone());
+	}
+
+	/**
 	 * An early close does not wait for the iterator's workers, which still scan the rest of the map here. The
 	 * mutations right after it wait for them, and the next iterator takes its threads from the same pool. Shown
 	 * is that nothing hangs or fails and that the map's content is right afterwards.
@@ -677,6 +811,35 @@ public class QueryWorkersDetachTest
 		)
 		{
 			this.logic.accept(logicProvider);
+		}
+	}
+
+	// until the provider has been called and the reader waits for a registry slot
+	private static void awaitWaitingReader(final Thread reader, final AtomicReference<?> providerCalled)
+		throws InterruptedException
+	{
+		while(providerCalled.get() == null || reader.getState() != Thread.State.TIMED_WAITING)
+		{
+			assertTrue(reader.isAlive(), "the reader has ended");
+			Thread.sleep(1);
+		}
+	}
+
+	private static QueryWorkers workersOf(final IterationThreadProvider.IterationLogicProvider threadedIterator)
+		throws ReflectiveOperationException
+	{
+		final Field field = ThreadedIterator.class.getDeclaredField("workers");
+		field.setAccessible(true);
+		return (QueryWorkers)field.get(threadedIterator);
+	}
+
+	// lets a reader that keeps waiting go, so a failing test does not leave it spinning
+	private static void releaseReader(final IterationThreadProvider.IterationLogicProvider threadedIterator)
+		throws ReflectiveOperationException
+	{
+		if(threadedIterator != null)
+		{
+			workersOf(threadedIterator).close();
 		}
 	}
 

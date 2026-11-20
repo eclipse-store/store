@@ -274,7 +274,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 			{
 				for(int t = 0; t < threadCount; t++)
 				{
-					final PoolThread poolThread = this.allocateThread();
+					final PoolThread poolThread = this.allocateThread(threads);
 					threads.add(poolThread);
 					final Runnable logic = logicProvider.provideIterationLogic();
 					synchronized(poolThread)
@@ -320,9 +320,9 @@ public interface IterationThreadProvider extends ThreadCountProvider
 			this.disposeIterationThreads(threads);
 		}
 		
-		private PoolThread allocateThread()
+		private PoolThread allocateThread(final XGettingCollection<? extends Thread> checkout)
 		{
-			return this.reserve.allocate();
+			return this.reserve.allocate(checkout);
 		}
 		
 		@Override
@@ -332,7 +332,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 			{
 				if(t instanceof PoolThread)
 				{
-					((PoolThread)t).release();
+					((PoolThread)t).release(threads);
 				}
 			}
 		}
@@ -382,7 +382,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 			// methods //
 			////////////
 
-			final synchronized PoolThread allocate()
+			final synchronized PoolThread allocate(final Object checkout)
 			{
 				final PoolThread thread;
 				if(this.idle.isEmpty())
@@ -394,7 +394,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 				{
 					thread = this.idle.pop();
 				}
-				thread.allocated = true;
+				thread.checkout = checkout;
 				thread.shutdowns = this.shutdowns;
 
 				return thread;
@@ -458,7 +458,7 @@ public interface IterationThreadProvider extends ThreadCountProvider
 
 		// the owning pool's reserve. Its monitor guards the three fields below.
 		private final Pooling.ThreadReserve reserve;
-		boolean allocated      ; // handed out by the pool, not released yet
+		Object  checkout       ; // the collection it was handed out in, null once released
 		boolean returnWhenDone ; // released while its logic was not done yet
 		int     shutdowns      ; // the reserve's shutdown count when handed out
 		
@@ -545,17 +545,18 @@ public interface IterationThreadProvider extends ThreadCountProvider
 		
 		/**
 		 * Gives the thread back to its pool: right away if it is idle, otherwise as soon as its logic is done.
-		 * Does not wait for the logic.
+		 * Does not wait for the logic. Does nothing unless the thread is handed out in the passed collection, so a
+		 * collection that is disposed twice cannot release a thread another query got meanwhile.
 		 */
-		final void release()
+		final void release(final Object checkout)
 		{
 			synchronized(this.reserve)
 			{
-				if(!this.allocated)
+				if(this.checkout != checkout)
 				{
 					return;
 				}
-				this.allocated = false;
+				this.checkout = null;
 				if(this.logic == null)
 				{
 					this.reserve.takeBack(this);
