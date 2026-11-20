@@ -558,6 +558,20 @@ The old manifest stays on disk until the next store and persist.
 
 Only a throwing vectorizer leaves the index as it was. A failure after the clear leaves it partly rebuilt, and the vector file keeps that state.
 
+### 6.7 invalidateGraph
+
+`invalidateGraph()` is the seam for a layer that replaces the stored entities and vectors behind a running in-memory index (replication, binary import): the persisted state is current, the transient graph is not. It is `internalRemoveAll` without its destructive steps:
+
+1. Take the monitor, then the write lock the way a freeze does (`lockBuilderUnderMonitor`, section 8.2). A caller that holds the monitor already keeps it.
+2. `retireGraph()`: the teardown `discardGraph()` shares, then `reinitializeAfterTeardown()`: a new, empty graph is in place before the lock is released, so the index is never found without one.
+3. Clear `graphRebuilt`: the next access rebuilds from the vector file, as after a start (6.5). A search that passed the gate before the call finds the flag cleared under its read lock and repeats the gate (`acquireReadLockOnRebuiltGraph`).
+
+Unlike `discardGraph()` the call does not move `structuralModCount`: the content did not change here, and a replica compares the counter with its source's.
+
+An index that keeps files rejects the call (`keepsIndexFiles()`), before it looks at the graph, so that the contract does not depend on whether the index was built yet. An on-disk graph is served from segments this seam does not retire. A kept vector file of an in-memory index with a computed vectorizer is persistent: the replaced entities do not rewrite it and no public API does, so retiring only the graph would serve the old vectors without any error.
+
+The remaining index has a temporary vector file derived from the entities. The call flags it, and the next access empties it and recovers it from the current entities, a vectorizer call per entity and a full graph rebuild. Both stay off the caller's path, so repeated calls without an access add no further vectorizer calls or rebuilds (each still retires the empty graph and creates a new one). A replica that invalidates after every applied batch pays that vectorizer and rebuild cost per batch, whatever the size of the batch. The empty does not zero the vector count: the recovery compares the count it ends with against that field, and a zeroed one would make it move `structuralModCount`.
+
 ---
 
 ## 7. Flush, persist and background merge (on-disk index)
@@ -679,6 +693,7 @@ A search can be issued while its thread holds the monitor: inside `GigaMap.itera
 - While it waits it increments `exclusiveWaiters`. New searches hold back for it (`awaitNoPendingExclusive`, up to 100 ms), so a stream of readers cannot starve it. The gate is a count, so one waiter leaving does not open it for another.
 - `lockBuilderUnderMonitor(monitorHeld, interruptible)`: the freeze and the optimization give up on an interrupt. `close()` waits on and restores the interrupt.
 - The rebuild, recovery and the PQ switch hold only the monitor and take no `builderLock`. They wait for no lock a write-lock holder needs.
+- `invalidateGraph()` takes the monitor, then the write lock through `lockBuilderUnderMonitor`, like a freeze. The re-initialization happens before it releases the lock, because an initialization by another thread cannot be excluded by the write lock alone: it runs under the monitor only.
 - The merge's publication barrier and `withdrawMerge` take the write lock blocking, but without the monitor.
 
 ### 8.3 Operations that reject the monitor
