@@ -140,6 +140,16 @@ GigaQuery<Person> query = gigaMap.query(...);
 long count = query.count();
 ----
 
+== Modifying the GigaMap While a Query Runs
+
+While a query result is being consumed (an open iterator or stream, a running `iterate`, `forEach` or `execute`), the GigaMap is held read-only:
+
+* Modifications (`add`, `remove`, `update`, `apply`, ...) from *other* threads wait until the query has finished or its iterator is closed.
+* A modification from the thread that consumes the query, including from within a consumer, throws an `IllegalStateException`: it would wait for itself. Collect what to change first, and modify after the query.
+* A GigaMap marked with `markReadOnly()` rejects modifications right away instead of waiting.
+
+A multithreaded query (see below) reads the GigaMap on worker threads. Closing its iterator early does not wait for them. Modifications from other threads also wait for these workers, until they have stopped reading. A modification from one of the consumer threads of `execute(Consumer...)` throws an `IllegalStateException` as well.
+
 == Multithreaded Query Execution
 
 For large datasets, query execution can be parallelized across multiple threads. This is done by passing an `IterationThreadProvider` when creating the query.
@@ -209,6 +219,18 @@ query.execute(
 ----
 
 This approach is internally simpler and faster than the iterator-based multithreading, because it avoids the complexity of coordinating an `Iterator` across threads. The bitmap result is partitioned and each thread processes its assigned segments independently.
+
+`execute(Consumer...)` returns when all consumers are done:
+
+* If a consumer throws, the exception is rethrown to the caller.
+* If the calling thread is interrupted while it waits, `execute` throws an `IllegalStateException` and keeps the interrupt status. The consumers may not have received all entities then. Consumers that are still running finish on their own threads, and modifications of the GigaMap wait for them.
+
+=== Custom Iteration Thread Providers
+
+An own `IterationThreadProvider` implementation receives the work of a query as a number of logics, one per thread, and must:
+
+* request `threadCount` logics in `executeThreaded` and run every one of them, or throw. If `executeThreaded` returns with fewer logics requested or run, `execute` throws an `IllegalStateException`, since a consumer did not receive its entities. A logic that is run after its query has ended does nothing.
+* not hand a thread that is still running a logic to another query. A query does not wait for its threads before giving them back via `disposeIterationThreads`.
 
 === Multithreaded Iterators
 
