@@ -55,6 +55,10 @@ JVector leverages the [Panama Vector API](https://openjdk.org/jeps/338) (`jdk.in
 
 JVector uses a multi-release JAR structure; on the Java 25+ JVM this module requires, the optimized vector code activates as soon as the incubator module is resolved, and jVector's memory-mapped reader uses the foreign memory API (`--enable-native-access=ALL-UNNAMED`).
 
+### Native SIMD Provider
+
+From jVector 4.0.2 the native SIMD provider is selected automatically with `--add-modules jdk.incubator.vector` where jVector bundles a native library: Linux on x86_64 and aarch64. The on-disk format is the same as the Panama provider's, and results differ at most in the last floating-point digits. Where the platform has no native library, or it cannot be loaded, jVector falls back to the Panama provider and logs a warning. To keep the Panama provider on Linux, set `-Djvector.enable_native_vectorization=false`; `-Djvector.vectorization_provider=panama` forces it without any fallback.
+
 ### JVM Parameters
 
 To enable the Panama Vector API, add the incubator module to your JVM arguments:

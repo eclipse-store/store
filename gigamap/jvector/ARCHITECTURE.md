@@ -8,7 +8,7 @@ All classes named here live in `org.eclipse.store.gigamap.jvector` (`src/main/ja
 
 ## 1. Overview
 
-The module adds approximate k-nearest-neighbour search to a `GigaMap<E>` through jVector's HNSW graphs (jVector `4.0.1`).
+The module adds approximate k-nearest-neighbour search to a `GigaMap<E>` through jVector's HNSW graphs (jVector `4.0.2`).
 
 - **`VectorIndices<E>`** is an `IndexGroup` registered on the map (`gigaMap.index().register(VectorIndices.Category())`). It holds named indices and fans every map mutation out to them. GigaMap calls its `internal*` methods under the map's monitor.
 - **`VectorIndex<E>`** (implementation `VectorIndex.Default`) is one named index: a configuration (`VectorIndexConfiguration`), a `Vectorizer<? super E>` and the transient search structures. The GigaMap entity id is the graph's global ordinal (an `int`, hence about 2.1 billion vectors per index).
@@ -365,7 +365,7 @@ Afterwards:
 
 - `builder` (`GraphIndexBuilder`) and `index` (`OnHeapGraphIndex`) are volatile and swapped as a pair by a freeze, a consolidation and the in-memory PQ switch. Code that mutates reads `builder` once and derives the graph from it.
 - The builder scores from `liveVectorValues` (`GenerationVectorValues` over the vector file), or from `inMemoryPqVectors` for an in-memory index switched to PQ.
-- `newGraphIndexBuilder` pins `addHierarchy` and `refineFinalGraph` per index through the deprecated jVector constructor, instead of reading jVector 4.0.1's process-wide, JMX-changeable defaults.
+- `newGraphIndexBuilder` pins `addHierarchy` and `refineFinalGraph` per index through the deprecated jVector constructor, instead of reading jVector's process-wide, JMX-changeable defaults (deprecated since 4.0.1).
 - An in-memory index has only this graph. An on-disk index additionally has the sources below.
 
 ### 5.2 Sources of an on-disk index
@@ -816,10 +816,11 @@ System properties: `org.eclipse.store.gigamap.jvector.temporaryRoot` (section 3.
 ## 12. Build and runtime requirements
 
 - **Java 25+.** The module maps the vector file through the foreign memory API (`Arena`, `MemorySegment`, final in Java 22) and compiles at `maven.compiler.release` 25, like the modules that use it. The build requires JDK 25 (enforcer); the rest of Eclipse Store stays at `maven.compiler.release` 17.
-- **jVector** `io.github.jbellis:jvector` `4.0.1`.
+- **jVector** `io.github.jbellis:jvector` `4.0.2`.
 - **Module.** `module-info.java` declares `org.eclipes.store.gigamap.jvector` (the typo is kept for compatibility). It `requires transitive org.eclipse.store.gigamap` and `requires jvector`, exports `org.eclipse.store.gigamap.jvector` and `org.eclipse.store.gigamap.jvector.annotations`, and opens the main package to `org.eclipse.serializer.persistence`.
 - **JVM flags.**
   - `--add-modules jdk.incubator.vector`: jVector's SIMD scoring. Without it jVector falls back to scalar code.
+  - `-Djvector.enable_native_vectorization=false`: optional. From jVector 4.0.2 the native SIMD provider is the default with `--add-modules jdk.incubator.vector` where jVector bundles a library (Linux x86_64 and aarch64; elsewhere it falls back to Panama, which logs a warning). Its vectors are backed by a heap `float[]` like the Panama provider's (both implement `FloatArray`), so `MappedVectorValues` reads into either the same way; only `VectorFloat.get()` differs (a `MemorySegment`), and `offset(int)` is a byte offset. The flag selects the Panama provider. The on-disk format is the same; scores can differ in the last digits.
   - `--enable-native-access=ALL-UNNAMED`: jVector's memory-mapped graph reader on JDK 22+ makes a restricted call. On the module path jVector is the automatic module `jvector`, so the flag must name it: `--enable-native-access=jvector`.
   - The test JVM (surefire `argLine` in [`pom.xml`](pom.xml)) uses:
 

@@ -95,6 +95,15 @@ JVector leverages the https://openjdk.org/jeps/338[Panama Vector API] (`jdk.incu
 
 JVector uses a multi-release JAR structure. On the Java 25+ JVM this module requires, the optimized vector code activates as soon as the incubator module is resolved.
 
+=== Native SIMD Provider
+
+Since jVector 4.0.2, with `--add-modules jdk.incubator.vector` the native provider is selected automatically where jVector bundles a native library: Linux on x86_64 and aarch64. Before 4.0.2 it was opt-in with `-Djvector.experimental.enable_native_vectorization=true`. So a Linux deployment that follows this page changes provider when it upgrades.
+
+* jVector first looks for `libjvector.so` on `java.library.path`, otherwise it copies the bundled one to `java.io.tmpdir` and loads it from there.
+* If the library cannot be loaded, for example on macOS or Windows, which have no native library for their platform, or when native access is denied, jVector falls back to the Panama provider and logs "Native vector API was not enabled. Failed to load supporting native library."
+* To keep the Panama provider on Linux, set `-Djvector.enable_native_vectorization=false`. The property `jvector.vectorization_provider` (`default`, `panama` or `native`) takes precedence over it and forces a provider without any fallback: `native` fails if the library cannot be loaded, and `default` is scalar code. It is not an equivalent way to opt out.
+* The on-disk format does not depend on the provider, so an index moves freely between hosts that use different ones. Scores, and the training of Product Quantization and NVQ, can differ slightly in the last floating-point digits between the two.
+
 === JVM Parameters
 
 To enable the Panama Vector API and jVector's memory-mapped reader, add these flags to your JVM arguments:
