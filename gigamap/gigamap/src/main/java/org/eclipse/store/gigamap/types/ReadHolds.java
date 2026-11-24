@@ -216,14 +216,18 @@ final class ReadHolds
 	/**
 	 * How long a waiting mutation may sleep on the map's monitor before it has to check again, 0 for "until
 	 * notified". Readers and iterations notify the monitor when they end, so do executions, whose gates are
-	 * registered while they run. Logics that still run after their query ended (a closed gate that is not done)
-	 * do not notify: only for them the monitor is polled.
+	 * registered while they run. Logics that still run after their query ended (a closed gate) do not notify: for
+	 * them the monitor is polled.
+	 * <p>
+	 * Every closed gate counts, also one that is done meanwhile: the caller decided to wait on an earlier state
+	 * ({@link #mustWaitToMutate()}), and the logics may have ended since without notifying anybody. A done gate is
+	 * pruned at the next check.
 	 */
 	final long waitTimeout()
 	{
 		for(final QueryWorkers w : this.workers)
 		{
-			if(w.isClosed() && !w.isDone())
+			if(w.isClosed())
 			{
 				return 1;
 			}

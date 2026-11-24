@@ -169,6 +169,8 @@ public class ReadHoldsTest
 		}
 		join(worker);
 		assertNull(failure.get());
+		// done, but not pruned yet: a mutation may have decided to wait while it still ran, and nobody notifies it
+		assertEquals(1, holds.waitTimeout(), "a mutation that decided to wait before must not wait forever");
 		assertFalse(holds.isReadOnly());
 		assertEquals(0, holds.waitTimeout());
 	}
