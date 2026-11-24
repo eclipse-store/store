@@ -1029,6 +1029,15 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         private static final Cleaner INSERT_POOL_CLEANER = Cleaner.create();
 
         /**
+         * The score threshold and the rerank floor of a search that accepts every score. Not {@code 0}: jVector
+         * scores DOT_PRODUCT as {@code (1 + dot) / 2}, which is negative for a dot product below -1, and a search
+         * with threshold or floor {@code 0} drops such a result. EUCLIDEAN and COSINE scores are never negative, so
+         * for them this accepts what {@code 0} accepted. It also keeps jVector's early termination off, which a
+         * threshold above 0 enables.
+         */
+        private static final float ANY_SCORE = Float.NEGATIVE_INFINITY;
+
+        /**
          * Fixed seed for the PQ training-set reservoir sample, so that training the same data twice
          * yields the same codebook. The value itself is arbitrary.
          */
@@ -5269,7 +5278,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 searcher.setView(view);
             }
             final Bits acceptBits = view != null ? view.liveNodes() : Bits.ALL;
-            return searcher.search(scoreProvider, k, rerankK, 0f, 0f, acceptBits);
+            return searcher.search(scoreProvider, k, rerankK, ANY_SCORE, ANY_SCORE, acceptBits);
         }
 
         /**
@@ -5533,7 +5542,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final Bits liveNodes = view.liveNodes();
             searcher.setView(view);
             return searcher.search(
-                scoreProvider, rerankK, rerankK, 0f, 0f,
+                scoreProvider, rerankK, rerankK, ANY_SCORE, ANY_SCORE,
                 ordinal -> liveNodes.get(ordinal) && owners.owner(ordinal) == slot
             );
         }
@@ -5562,7 +5571,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             );
             final SearchScoreProvider provider = this.diskScoreProvider(segment, searcher, query, vsf, exactFallback);
             return segment.toGlobal(
-                searcher.search(provider, rerankK, rerankK, 0f, 0f, segment.acceptBits(owners))
+                searcher.search(provider, rerankK, rerankK, ANY_SCORE, ANY_SCORE, segment.acceptBits(owners))
             );
         }
 

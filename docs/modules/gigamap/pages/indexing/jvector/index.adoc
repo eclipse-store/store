@@ -221,7 +221,7 @@ The following similarity functions are available:
 |Cosine similarity, normalized for direction. Best for text embeddings.
 
 |`DOT_PRODUCT`
-|Dot product similarity. Use when vectors are already normalized.
+|Dot product similarity. Use when vectors are already normalized, or for maximum inner product search, where the dot product is not bounded and a negative score is a legitimate result: jVector scores it as `(1 + dot) / 2`. With vectors that are not unit length, a result whose dot product with all its graph neighbours is below -1 can still be missed, because jVector's graph builder searches with a hard-coded `0.0f` threshold while inserting and does not link such nodes. Normalize the vectors, or use `COSINE`.
 
 |`EUCLIDEAN`
 |Euclidean distance. Best for geometric or spatial data.
