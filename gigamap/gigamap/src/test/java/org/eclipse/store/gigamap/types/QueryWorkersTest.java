@@ -154,6 +154,45 @@ public class QueryWorkersTest
 		assertTrue(workers.isComplete(3));
 		assertFalse(workers.close(), "a failed logic is not running anymore");
 		assertSame(failure, assertThrows(IllegalStateException.class, workers::throwFailure), "the first failure");
+		assertEquals(1, failure.getSuppressed().length, "later failures are kept with the first one");
+		assertEquals("second", failure.getSuppressed()[0].getMessage());
+	}
+
+	@Test
+	void sharedFailureInstance_isNotSuppressedIntoItself()
+	{
+		final QueryWorkers          workers = new QueryWorkers();
+		final IllegalStateException shared  = new IllegalStateException("thrown by every consumer");
+
+		workers.guard(() -> {throw shared;}).run();
+		workers.guard(() -> {throw shared;}).run();
+
+		assertSame(shared, assertThrows(IllegalStateException.class, workers::throwFailure));
+		assertEquals(0, shared.getSuppressed().length);
+	}
+
+	@Test
+	void failureOfALogic_isKeptWithAnExceptionThatEndsTheQuery()
+	{
+		final QueryWorkers          workers  = new QueryWorkers();
+		final IllegalStateException consumer = new IllegalStateException("consumer");
+		final RuntimeException      provider = new RuntimeException("provider");
+
+		workers.guard(() -> {throw consumer;}).run();
+		workers.addFailureTo(provider);
+		workers.addFailureTo(consumer);
+
+		assertSame(consumer, provider.getSuppressed()[0]);
+		assertEquals(0, consumer.getSuppressed().length, "not into itself");
+	}
+
+	@Test
+	void hasGuarded_onlyOnceALogicWasRequested()
+	{
+		final QueryWorkers workers = new QueryWorkers();
+		assertFalse(workers.hasGuarded());
+		workers.guard(() -> {});
+		assertTrue(workers.hasGuarded());
 	}
 
 	@Test

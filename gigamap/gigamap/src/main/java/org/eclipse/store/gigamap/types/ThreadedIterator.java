@@ -15,6 +15,7 @@ package org.eclipse.store.gigamap.types;
  */
 
 import org.eclipse.store.gigamap.types.IterationThreadProvider.IterationLogicProvider;
+import org.eclipse.serializer.chars.XChars;
 import org.eclipse.serializer.collections.types.XGettingCollection;
 import org.eclipse.serializer.concurrency.XThreads;
 import org.eclipse.serializer.math.XMath;
@@ -190,6 +191,14 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 				? X.empty()
 				: threadProvider.startIterationThreads(parent, threadCount, this)
 			;
+			if(this.registrySegmentCount != 0 && !this.workers.hasGuarded())
+			{
+				// one logic fills every slot, but without any the reader would wait forever
+				threadProvider.disposeIterationThreads(this.threads);
+				throw new IllegalStateException(
+					XChars.systemString(threadProvider) + " requested no iteration logic for a threaded iterator."
+				);
+			}
 		}
 		catch(final Throwable t)
 		{
@@ -496,8 +505,15 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 		// phantom-reachable. Releasing them synchronously here would race with
 		// worker threads that are still executing ThreadLogic against the
 		// registry (e.g., on early break-out from a try-with-resources loop).
-		this.threadProvider.disposeIterationThreads(this.threads);
-		this.threadProvider.completeIteration();
+		try
+		{
+			this.threadProvider.disposeIterationThreads(this.threads);
+		}
+		finally
+		{
+			// also if a provider fails to dispose: not disposing again, the threads might be handed out meanwhile
+			this.threadProvider.completeIteration();
+		}
 	}
 
 	@Override

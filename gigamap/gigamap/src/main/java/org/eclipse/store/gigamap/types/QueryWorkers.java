@@ -74,9 +74,17 @@ final class QueryWorkers
 
 	private synchronized void completed(final Throwable failure)
 	{
-		if(failure != null && this.failure == null)
+		if(failure != null)
 		{
-			this.failure = failure;
+			if(this.failure == null)
+			{
+				this.failure = failure;
+			}
+			else if(failure != this.failure)
+			{
+				// kept with the first one. Not the same instance: several consumers may throw one shared exception.
+				this.failure.addSuppressed(failure);
+			}
 		}
 		this.running.removeOne(Thread.currentThread());
 		this.notifyAll();
@@ -126,6 +134,14 @@ final class QueryWorkers
 	}
 
 	/**
+	 * Whether any logic has been guarded at all, i.e. requested by a thread provider.
+	 */
+	final synchronized boolean hasGuarded()
+	{
+		return this.guarded > 0;
+	}
+
+	/**
 	 * Waits until no logic is running. Logics that were not started yet are not waited for.
 	 */
 	final synchronized void awaitRunning() throws InterruptedException
@@ -133,6 +149,18 @@ final class QueryWorkers
 		while(!this.running.isEmpty())
 		{
 			this.wait();
+		}
+	}
+
+	/**
+	 * Keeps a logic's failure with an exception that ends the query otherwise, so it is not lost.
+	 */
+	final void addFailureTo(final Throwable exception)
+	{
+		final Throwable failure = this.failure;
+		if(failure != null && failure != exception)
+		{
+			exception.addSuppressed(failure);
 		}
 	}
 

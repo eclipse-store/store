@@ -118,7 +118,7 @@ public class ReadHoldsTest
 		try
 		{
 			worker = startLogicOutlivingItsQuery(map, go);
-			assertFalse(map.isReadOnly(), "the query itself is over");
+			assertTrue(map.isReadOnly(), "the query is over, but a logic still reads");
 
 			mutator = start(() -> map.add(new Entity(0)), failure);
 			awaitWaiting(mutator);
@@ -131,7 +131,46 @@ public class ReadHoldsTest
 		}
 		join(worker, mutator);
 		assertNull(failure.get());
+		assertFalse(map.isReadOnly(), "the logic is done");
 		assertEquals(ENTITY_COUNT + 1, map.size());
+	}
+
+	/**
+	 * A waiting mutation polls only for logics that run after their query ended. An execution in progress notifies
+	 * when it ends, so its gate must not make waiting mutations poll for its whole duration.
+	 */
+	@Test
+	void waitTimeout_pollsOnlyForLogicsThatOutliveTheirQuery() throws InterruptedException
+	{
+		final ReadHolds      holds   = new ReadHolds(newMap());
+		final QueryWorkers   workers = new QueryWorkers();
+		final CountDownLatch started = new CountDownLatch(1);
+		final CountDownLatch go      = new CountDownLatch(1);
+
+		final AtomicReference<Throwable> failure = new AtomicReference<>();
+		holds.registerWorkers(workers); // as an execution in progress does
+		final Thread worker = start(workers.guard(() ->
+		{
+			started.countDown();
+			awaitUninterruptibly(go);
+		}), failure);
+		try
+		{
+			await(started, failure);
+			assertEquals(0, holds.waitTimeout(), "the execution notifies when it ends");
+
+			assertTrue(holds.releaseWorkers(workers), "the logic still runs");
+			assertEquals(1, holds.waitTimeout(), "a logic that outlives its query does not notify");
+			assertTrue(holds.isReadOnly(), "mutations wait for it");
+		}
+		finally
+		{
+			go.countDown();
+		}
+		join(worker);
+		assertNull(failure.get());
+		assertFalse(holds.isReadOnly());
+		assertEquals(0, holds.waitTimeout());
 	}
 
 	@Test

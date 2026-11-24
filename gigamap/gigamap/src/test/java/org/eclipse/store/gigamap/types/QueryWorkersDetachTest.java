@@ -102,7 +102,7 @@ public class QueryWorkersDetachTest
 			// not silently: the consumers have not received everything when the call returns
 			assertInterruptedFailure(thrown.get());
 			assertTrue(interrupted.get(), "the interrupt status must be kept for the caller");
-			assertFalse(map.isReadOnly(), "the query itself is over");
+			assertTrue(map.isReadOnly(), "the query is over, but its consumers still read");
 
 			assertMutationWaitsUntil(map, go);
 		}
@@ -143,7 +143,7 @@ public class QueryWorkersDetachTest
 		{
 			join(caller);
 			assertSame(startFailure, thrown.get());
-			assertFalse(map.isReadOnly(), "the query itself is over");
+			assertTrue(map.isReadOnly(), "the query is over, but its consumers still read");
 
 			assertMutationWaitsUntil(map, go);
 		}
@@ -288,6 +288,100 @@ public class QueryWorkersDetachTest
 
 		assertFalse(map.isReadOnly());
 		map.add(new Entity(0));
+	}
+
+	@Test
+	void providerRequestingMoreLogicsThanConsumers_failsRightAway()
+	{
+		final GigaMap<Entity>  map      = newMap(ENTITY_COUNT);
+		final AtomicInteger    consumed = new AtomicInteger();
+		final Consumer<Entity> counting = entity -> consumed.incrementAndGet();
+
+		// an extra logic would read part of the id range again, for a consumer that does not exist
+		final IterationThreadProvider tooMany = new Provider(logicProvider ->
+		{
+			final Runnable[] logics = {
+				logicProvider.provideIterationLogic(),
+				logicProvider.provideIterationLogic(),
+				logicProvider.provideIterationLogic()
+			};
+			for(final Runnable logic : logics)
+			{
+				logic.run();
+			}
+		});
+
+		final IllegalStateException failure = assertThrows(IllegalStateException.class, () ->
+			map.query(tooMany).and(new KeyIndexer().is(0)).execute(counting, counting)
+		);
+		assertTrue(failure.getMessage().contains("more iteration logics"), failure.getMessage());
+		assertEquals(0, consumed.get(), "no logic ran");
+
+		assertFalse(map.isReadOnly());
+		map.add(new Entity(0));
+	}
+
+	@Test
+	void providerFailingAfterAConsumerFailed_bothFailuresReachTheCaller()
+	{
+		final GigaMap<Entity> map = newMap(ENTITY_COUNT);
+
+		final UnsupportedOperationException consumerFailure = new UnsupportedOperationException("from a consumer");
+		final IllegalStateException         providerFailure = new IllegalStateException("simulated provider failure");
+		final IterationThreadProvider failing = new Provider(logicProvider ->
+		{
+			// the first consumer fails, then the provider itself
+			logicProvider.provideIterationLogic().run();
+			logicProvider.provideIterationLogic();
+			throw providerFailure;
+		});
+
+		assertSame(providerFailure, assertThrows(IllegalStateException.class, () ->
+			map.query(failing).and(new KeyIndexer().is(0)).execute(entity -> {throw consumerFailure;}, entity -> {})
+		));
+		assertEquals(1, providerFailure.getSuppressed().length);
+		assertSame(consumerFailure, providerFailure.getSuppressed()[0], "the consumer's failure must not get lost");
+		assertFalse(map.isReadOnly());
+	}
+
+	@Test
+	void threadedIterator_providerRequestingNoLogic_failsInsteadOfHanging()
+	{
+		final GigaMap<Entity> map = newMap(ENTITY_COUNT);
+
+		// the reader would wait forever for registry slots nobody fills
+		final IterationThreadProvider none = new Provider(logicProvider -> {});
+		final IllegalStateException failure = assertThrows(IllegalStateException.class, () ->
+			map.query(none).and(new KeyIndexer().is(0)).iterator()
+		);
+		assertTrue(failure.getMessage().contains("requested no iteration logic"), failure.getMessage());
+
+		assertFalse(map.isReadOnly(), "no reader was opened");
+		map.add(new Entity(0));
+	}
+
+	/**
+	 * A provider that fails to give the threads back must still get the iteration completed, and a second close must
+	 * not give them back again: they may have been handed to another query meanwhile.
+	 */
+	@Test
+	void threadedIterator_providerFailingToDispose_completesAndDoesNotDisposeAgain()
+	{
+		final GigaMap<Entity>       map            = newMap(ENTITY_COUNT);
+		final IllegalStateException disposeFailure = new IllegalStateException("simulated dispose failure");
+		final CountingProvider      failing        = new CountingProvider(disposeFailure);
+
+		final GigaIterator<Entity> iterator = map.query(failing).and(new KeyIndexer().is(0)).iterator();
+		assertTrue(iterator.hasNext());
+		iterator.next();
+
+		assertSame(disposeFailure, assertThrows(IllegalStateException.class, iterator::close));
+		assertEquals(1, failing.disposed.get());
+		assertEquals(1, failing.completed.get(), "completed although giving back the threads failed");
+
+		iterator.close();
+		assertEquals(1, failing.disposed.get(), "not given back again");
+		assertEquals(1, failing.completed.get());
 	}
 
 	@Test
@@ -665,49 +759,7 @@ public class QueryWorkersDetachTest
 	{
 		final GigaMap<Entity> map = newMap(ENTITY_COUNT);
 
-		final AtomicInteger disposed  = new AtomicInteger();
-		final AtomicInteger completed = new AtomicInteger();
-		final IterationThreadProvider creating = IterationThreadProvider.Creating(ThreadCountProvider.Fixed(2));
-		final IterationThreadProvider counting = new IterationThreadProvider()
-		{
-			@Override
-			public int provideThreadCount(final GigaMap<?> parent, final BitmapResult[] results)
-			{
-				return creating.provideThreadCount(parent, results);
-			}
-
-			@Override
-			public XGettingCollection<? extends Thread> startIterationThreads(
-				final GigaMap<?>             parent       ,
-				final int                    threadCount  ,
-				final IterationLogicProvider logicProvider
-			)
-			{
-				return creating.startIterationThreads(parent, threadCount, logicProvider);
-			}
-
-			@Override
-			public void executeThreaded(
-				final GigaMap<?>             parent       ,
-				final int                    threadCount  ,
-				final IterationLogicProvider logicProvider
-			)
-			{
-				creating.executeThreaded(parent, threadCount, logicProvider);
-			}
-
-			@Override
-			public void disposeIterationThreads(final XGettingCollection<? extends Thread> threads)
-			{
-				disposed.incrementAndGet();
-			}
-
-			@Override
-			public void completeIteration()
-			{
-				completed.incrementAndGet();
-			}
-		};
+		final CountingProvider counting = new CountingProvider(null);
 
 		int iterated = 0;
 		try(GigaIterator<Entity> iterator = map.query(counting).and(new KeyIndexer().is(0)).iterator())
@@ -717,11 +769,11 @@ public class QueryWorkersDetachTest
 				iterator.next();
 				iterated++;
 			}
-			assertEquals(1, disposed.get(), "the exhausted iterator has closed itself");
+			assertEquals(1, counting.disposed.get(), "the exhausted iterator has closed itself");
 		}
 		assertEquals(KEY0_COUNT, iterated);
-		assertEquals(1, disposed.get(), "threads given back");
-		assertEquals(1, completed.get(), "iteration completed");
+		assertEquals(1, counting.disposed.get(), "threads given back");
+		assertEquals(1, counting.completed.get(), "iteration completed");
 	}
 
 
@@ -760,6 +812,7 @@ public class QueryWorkersDetachTest
 		join(mutator);
 		assertNull(failure.get());
 		assertEquals(size + 1, map.size());
+		assertFalse(map.isReadOnly(), "the logics are done");
 	}
 
 	// an execution that returned to an interrupted caller while its consumers had not received everything
@@ -773,6 +826,66 @@ public class QueryWorkersDetachTest
 	private static void assertIncompleteFailure(final IllegalStateException thrown)
 	{
 		assertTrue(thrown.getMessage().contains("returned without"), thrown.getMessage());
+	}
+
+	/**
+	 * Creates threads, counts how often the threads are given back and the iteration is completed, and fails to give
+	 * them back if a failure is passed.
+	 */
+	static final class CountingProvider implements IterationThreadProvider
+	{
+		final IterationThreadProvider creating  = IterationThreadProvider.Creating(ThreadCountProvider.Fixed(2));
+		final AtomicInteger           disposed  = new AtomicInteger();
+		final AtomicInteger           completed = new AtomicInteger();
+		final RuntimeException        disposeFailure;
+
+		CountingProvider(final RuntimeException disposeFailure)
+		{
+			super();
+			this.disposeFailure = disposeFailure;
+		}
+
+		@Override
+		public int provideThreadCount(final GigaMap<?> parent, final BitmapResult[] results)
+		{
+			return this.creating.provideThreadCount(parent, results);
+		}
+
+		@Override
+		public XGettingCollection<? extends Thread> startIterationThreads(
+			final GigaMap<?>             parent       ,
+			final int                    threadCount  ,
+			final IterationLogicProvider logicProvider
+		)
+		{
+			return this.creating.startIterationThreads(parent, threadCount, logicProvider);
+		}
+
+		@Override
+		public void executeThreaded(
+			final GigaMap<?>             parent       ,
+			final int                    threadCount  ,
+			final IterationLogicProvider logicProvider
+		)
+		{
+			this.creating.executeThreaded(parent, threadCount, logicProvider);
+		}
+
+		@Override
+		public void disposeIterationThreads(final XGettingCollection<? extends Thread> threads)
+		{
+			this.disposed.incrementAndGet();
+			if(this.disposeFailure != null)
+			{
+				throw this.disposeFailure;
+			}
+		}
+
+		@Override
+		public void completeIteration()
+		{
+			this.completed.incrementAndGet();
+		}
 	}
 
 	/** A thread provider whose way of running the provided logics is the test's. */

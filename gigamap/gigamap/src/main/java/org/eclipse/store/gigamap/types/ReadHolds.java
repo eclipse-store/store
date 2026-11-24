@@ -145,7 +145,14 @@ final class ReadHolds
 
 	final boolean isReadOnly()
 	{
-		return this.explicitCount != 0 || !this.readers.isEmpty() || !this.iterations.isEmpty();
+		// including logics that still read after their query ended: mutations wait for them, too
+		this.pruneWorkers();
+
+		return this.explicitCount != 0
+			|| !this.readers.isEmpty()
+			|| !this.iterations.isEmpty()
+			|| !this.workers.isEmpty()
+		;
 	}
 
 	/**
@@ -208,11 +215,20 @@ final class ReadHolds
 
 	/**
 	 * How long a waiting mutation may sleep on the map's monitor before it has to check again, 0 for "until
-	 * notified". Readers and iterations notify the monitor when they end, a query's worker threads do not.
+	 * notified". Readers and iterations notify the monitor when they end, so do executions, whose gates are
+	 * registered while they run. Logics that still run after their query ended (a closed gate that is not done)
+	 * do not notify: only for them the monitor is polled.
 	 */
 	final long waitTimeout()
 	{
-		return this.workers.isEmpty() ? 0 : 1;
+		for(final QueryWorkers w : this.workers)
+		{
+			if(w.isClosed() && !w.isDone())
+			{
+				return 1;
+			}
+		}
+		return 0;
 	}
 
 	@Override

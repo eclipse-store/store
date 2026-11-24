@@ -31,10 +31,15 @@ import static org.eclipse.serializer.util.X.notNull;
  * and pooling, ranging from simple thread instantiation to resource-optimized pooling mechanisms.
  * <p>
  * A query hands its work over as one logic per thread, see {@link IterationLogicProvider#provideIterationLogic()}.
- * {@link #executeThreaded(GigaMap, int, IterationLogicProvider) executeThreaded} must request {@code threadCount}
- * logics and run every one of them, or throw: if it returns with fewer logics requested or run, the query fails
- * with an {@link IllegalStateException}, since a consumer did not receive its entities. A logic that is run after
- * its query has ended does nothing.
+ * {@link #executeThreaded(GigaMap, int, IterationLogicProvider) executeThreaded} must request exactly
+ * {@code threadCount} logics and run every one of them, or throw: if it returns with fewer logics requested or
+ * run, the query fails with an {@link IllegalStateException}, since a consumer did not receive its entities.
+ * Requesting more logics fails right away. A logic that is run after its query has ended does nothing.
+ * <p>
+ * {@link #startIterationThreads(GigaMap, int, IterationLogicProvider) startIterationThreads} must request at least
+ * one logic and eventually run every logic it requested: a threaded iterator waits for them to deliver. If it
+ * throws, the query does not call {@link #disposeIterationThreads(XGettingCollection) disposeIterationThreads}
+ * for it: the provider has to give back or stop the threads it started itself.
  * <p>
  * {@link #disposeIterationThreads(XGettingCollection) disposeIterationThreads} may be called while the threads
  * still run their logics, e.g. for an iterator that is closed early. Such a thread must not be handed to another

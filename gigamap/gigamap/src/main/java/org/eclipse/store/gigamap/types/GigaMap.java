@@ -296,36 +296,32 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	}
 	
 	/**
-	 * Checks if this {@link GigaMap} is in a read-only state.
+	 * Checks if this {@link GigaMap} is in a read-only state: it is marked via {@link #markReadOnly()}, or a
+	 * query holds it (an open iterator or stream, an iteration or execution in progress, or worker threads of a
+	 * multithreaded query that still read after the query ended).
 	 *
 	 * @return true if this {@link GigaMap} is read-only, false otherwise.
 	 */
 	public boolean isReadOnly();
 	
 	/**
-	 * Marks this {@link GigaMap} as read-only, indicating that it cannot be modified further until a
-	 * matching {@link #unmarkReadOnly()} is issued.
+	 * Marks this {@link GigaMap} as read-only: until a matching {@link #unmarkReadOnly()} is issued, modifications
+	 * fail right away with an {@link IllegalStateException} instead of waiting.
 	 * <p>
 	 * Read-only marks are <strong>reference-counted</strong>: nesting is allowed, but every
-	 * {@code markReadOnly()} must be paired with exactly one {@link #unmarkReadOnly()}.
-	 * <p>
-	 * <strong>Warning:</strong> this is a low-level toggle that shares its counter with the read-lock
-	 * mechanism guarding in-progress iterations and queries. Do <strong>not</strong> call it (nor
-	 * {@link #unmarkReadOnly()}) from within an {@link #iterate(Consumer)} / {@link #forEach(Consumer)} /
-	 * {@code query(...)} consumer: doing so corrupts the read-only count that protects the running
-	 * iteration and results in undefined behavior. Imbalanced calls can leave the map permanently
-	 * non-mutable.
+	 * {@code markReadOnly()} must be paired with exactly one {@link #unmarkReadOnly()}. A mark that is never
+	 * removed leaves the map read-only for good. The marks are counted separately from the holds of running
+	 * queries, so they neither end nor prolong a query's hold.
 	 */
 	public void markReadOnly();
 
 	/**
-	 * Removes one read-only mark previously set via {@link #markReadOnly()}; the map becomes mutable
-	 * again once the last mark is removed.
+	 * Removes one read-only mark previously set via {@link #markReadOnly()}; once the last mark is removed,
+	 * modifications are possible again (they still wait for running queries).
 	 * <p>
 	 * <strong>Warning:</strong> must be balanced with {@link #markReadOnly()}. Calling it more often than
-	 * {@code markReadOnly()} throws an {@link IllegalStateException} (it would otherwise drive the
-	 * read-only count negative and leave the map permanently non-mutable). See {@link #markReadOnly()} for
-	 * why this must never be called from within an iteration/query consumer.
+	 * {@code markReadOnly()} throws an {@link IllegalStateException}: it would otherwise lift a mark another
+	 * caller set.
 	 *
 	 * @throws IllegalStateException if called without a matching {@link #markReadOnly()}
 	 */
@@ -3501,7 +3497,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 		 */
 		final synchronized boolean releaseWorkers(final QueryWorkers workers)
 		{
-			return this.readHolds.releaseWorkers(workers);
+			final boolean running = this.readHolds.releaseWorkers(workers);
+			if(running)
+			{
+				// a mutation waiting without a timeout has to start polling for these workers
+				this.notifyAll();
+			}
+
+			return running;
 		}
 
 		/**
@@ -3695,6 +3698,12 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			{
 				Thread.currentThread().interrupt();
 			}
+			catch(final Throwable t)
+			{
+				// the provider failed: a logic's failure must not get lost with it
+				workers.addFailureTo(t);
+				throw t;
+			}
 			finally
 			{
 				// before the caller releases the read hold
@@ -3795,6 +3804,14 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			@Override
 			public Runnable provideIterationLogic()
 			{
+				if(this.currentThread >= this.consumers.length)
+				{
+					// an extra logic would read part of the id range a second time, for a consumer that does not exist
+					throw new IllegalStateException(
+						"The thread provider requested more iteration logics than the query has consumers ("
+						+ this.consumers.length + ")."
+					);
+				}
 				final int index = this.currentThread;
 				final long threadStartId = this.startId + this.currentThread * this.idsPerThread;
 				final long threadBoundId = ++this.currentThread < this.consumers.length
