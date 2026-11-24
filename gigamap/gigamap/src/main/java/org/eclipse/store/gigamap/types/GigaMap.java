@@ -306,7 +306,8 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 	
 	/**
 	 * Marks this {@link GigaMap} as read-only: until a matching {@link #unmarkReadOnly()} is issued, modifications
-	 * fail right away with an {@link IllegalStateException} instead of waiting.
+	 * fail with an {@link IllegalStateException} instead of waiting for running queries. A modification that is
+	 * already waiting fails when it checks again, at the latest when the query it waits for ends.
 	 * <p>
 	 * Read-only marks are <strong>reference-counted</strong>: nesting is allowed, but every
 	 * {@code markReadOnly()} must be paired with exactly one {@link #unmarkReadOnly()}. A mark that is never
@@ -3700,7 +3701,7 @@ public interface GigaMap<E> extends XIterable<E>, Sized, Iterable<E>
 			}
 			catch(final Throwable t)
 			{
-				// the provider failed: a logic's failure must not get lost with it
+				// the provider failed: a failure a logic has had so far is kept with its exception
 				workers.addFailureTo(t);
 				throw t;
 			}

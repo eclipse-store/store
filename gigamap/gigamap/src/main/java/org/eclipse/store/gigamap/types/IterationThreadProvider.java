@@ -37,7 +37,8 @@ import static org.eclipse.serializer.util.X.notNull;
  * Requesting more logics fails right away. A logic that is run after its query has ended does nothing.
  * <p>
  * {@link #startIterationThreads(GigaMap, int, IterationLogicProvider) startIterationThreads} must request at least
- * one logic and eventually run every logic it requested: a threaded iterator waits for them to deliver. If it
+ * one logic before it returns, and eventually run every logic it requested: a threaded iterator waits for them to
+ * deliver. If it
  * throws, the query does not call {@link #disposeIterationThreads(XGettingCollection) disposeIterationThreads}
  * for it: the provider has to give back or stop the threads it started itself.
  * <p>

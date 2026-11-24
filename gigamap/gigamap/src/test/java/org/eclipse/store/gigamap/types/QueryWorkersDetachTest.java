@@ -360,6 +360,17 @@ public class QueryWorkersDetachTest
 		map.add(new Entity(0));
 	}
 
+	@Test
+	void threadedIterator_providerRequestingNoLogic_getsItsThreadsBackAndTheIterationCompleted()
+	{
+		final GigaMap<Entity>  map  = newMap(ENTITY_COUNT);
+		final CountingProvider none = new CountingProvider(null, true);
+
+		assertThrows(IllegalStateException.class, () -> map.query(none).and(new KeyIndexer().is(0)).iterator());
+		assertEquals(1, none.disposed.get());
+		assertEquals(1, none.completed.get(), "prepareIteration() was called, so completeIteration() must be");
+	}
+
 	/**
 	 * A provider that fails to give the threads back must still get the iteration completed, and a second close must
 	 * not give them back again: they may have been handed to another query meanwhile.
@@ -838,11 +849,18 @@ public class QueryWorkersDetachTest
 		final AtomicInteger           disposed  = new AtomicInteger();
 		final AtomicInteger           completed = new AtomicInteger();
 		final RuntimeException        disposeFailure;
+		final boolean                 requestsNoLogic;
 
 		CountingProvider(final RuntimeException disposeFailure)
 		{
+			this(disposeFailure, false);
+		}
+
+		CountingProvider(final RuntimeException disposeFailure, final boolean requestsNoLogic)
+		{
 			super();
-			this.disposeFailure = disposeFailure;
+			this.disposeFailure  = disposeFailure ;
+			this.requestsNoLogic = requestsNoLogic;
 		}
 
 		@Override
@@ -858,6 +876,10 @@ public class QueryWorkersDetachTest
 			final IterationLogicProvider logicProvider
 		)
 		{
+			if(this.requestsNoLogic)
+			{
+				return X.empty();
+			}
 			return this.creating.startIterationThreads(parent, threadCount, logicProvider);
 		}
 

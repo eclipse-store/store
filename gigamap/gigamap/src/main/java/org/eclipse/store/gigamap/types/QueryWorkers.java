@@ -31,6 +31,15 @@ import org.eclipse.serializer.collections.BulkList;
 final class QueryWorkers
 {
 	///////////////////////////////////////////////////////////////////////////
+	// constants //
+	//////////////
+
+	// see #suppress
+	private static final int MAX_SUPPRESSED = 8;
+
+
+
+	///////////////////////////////////////////////////////////////////////////
 	// instance fields //
 	////////////////////
 
@@ -80,10 +89,10 @@ final class QueryWorkers
 			{
 				this.failure = failure;
 			}
-			else if(failure != this.failure)
+			else
 			{
-				// kept with the first one. Not the same instance: several consumers may throw one shared exception.
-				this.failure.addSuppressed(failure);
+				// kept with the first one
+				suppress(this.failure, failure);
 			}
 		}
 		this.running.removeOne(Thread.currentThread());
@@ -158,9 +167,22 @@ final class QueryWorkers
 	final void addFailureTo(final Throwable exception)
 	{
 		final Throwable failure = this.failure;
-		if(failure != null && failure != exception)
+		if(failure != null)
 		{
-			exception.addSuppressed(failure);
+			suppress(exception, failure);
+		}
+	}
+
+	/*
+	 * Adds the suppressed exception to an exception of a logic or a provider, which changes that instance. A logic
+	 * may throw a long-lived exception (one shared by several consumers, a preallocated one): it is never added to
+	 * itself, and only a few exceptions are added to it, not one per query.
+	 */
+	private static void suppress(final Throwable exception, final Throwable suppressed)
+	{
+		if(suppressed != exception && exception.getSuppressed().length < MAX_SUPPRESSED)
+		{
+			exception.addSuppressed(suppressed);
 		}
 	}
 

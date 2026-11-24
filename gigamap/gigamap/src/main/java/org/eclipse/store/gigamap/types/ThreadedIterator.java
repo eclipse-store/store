@@ -194,7 +194,15 @@ public final class ThreadedIterator implements ResultIdIterator, GigaMap.Reading
 			if(this.registrySegmentCount != 0 && !this.workers.hasGuarded())
 			{
 				// one logic fills every slot, but without any the reader would wait forever
-				threadProvider.disposeIterationThreads(this.threads);
+				try
+				{
+					threadProvider.disposeIterationThreads(this.threads);
+				}
+				finally
+				{
+					// as close() does: prepareIteration() has been called
+					threadProvider.completeIteration();
+				}
 				throw new IllegalStateException(
 					XChars.systemString(threadProvider) + " requested no iteration logic for a threaded iterator."
 				);

@@ -152,7 +152,7 @@ While a query result is being consumed (an open iterator or stream, a running `i
 ====
 Code consuming a query must not wait for a thread that modifies the same GigaMap: that thread waits for the query, and the two threads deadlock. This applies to consumers of `iterate`, `forEach` and `execute`, and to a thread that holds an open iterator or stream. Examples: a consumer that hands a modification to an executor and waits for its result, or a consumer that waits for a lock held by a thread that is modifying the map.
 
-An iterator is identified by the thread that created it. Consume and close it on that thread: a modification from another thread that consumes it waits for the iterator, which only that thread could close.
+An iterator is identified by the thread that created it. Consume and close it on that thread: a modification from another thread that consumes it waits for the iterator, which that thread would have to close itself.
 ====
 
 A multithreaded query (see below) reads the GigaMap on worker threads. Closing its iterator early does not wait for them. Modifications from other threads also wait for these workers, until they have stopped reading. A modification from one of the consumer threads of `execute(Consumer...)` throws an `IllegalStateException` as well.
@@ -237,7 +237,7 @@ This approach is internally simpler and faster than the iterator-based multithre
 An own `IterationThreadProvider` implementation receives the work of a query as a number of logics, one per thread, and must:
 
 * request exactly `threadCount` logics in `executeThreaded` and run every one of them, or throw. If `executeThreaded` returns with fewer logics requested or run, `execute` throws an `IllegalStateException`, since a consumer did not receive its entities. Requesting more logics fails right away. A logic that is run after its query has ended does nothing.
-* request at least one logic in `startIterationThreads` and eventually run every logic it requested: a multithreaded iterator waits for them to deliver. Requesting no logic fails.
+* request at least one logic in `startIterationThreads` before it returns, and eventually run every logic it requested: a multithreaded iterator waits for them to deliver. Requesting no logic fails.
 * give back or stop the threads it has started itself if `startIterationThreads` throws: the query does not call `disposeIterationThreads` then.
 * not hand a thread that is still running a logic to another query. A query does not wait for its threads before giving them back via `disposeIterationThreads`.
 

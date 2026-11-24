@@ -171,6 +171,24 @@ public class QueryWorkersTest
 		assertEquals(0, shared.getSuppressed().length);
 	}
 
+	/**
+	 * A logic may throw a long-lived exception, e.g. a preallocated one. Queries must not keep adding to it.
+	 */
+	@Test
+	void longLivedFailure_getsOnlyAFewSuppressedExceptions()
+	{
+		final IllegalStateException preallocated = new IllegalStateException("preallocated");
+		for(int query = 0; query < 100; query++)
+		{
+			final QueryWorkers workers = new QueryWorkers();
+			workers.guard(() -> {throw preallocated;}).run();
+			workers.guard(() -> {throw new IllegalArgumentException("other");}).run();
+			workers.addFailureTo(preallocated);
+		}
+		assertTrue(preallocated.getSuppressed().length <= 8, "suppressed: " + preallocated.getSuppressed().length);
+		assertTrue(preallocated.getSuppressed().length > 0);
+	}
+
 	@Test
 	void failureOfALogic_isKeptWithAnExceptionThatEndsTheQuery()
 	{
