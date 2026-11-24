@@ -7,7 +7,7 @@ The `VectorIndexConfiguration` builder provides various options to tune the inde
 
 The module requires Java 25 or later. Configure your JVM with the following parameters:
 
-* `--add-modules jdk.incubator.vector` enables SIMD acceleration via the Panama Vector API. Without it, jVector falls back to scalar code.
+* `--add-modules jdk.incubator.vector` enables SIMD acceleration via the Panama Vector API. Without it, jVector falls back to scalar code. On Linux x86_64 and aarch64 it also lets jVector use its native SIMD provider, see xref:indexing/jvector/index.adoc[the SIMD section].
 * `--enable-native-access=ALL-UNNAMED` allows jVector's memory-mapped graph reader, which makes a restricted call on Java 22+. On the module path jVector is the automatic module `jvector`, so name it there: `--enable-native-access=jvector`.
 
 === Required JVM Arguments
@@ -76,6 +76,10 @@ Set with `-D<property>=<value>` on the JVM command line.
 |`jvector.physical_core_count`
 |Half of available processors
 |Overrides the detected physical core count for parallel operations. Intensive SIMD operations can saturate memory bandwidth during indexing and PQ computation, so jVector's `PhysicalCoreExecutor` limits concurrency to physical cores rather than logical cores (hyperthreads). A property of the jVector library.
+
+|`jvector.enable_native_vectorization`
+|`true` where jVector bundles a native library (Linux x86_64 and aarch64), with `--add-modules jdk.incubator.vector`
+|Set to `false` to use the Panama provider instead of jVector's native one (the property `jvector.vectorization_provider`, with `default`, `panama` or `native`, takes precedence and forces a provider without a fallback), see xref:indexing/jvector/index.adoc[the SIMD section]. A property of the jVector library, new as a default in 4.0.2; before it, native vectorization was opt-in with `jvector.experimental.enable_native_vectorization`.
 
 |`org.eclipse.store.gigamap.jvector.temporaryRoot`
 |`java.io.tmpdir`

@@ -16,6 +16,7 @@ package org.eclipse.store.gigamap.jvector;
 
 
 import io.github.jbellis.jvector.graph.RandomAccessVectorValues;
+import io.github.jbellis.jvector.vector.types.FloatArray;
 import io.github.jbellis.jvector.vector.types.VectorFloat;
 import io.github.jbellis.jvector.vector.types.VectorTypeSupport;
 
@@ -29,9 +30,12 @@ import java.util.function.IntFunction;
  * worker thread can read vectors while the thread that started it holds the monitor.
  * <p>
  * Each {@link #getVector(int)} copies one vector out of the mapping. jVector cannot score straight from the
- * mapping: under the Panama vectorization provider every SIMD operation casts its operands to its array-backed
- * vector type. {@link #getVectorInto(int, VectorFloat, int)} copies straight into an array-backed destination
- * instead of through an intermediate vector.
+ * mapping: its SIMD operations take the vectors of the provider in use. The vectors that provider creates, which
+ * is what the destinations are, are backed by a {@code float[]} ({@link FloatArray}): the Panama provider's
+ * directly, the native provider's as a heap array with a memory segment view. {@link #getVectorInto(int,
+ * VectorFloat, int)} copies straight into that array, instead of through an intermediate vector, which allocates
+ * one per read. {@code FloatArray} is marked experimental by jVector; the copy relies on {@code array()} being the
+ * live array of the vector, which {@code ReusableVectorValuesTest} pins (re-run it on a jVector upgrade).
  * <p>
  * {@link #size()} is an upper bound of the ordinals ever written, not a vector count: ordinals are entity ids, and
  * an ordinal below it may be absent, for which {@link #getVector(int)} returns {@code null}. Wrap the values in a
@@ -98,8 +102,10 @@ class MappedVectorValues implements RandomAccessVectorValues
         final int            offset
     )
     {
-        if(destination.get() instanceof final float[] array
-            && this.readInto(ordinal, array, destination.offset(offset)))
+        // The plain offset: the native vector type's offset(int) is a byte offset, which array() does not use.
+        // A vector of another type is not expected from jVector; it takes the allocating read below.
+        if(destination instanceof final FloatArray array
+            && this.readInto(ordinal, array.array(), offset))
         {
             return;
         }
