@@ -1460,6 +1460,11 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Test-only seam: run by every rebuild worker before each insert. No-op in prod.
         transient volatile Runnable rebuildWorkerTestHook;
 
+        // Per-worker scratch vector for rebuild inserts and PQ encoding. Both consume the vector before the
+        // next read on that thread, so one array per worker replaces one array per node. Repair keeps using
+        // the allocating read: it holds the vectors of all orphans until it re-inserts them.
+        private transient ThreadLocal<float[]> rebuildVectorBuffer;
+
         // Test-only seam: handed the code store once a rebuild or PQ replay has encoded every code,
         // before its first graph insert. No-op in prod.
         transient volatile Consumer<MutablePQVectors> rebuildCodesEncodedTestHook;
@@ -2301,11 +2306,22 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             final int               ordinal
         )
         {
-            final VectorFloat<?> vector = this.vectorOf(ordinal);
+            final VectorFloat<?> vector = this.vectorOf(ordinal, this.rebuildVectorBuffer());
             if(vector != null)
             {
                 target.addGraphNode(ordinal, vector);
             }
+        }
+
+        private float[] rebuildVectorBuffer()
+        {
+            ThreadLocal<float[]> buffer = this.rebuildVectorBuffer;
+            if(buffer == null)
+            {
+                buffer = ThreadLocal.withInitial(() -> new float[this.configuration.dimension()]);
+                this.rebuildVectorBuffer = buffer;
+            }
+            return buffer.get();
         }
 
         /**
@@ -2315,6 +2331,17 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         {
             final float[] vector = this.vectorFile.read(ordinal);
             return vector == null ? null : this.vectorTypeSupport.createFloatVector(vector);
+        }
+
+        /**
+         * Reads the vector of {@code ordinal} into {@code buffer}, or returns {@code null} if it has none.
+         * The caller must consume the returned vector before the next call on this thread.
+         */
+        private VectorFloat<?> vectorOf(final int ordinal, final float[] buffer)
+        {
+            return this.vectorFile.read(ordinal, buffer, 0)
+                ? this.vectorTypeSupport.createFloatVector(buffer)
+                : null;
         }
 
         private void logPqSwitchAbandoned(final String stage)
@@ -2345,7 +2372,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             if(nodes.count() > 0)
             {
                 final int highest = nodes.ordinals()[nodes.count() - 1];
-                codes.encodeAndSet(highest, this.vectorOf(highest));
+                codes.encodeAndSet(highest, this.vectorOf(highest, this.rebuildVectorBuffer()));
             }
             ParallelGraphInsertion.forEach(
                 nodes.count(),
@@ -2356,7 +2383,7 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                         return;
                     }
                     final int            ordinal = nodes.ordinals()[index];
-                    final VectorFloat<?> vector  = this.vectorOf(ordinal);
+                    final VectorFloat<?> vector  = this.vectorOf(ordinal, this.rebuildVectorBuffer());
                     if(vector != null)
                     {
                         codes.encodeAndSet(ordinal, vector);
