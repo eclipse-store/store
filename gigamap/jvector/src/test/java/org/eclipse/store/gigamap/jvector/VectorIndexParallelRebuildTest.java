@@ -20,6 +20,7 @@ import org.eclipse.store.gigamap.types.ScoredSearchResult;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorage;
 import org.eclipse.store.storage.embedded.types.EmbeddedStorageManager;
 import io.github.jbellis.jvector.graph.GraphIndexBuilder;
+import io.github.jbellis.jvector.vector.VectorizationProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -1363,7 +1364,7 @@ class VectorIndexParallelRebuildTest
 
     /**
      * Runs a PQ switch on a fresh in-memory index with {@link ParallelGraphInsertion#parallelismLimitForTest} set to
-     * {@code parallelismLimit}, checks that the replay has encoded every live ordinal before its first insert, and
+     * {@code parallelismLimit}, checks each live ordinal's code against serial encoding before the first insert, and
      * returns the recall afterwards.
      */
     private static double pqSwitchRecall(
@@ -1393,19 +1394,16 @@ class VectorIndexParallelRebuildTest
             ((VectorIndex.Default<Doc>)index).rebuildCodesEncodedTestHook = codes ->
             {
                 hookCalls.incrementAndGet();
-                // Every live ordinal has its code before any node is inserted. A real code being all zero
-                // bytes would need centroid 0 in every one of the subspaces, which these vectors never hit.
-                for(final long id : vectors.keySet())
+                // Use the replay's codebook and each ordinal's original vector, independent of worker scratch.
+                final var vectorTypeSupport = VectorizationProvider.getInstance().getVectorTypeSupport();
+                final var compressor        = codes.getCompressor();
+                for(final var entry : vectors.entrySet())
                 {
-                    final int ordinal = (int)id;
+                    final int ordinal = Math.toIntExact(entry.getKey());
                     assertTrue(ordinal < codes.count(), "no code slot for ordinal " + ordinal);
-                    final var code = codes.get(ordinal);
-                    boolean set = false;
-                    for(int i = 0; i < code.length() && !set; i++)
-                    {
-                        set = code.get(i) != 0;
-                    }
-                    assertTrue(set, "ordinal " + ordinal + " has no code before the inserts start");
+                    final var expected = compressor.encode(vectorTypeSupport.createFloatVector(entry.getValue()));
+                    assertTrue(expected.equalTo(codes.get(ordinal)),
+                        () -> "wrong PQ code before graph insertion for ordinal " + ordinal);
                 }
             };
 

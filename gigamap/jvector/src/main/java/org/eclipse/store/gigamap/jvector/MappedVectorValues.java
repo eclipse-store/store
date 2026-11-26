@@ -169,6 +169,11 @@ class MappedVectorValues implements RandomAccessVectorValues
             {
                 return false;
             }
+            if(vector instanceof final FloatArray array)
+            {
+                System.arraycopy(array.array(), 0, target, offset, vector.length());
+                return true;
+            }
             for(int i = 0; i < vector.length(); i++)
             {
                 target[offset + i] = vector.get(i);
