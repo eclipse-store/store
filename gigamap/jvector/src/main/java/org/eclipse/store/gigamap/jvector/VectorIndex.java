@@ -714,6 +714,35 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
     public void persistToDisk();
 
     /**
+     * Retires the transient in-memory search graph, so that the next access rebuilds it from the current stored
+     * state, as after a fresh load.
+     * <p>
+     * For integrations that replace the entities and vectors behind a running index without {@code add},
+     * {@code update} or {@code set}, such as a replica applying the changes of its primary: the stored state is
+     * current, the transient graph is not. The persisted change counter does not move, so the integration
+     * keeps comparing it with its source's.
+     * <p>
+     * The index keeps a temporary vector file derived from the entities. It is marked stale as well: the next
+     * access empties it and vectorizes every entity again before the graph is rebuilt. That costs one vectorizer
+     * call per entity and a full graph rebuild, per invalidation followed by an access, so a replica that
+     * invalidates after every applied batch pays it per batch. Repeated invalidations without an access add no
+     * further vectorizer calls or rebuilds, but each still retires the empty graph and creates a new one.
+     * <p>
+     * The call takes the parent {@link GigaMap}'s monitor, and may be made while holding it. It waits for the
+     * searches in flight, releasing the monitor meanwhile unless the caller held it already, and holds new
+     * searches back so that it cannot starve. It must not be made from within a search of this index, nor from
+     * its {@link Vectorizer} or a reindex of it. It does nothing for an embedded index that is not built yet, or
+     * closed: the first access builds from the current state. An index that keeps files is rejected either way.
+     *
+     * @throws IllegalStateException if the index {@linkplain #keepsIndexFiles() keeps index files}: an on-disk
+     *         graph is served from segments this call does not retire, and a kept vector file is persistent, so
+     *         it cannot be derived from the replaced entities and no public API rewrites it; if the calling
+     *         thread is inside a search of this index; or if it was interrupted while waiting for the searches
+     *         in flight
+     */
+    public void invalidateGraph();
+
+    /**
      * Returns whether the index is configured for on-disk storage.
      * <p>
      * On-disk indices store the graph structure in memory-mapped files, allowing indices
@@ -1157,6 +1186,9 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Whether the repairs the vector file needed at its open are done (see ensureVectorsRecovered). They
         // read entities, a nested load, so they cannot run in complete().
         private transient volatile boolean    vectorsRecovered;
+        // Whether a derived vector file has to be emptied before its next recovery: set by invalidateGraph() for an
+        // index that keeps no files, consumed by ensureVectorsRecovered().
+        private transient volatile boolean    derivedVectorsReplaced;
 
         // Managers (transient - recreated on load)
         private transient DiskIndexManager      diskManager          ;
@@ -1431,6 +1463,10 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
         // Test-only seam: run by every search once it holds the read lock, before it scores anything. A hook
         // that blocks holds a search inside the lock. Null (and a no-op) in production.
         transient volatile Runnable searchTestHook;
+
+        // Test-only seam: run by the re-initialization after a teardown, before it initializes anything. A hook
+        // that throws makes it fail. Null (and a no-op) in production.
+        transient volatile Runnable reinitializeTestHook;
 
         // Test-only seam: run by every search of an on-disk index once it holds its set of sources, before it
         // searches any of them. Null (and a no-op) in production.
@@ -2627,6 +2663,13 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 if(this.vectorsRecovered || file == null)
                 {
                     return;
+                }
+                if(this.derivedVectorsReplaced)
+                {
+                    // Not removeAllVectors: the count stays as imported, or the recovery would advance the
+                    // persisted change counter that replicas compare with their source's.
+                    this.clearVectorSlots(file);
+                    this.derivedVectorsReplaced = false;
                 }
                 final GigaMap<VectorEntry> legacy = this.legacyVectorStore;
                 if(legacy != null)
@@ -5014,6 +5057,21 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void discardGraph()
         {
+            this.retireGraph();
+
+            // Before initializeIndex(): the bumped counter makes tryLoad() reject the files of the
+            // generation just torn down, instead of adopting them as the new one.
+            this.markContentChanged();
+
+            this.reinitializeAfterTeardown();
+        }
+
+        /**
+         * Tears down the graph, its sources and the background task manager, without a re-initialization, which
+         * the caller follows with. Under the write lock and the parent monitor.
+         */
+        private void retireGraph()
+        {
             // Shut the background task manager down and discard its pending ops, they are stale. Without
             // waiting for its thread: a task of it may be waiting for the write lock or the monitor held here.
             if(this.backgroundTaskManager != null)
@@ -5028,16 +5086,24 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
             this.closeInternalResources();
             // The graph goes, and the caller rebuilds it from the vector file or empties that too.
             this.graphRebuildRequired = false;
+        }
 
-            // Before initializeIndex(): the bumped counter makes tryLoad() reject the files of the
-            // generation just torn down, instead of adopting them as the new one.
-            this.markContentChanged();
-
+        /**
+         * Initializes the index anew, empty, after {@link #retireGraph()}, so that it is never left without a
+         * graph for a concurrent search to find. Under the write lock and the parent monitor.
+         */
+        private void reinitializeAfterTeardown()
+        {
             // Reinitialize the index (this will also restart background managers if configured). Without
             // retiring the rejected manifest: it still matches the stored record until the next store.
             this.reloadingAfterRemoveAll = true;
             try
             {
+                final Runnable hook = this.reinitializeTestHook;
+                if(hook != null)
+                {
+                    hook.run();
+                }
                 this.initializeIndex();
             }
             catch(final Throwable t)
@@ -5069,6 +5135,82 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
          */
         private void removeAllVectors(final VectorFile file)
         {
+            this.clearVectorSlots(file);
+            this.derivedVectorsReplaced = false;
+            this.vectorCount            = 0L;
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        public void invalidateGraph()
+        {
+            // Before and outside the monitor, so that the contract holds for an index not built yet, and a search of
+            // this thread, which holds a read lock, is rejected instead of blocking on a monitor whose holder waits
+            // for that read lock.
+            if(this.keepsIndexFiles())
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\": invalidateGraph() is not supported while the index keeps"
+                    + " index files: an on-disk graph is served from segments this call does not retire, and a kept"
+                    + " vector file cannot be derived from the replaced entities."
+                );
+            }
+            if(this.builderLock.getReadHoldCount() > 0)
+            {
+                throw new IllegalStateException(
+                    "Vector index \"" + this.name + "\" cannot be invalidated from within its own search."
+                );
+            }
+            final boolean monitorHeld = Thread.holdsLock(this.parentMap());
+            synchronized(this.parentMap())
+            {
+                // Nothing was built yet, or it was closed: the first access builds from the current state.
+                if(!this.isIndexPresent())
+                {
+                    return;
+                }
+                if(!this.lockBuilderUnderMonitor(monitorHeld, true))
+                {
+                    throw new IllegalStateException(
+                        "Interrupted while waiting to invalidate vector index \"" + this.name + "\""
+                    );
+                }
+                try
+                {
+                    // Waiting for the lock can have released the monitor.
+                    if(!this.isIndexPresent())
+                    {
+                        return;
+                    }
+                    // Without the counter bump of discardGraph(): the content did not change here, and replicas
+                    // compare the persisted counter with their source's.
+                    this.retireGraph();
+                    this.reinitializeAfterTeardown();
+                    // The temporary vector file derives from the entities, which were replaced: emptied and
+                    // recovered by the next access, not now, so that repeated calls stay cheap. A failed
+                    // re-initialization throws before this, and leaves the next access to initialize anew, which
+                    // opens the file again and recovers it.
+                    this.derivedVectorsReplaced = true;
+                    this.vectorsRecovered       = false;
+                    // The new graph is empty, the vector file holds the truth: rebuilt by the next access, which a
+                    // search that overlapped this call repeats (see acquireReadLockOnRebuiltGraph).
+                    this.graphRebuilt = false;
+                }
+                finally
+                {
+                    this.builderLock.writeLock().unlock();
+                }
+            }
+        }
+
+        /**
+         * Makes every slot of the vector file absent, leaving the vector count as it is. Under the parent
+         * monitor.
+         */
+        private void clearVectorSlots(final VectorFile file)
+        {
             file.forEachSlot(ordinal ->
             {
                 if(file.isPresent(ordinal) || file.key(ordinal) != Vectorizer.NO_KEY)
@@ -5077,7 +5219,6 @@ public interface VectorIndex<E> extends GigaIndex<E>, Closeable
                 }
                 return true;
             });
-            this.vectorCount = 0L;
         }
 
         /**

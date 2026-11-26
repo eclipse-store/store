@@ -477,6 +477,22 @@ index.close();
 * `optimize()`, `persistToDisk()` on an on-disk index, and `close()` must not be called while holding the GigaMap's monitor, i.e. inside `synchronized(map)` or `update`/`apply` logic. They wait for work whose holders may need that monitor, and throw an `IllegalStateException` instead.
 * Shutting the storage down closes every index of the map, persisting it if `persistOnShutdown` is set; calling `close()` yourself is not required.
 
+[#invalidate-graph]
+== Invalidating the Graph After External Updates
+
+An in-memory index keeps its search graph in memory. If the entities of the map are replaced without `add`, `update` or `set`, for example by a replica that applies the changes of its primary as a binary import, the graph no longer matches them. `invalidateGraph()` retires the graph, and the next access rebuilds it from the current entities.
+
+[source, java]
+----
+// After the import has replaced the entities of the map
+index.invalidateGraph();          // once per vector index of the map
+----
+
+* The stored state must be current: the call changes only the transient state. The persisted change counter does not move, so a replica can keep comparing it with its primary's.
+* The next access vectorizes every entity again, with one `vectorize` call each, and rebuilds the whole graph. A replica that invalidates after every applied batch pays that for every batch.
+* An index that keeps index files rejects the call with an `IllegalStateException`: an on-disk index, and an in-memory index with a computed vectorizer and an index directory. Their files are persistent and are not rewritten by the replaced entities.
+* The call may be made while holding the GigaMap's monitor, and waits for the searches in flight. It must not be made from within a search, a `Vectorizer` or a reindex of the same index, and does nothing for an index that is not built yet, or closed (an index that keeps files is rejected either way).
+
 == Multiple Vector Indices
 
 You can create multiple vector indices for different embedding types on the same entity.
