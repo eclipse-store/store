@@ -1004,7 +1004,7 @@ public interface GigaQuery<E> extends XIterable<E>, Iterable<E>, GigaMap.Compone
 			}
 
 			final EntityIdMatcher idMatcher = this.buildEntityIdMatcher();
-			this.parent.executeReadOnly(this.condition, this.idStart, this.idBound, idMatcher, consumers, this.threadProvider);
+			this.parent.executeInReadOnlyMode(this.condition, this.idStart, this.idBound, idMatcher, consumers, this.threadProvider);
 		}
 		
 		private void internalExecute(final EntityResolver<E> resolver)

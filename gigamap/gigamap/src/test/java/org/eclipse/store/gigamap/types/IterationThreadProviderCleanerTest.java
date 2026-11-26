@@ -115,11 +115,30 @@ class IterationThreadProviderCleanerTest
 
 	private static Thread firstReservedThread(final IterationThreadProvider provider) throws Exception
 	{
-		final Field reservedThreadsField = provider.getClass().getDeclaredField("reservedThreads");
-		reservedThreadsField.setAccessible(true);
-		final Object reservedThreads = reservedThreadsField.get(provider);
+		final Field reserveField = provider.getClass().getDeclaredField("reserve");
+		reserveField.setAccessible(true);
+		final IterationThreadProvider.Pooling.ThreadReserve reserve = (IterationThreadProvider.Pooling.ThreadReserve)reserveField.get(provider);
+		final Object reservedThreads = reserve.idle;
 
+		// A disposed thread comes back to the pool by itself once its logic is done. Wait for both, so the sentinel
+		// is an idle one. The list is guarded by the reserve's monitor.
+		final Method sizeMethod  = reservedThreads.getClass().getMethod("size");
 		final Method firstMethod = reservedThreads.getClass().getMethod("first");
-		return (Thread)firstMethod.invoke(reservedThreads);
+		final long deadline = System.nanoTime() + CLEANUP_TIMEOUT_NS;
+		while(true)
+		{
+			synchronized(reserve)
+			{
+				if(((Number)sizeMethod.invoke(reservedThreads)).intValue() == 2)
+				{
+					return (Thread)firstMethod.invoke(reservedThreads);
+				}
+			}
+			if(System.nanoTime() >= deadline)
+			{
+				fail("The disposed pool threads did not return to the pool.");
+			}
+			Thread.sleep(POLL_INTERVAL_MS);
+		}
 	}
 }
